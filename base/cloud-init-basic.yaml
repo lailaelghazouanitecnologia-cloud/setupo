@@ -1,5 +1,5 @@
 #cloud-config
-# MMS - Clone repo, install Bun, build React app, serve via nginx
+# MMS - Full stack: React frontend + FastAPI backend
 
 package_update: true
 
@@ -9,14 +9,48 @@ packages:
   - ufw
   - unzip
   - curl
+  - python3
+  - python3-venv
+  - python3-pip
 
 write_files:
   - path: /etc/nginx/sites-available/mms
     permissions: "0644"
     content: |
+      upstream mms_api {
+          server 127.0.0.1:8000;
+      }
+
       server {
           listen 80;
           server_name zarnetti.com www.zarnetti.com _;
+
+          # API proxy
+          location /api/ {
+              proxy_pass http://mms_api;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_read_timeout 300s;
+          }
+
+          # WebSocket proxy
+          location /ws/ {
+              proxy_pass http://mms_api;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $host;
+              proxy_read_timeout 86400s;
+          }
+
+          # FastAPI docs
+          location /docs { proxy_pass http://mms_api; }
+          location /openapi.json { proxy_pass http://mms_api; }
+          location /redoc { proxy_pass http://mms_api; }
+
+          # React frontend
           root /var/www/mms;
           index index.html;
 
@@ -30,6 +64,27 @@ write_files:
           }
       }
 
+  - path: /etc/systemd/system/mms.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=MMS - Micro Module System
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/opt/mms
+      Environment=PATH=/opt/mms/venv/bin:/usr/local/bin:/usr/bin:/bin
+      Environment=MMS_TOKEN_PATH=/etc/mms/token
+      Environment=PYTHONPATH=/opt/mms
+      ExecStart=/opt/mms/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
   - path: /opt/mms-build.sh
     permissions: "0755"
     content: |
@@ -39,31 +94,66 @@ write_files:
 
       # Ensure dirs
       mkdir -p /var/www/mms
+      mkdir -p /etc/mms
 
       # Fallback page
       cat > /var/www/mms/index.html <<'HTML'
       <!DOCTYPE html><html><head><title>MMS - Building...</title>
       <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
       .c{text-align:center}h1{color:#b4a9fe;font-size:2em}p{color:#6a6a82}</style></head>
-      <body><div class="c"><h1>mms</h1><p>Building dashboard... check back in a minute.</p></div></body></html>
+      <body><div class="c"><h1>mms</h1><p>Building dashboard and backend... check back in a minute.</p></div></body></html>
       HTML
 
-      # Restart nginx with fallback
+      # Setup nginx with fallback
       rm -f /etc/nginx/sites-enabled/default
       ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
       nginx -t && systemctl restart nginx
-
-      # Install Bun
-      export HOME=/root
-      curl -fsSL https://bun.sh/install | bash
-      export BUN_INSTALL=/root/.bun
-      export PATH=$BUN_INSTALL/bin:$PATH
 
       # Clone repo
       git clone -b claude/setup-vultr-python-server-IuMfs \
         https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
 
-      # Build
+      # ---- BACKEND: Python venv + FastAPI ----
+      echo "=== Setting up Python backend ==="
+      cd /opt/mms
+      python3 -m venv /opt/mms/venv
+      /opt/mms/venv/bin/pip install --upgrade pip
+      /opt/mms/venv/bin/pip install -r /opt/mms/requirements.txt
+
+      # Generate auth token
+      /opt/mms/venv/bin/python3 -c "
+      import secrets, os
+      os.makedirs('/etc/mms', exist_ok=True)
+      token = secrets.token_urlsafe(64)
+      with open('/etc/mms/token', 'w') as f:
+          f.write(token)
+      os.chmod('/etc/mms/token', 0o600)
+      print(f'Token generated: {token[:16]}...')
+      "
+
+      # Start backend
+      systemctl daemon-reload
+      systemctl enable mms
+      systemctl start mms
+      echo "Backend started on :8000"
+
+      # Wait for backend to be ready
+      for i in $(seq 1 15); do
+        if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
+          echo "Backend is healthy"
+          break
+        fi
+        echo "Waiting for backend... ($i)"
+        sleep 2
+      done
+
+      # ---- FRONTEND: Bun + React build ----
+      echo "=== Building React frontend ==="
+      export HOME=/root
+      curl -fsSL https://bun.sh/install | bash
+      export BUN_INSTALL=/root/.bun
+      export PATH=$BUN_INSTALL/bin:$PATH
+
       cd /opt/mms/workspaces/default
       bun install --no-save
       bun run build
@@ -72,10 +162,9 @@ write_files:
       if [ -d /opt/mms/workspaces/default/dist ]; then
         rm -rf /var/www/mms/*
         cp -r /opt/mms/workspaces/default/dist/* /var/www/mms/
-        echo "BUILD SUCCESS"
+        echo "FRONTEND BUILD SUCCESS"
       else
-        echo "BUILD FAILED - dist/ not found"
-        # Write error page
+        echo "FRONTEND BUILD FAILED - dist/ not found"
         cat > /var/www/mms/index.html <<'HTML'
       <!DOCTYPE html><html><head><title>MMS - Build Failed</title>
       <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
@@ -85,6 +174,7 @@ write_files:
       fi
 
       systemctl restart nginx
+      echo "=== MMS deployment complete ==="
 
 runcmd:
   - ufw default deny incoming

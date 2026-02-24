@@ -1,7 +1,7 @@
 import { Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { Box, Flex, Text, Badge } from "@radix-ui/themes";
 import { useEffect, useState } from "react";
-import { hasToken, setToken, getHealth } from "./lib/api";
+import { hasToken, getHealth } from "./lib/api";
 import Overview from "./pages/Overview";
 import Capsules from "./pages/Capsules";
 import Environments from "./pages/Environments";
@@ -35,8 +35,7 @@ export default function App() {
   if (!authed) {
     return (
       <Login
-        onLogin={(token) => {
-          setToken(token);
+        onLogin={() => {
           setAuthed(true);
         }}
       />

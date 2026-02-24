@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.engine import Engine
-from server.routes import capsules, environments, pipelines, commands, health
+from server.routes import auth, capsules, environments, pipelines, commands, health
 from server.ws import router as ws_router
 
 logging.basicConfig(
@@ -50,6 +50,7 @@ app.add_middleware(
 app.state.engine = engine
 
 # API routes
+app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(health.router, prefix="/api", tags=["health"])
 app.include_router(capsules.router, prefix="/api/capsules", tags=["capsules"])
 app.include_router(environments.router, prefix="/api/envs", tags=["environments"])

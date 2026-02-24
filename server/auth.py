@@ -1,10 +1,12 @@
-"""MMS Auth - Token-based API authentication."""
+"""MMS Auth - Email/password + token-based API authentication."""
+import hashlib
 import os
 import secrets
 import logging
 
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 
 logger = logging.getLogger("mms.auth")
 
@@ -12,6 +14,35 @@ TOKEN_PATH = os.environ.get("MMS_TOKEN_PATH", "/etc/mms/token")
 _cached_token: str | None = None
 
 security = HTTPBearer(auto_error=False)
+
+# Hardcoded users (hashed password for security in memory)
+USERS = {
+    "ayman_gha@hotmail.com": {
+        "password_hash": hashlib.sha256("zarnlok4123".encode()).hexdigest(),
+        "role": "admin",
+    }
+}
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    email: str
+    role: str
+
+
+def verify_password(email: str, password: str) -> dict | None:
+    user = USERS.get(email)
+    if not user:
+        return None
+    pw_hash = hashlib.sha256(password.encode()).hexdigest()
+    if not secrets.compare_digest(pw_hash, user["password_hash"]):
+        return None
+    return user
 
 
 def load_token() -> str:
@@ -35,7 +66,7 @@ def load_token() -> str:
 
 
 # Public endpoints that don't need auth
-PUBLIC_PATHS = frozenset({"/api/health", "/docs", "/openapi.json", "/redoc"})
+PUBLIC_PATHS = frozenset({"/api/health", "/api/auth/login", "/docs", "/openapi.json", "/redoc"})
 
 
 async def require_token(

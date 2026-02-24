@@ -39,6 +39,22 @@ async function request<T = unknown>(
   return res.json();
 }
 
+// Auth
+export async function login(email: string, password: string): Promise<{ token: string; email: string; role: string }> {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ message: res.statusText }));
+    throw new Error(err.detail || err.message || "Login failed");
+  }
+  const data = await res.json();
+  setToken(data.token);
+  return data;
+}
+
 // Health
 export const getHealth = () => request("GET", "/health");
 
