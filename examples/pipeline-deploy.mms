@@ -1,23 +1,37 @@
-# MMS Example: Multi-step pipeline
+# MMS - Pipeline deployment example
+# Multiple capsules composed as a pipeline
 
-# Create capsules
-CAPSULE CREATE "builder" runtime=python deps=build,wheel
-CAPSULE CREATE "tester" runtime=python deps=pytest,httpx
-CAPSULE CREATE "web" runtime=python deps=fastapi,uvicorn
+[capsule.builder]
+runtime = "python"
+deps = ["build", "wheel"]
 
-# Write code
-WRITE "web" "main.py" <<<
+[capsule.tester]
+runtime = "python"
+deps = ["pytest", "httpx"]
+
+[capsule.web]
+runtime = "python"
+entrypoint = "main.py"
+deps = ["fastapi", "uvicorn"]
+ports = [8080]
+
+[capsule.web.env]
+PORT = "8080"
+ENV = "production"
+
+[capsule.web.code.main_py]
+source = '''
 from fastapi import FastAPI
 app = FastAPI()
 
 @app.get("/")
 def index():
     return {"service": "web", "version": "1.0"}
->>>
+'''
 
-# Run as pipeline
-PIPELINE "deploy-flow" {
-    STEP "build" capsule="builder" command="python -m build"
-    STEP "test" capsule="tester" command="pytest -v"
-    STEP "serve" capsule="web" command="uvicorn main:app --host 0.0.0.0 --port 8080"
-}
+[pipeline.deploy-flow]
+steps = [
+    { capsule = "builder", action = "build", command = "python -m build" },
+    { capsule = "tester", action = "start", command = "pytest -v" },
+    { capsule = "web", action = "start" },
+]

@@ -1,292 +1,292 @@
-"""MMS Protocol - DSL for managing capsules, environments and pipelines.
+"""MMS Protocol Parser - TOML-based format for capsule definitions and instructions.
 
-Syntax:
-    # Capsule lifecycle
-    CAPSULE CREATE "api-server" runtime=python isolation=container
-    CAPSULE START "api-server"
-    CAPSULE STOP "api-server"
-    CAPSULE DESTROY "api-server"
-    CAPSULE LIST
+.mms files use a TOML-like declarative format:
 
-    # Execute inside a capsule
-    EXEC "api-server" "pip install fastapi"
+    [capsule.api]
+    runtime = "python"
+    isolation = "container"
+    entrypoint = "main.py"
+    deps = ["fastapi", "uvicorn"]
 
-    # Environments
-    ENV CREATE "py312" runtime=python packages=fastapi,uvicorn
-    ENV LIST
+    [capsule.api.env]
+    PORT = "8080"
+    DEBUG = "false"
 
-    # Pipelines (inline)
-    PIPELINE "deploy" {
-        STEP "build" capsule="builder" command="make build"
-        STEP "test" capsule="tester" command="pytest"
-        STEP "deploy" capsule="deployer" command="./deploy.sh"
-    }
-
-    # Write code to a capsule
-    WRITE "api-server" "main.py" <<<
+    [capsule.api.code.main_py]
+    source = '''
     from fastapi import FastAPI
     app = FastAPI()
+    '''
 
-    @app.get("/")
-    def root():
-        return {"status": "ok"}
-    >>>
+    [pipeline.deploy]
+    steps = [
+        { capsule = "api", action = "build" },
+        { capsule = "api", action = "start" },
+    ]
+
+    [instruction]
+    run = [
+        { target = "api", command = "pip install requests" },
+        { target = "api", command = "python main.py" },
+    ]
 """
-import re
 import logging
-from dataclasses import dataclass
+import re
+from typing import Any
 
 logger = logging.getLogger("mms.protocol")
 
 
-@dataclass
-class Token:
-    type: str   # KEYWORD, STRING, IDENT, NUMBER, EQUALS, LBRACE, RBRACE, HEREDOC, NEWLINE
-    value: str
-    line: int
+class MMSParser:
+    """Parse .mms TOML-like files into executable instructions."""
 
+    def parse(self, source: str) -> list[dict]:
+        """Parse a .mms file and return a list of instructions."""
+        data = self._parse_toml(source)
+        instructions = []
 
-KEYWORDS = {
-    "CAPSULE", "EXEC", "ENV", "PIPELINE", "STEP", "WRITE",
-    "CREATE", "START", "STOP", "DESTROY", "LIST", "BUILD",
-}
+        # Process capsule definitions
+        for name, config in data.get("capsule", {}).items():
+            if isinstance(config, dict):
+                instructions.append(self._capsule_instruction(name, config))
 
+        # Process environment definitions
+        for name, config in data.get("env", {}).items():
+            if isinstance(config, dict):
+                instructions.append(self._env_instruction(name, config))
 
-class Lexer:
-    def __init__(self, source: str):
-        self.tokens: list[Token] = []
-        self._tokenize(source)
+        # Process pipeline definitions
+        for name, config in data.get("pipeline", {}).items():
+            if isinstance(config, dict):
+                instructions.append(self._pipeline_instruction(name, config))
 
-    def _tokenize(self, source: str):
+        # Process direct instructions
+        for instr in data.get("instruction", {}).get("run", []):
+            if isinstance(instr, dict):
+                instructions.append({
+                    "action": "capsule.exec",
+                    "target": instr.get("target", ""),
+                    "command": instr.get("command", ""),
+                })
+
+        return instructions
+
+    def parse_file(self, filepath: str) -> list[dict]:
+        with open(filepath) as f:
+            return self.parse(f.read())
+
+    def _capsule_instruction(self, name: str, config: dict) -> dict:
+        """Convert a [capsule.X] section into a create instruction."""
+        # Extract code sections
+        code = None
+        code_sections = config.get("code", {})
+        if isinstance(code_sections, dict):
+            for filename, section in code_sections.items():
+                if isinstance(section, dict) and "source" in section:
+                    code = section["source"]
+                elif isinstance(section, str):
+                    code = section
+
+        # Extract env vars
+        env = config.get("env", {})
+        if not isinstance(env, dict):
+            env = {}
+
+        # Extract deps
+        deps = config.get("deps", [])
+        if isinstance(deps, str):
+            deps = [d.strip() for d in deps.split(",") if d.strip()]
+
+        return {
+            "action": "capsule.create",
+            "name": name,
+            "runtime": config.get("runtime", "python"),
+            "isolation": config.get("isolation", "container"),
+            "entrypoint": config.get("entrypoint", "main.py"),
+            "deps": deps,
+            "env": env,
+            "ports": config.get("ports", []),
+            "code": code,
+        }
+
+    def _env_instruction(self, name: str, config: dict) -> dict:
+        packages = config.get("packages", [])
+        if isinstance(packages, str):
+            packages = [p.strip() for p in packages.split(",") if p.strip()]
+        return {
+            "action": "env.create",
+            "name": name,
+            "runtime": config.get("runtime", "python"),
+            "packages": packages,
+        }
+
+    def _pipeline_instruction(self, name: str, config: dict) -> dict:
+        steps = []
+        for step in config.get("steps", []):
+            if isinstance(step, dict):
+                steps.append({
+                    "capsule": step.get("capsule", ""),
+                    "params": {
+                        "command": step.get("command", ""),
+                        "action": step.get("action", "start"),
+                    },
+                    "depends_on": step.get("depends_on", []),
+                })
+        return {
+            "action": "pipeline.run",
+            "name": name,
+            "steps": steps,
+        }
+
+    # ── Minimal TOML Parser ──────────────────────────────────────
+    # Handles the subset of TOML needed for .mms files
+
+    def _parse_toml(self, source: str) -> dict:
+        """Parse a TOML-like format into nested dicts."""
+        root: dict[str, Any] = {}
+        current_table = root
+        current_path: list[str] = []
+
         lines = source.split("\n")
         i = 0
+
         while i < len(lines):
             line = lines[i].strip()
+
+            # Skip empty lines and comments
             if not line or line.startswith("#"):
                 i += 1
                 continue
 
-            # Heredoc: <<<\n ... \n>>>
-            if "<<<" in line:
-                prefix = line[:line.index("<<<")].strip()
-                # Tokenize prefix
-                self._tokenize_line(prefix, i + 1)
-                # Collect heredoc body
-                body_lines = []
-                i += 1
-                while i < len(lines) and lines[i].strip() != ">>>":
-                    body_lines.append(lines[i])
-                    i += 1
-                self.tokens.append(Token("HEREDOC", "\n".join(body_lines), i))
-                i += 1
-                self.tokens.append(Token("NEWLINE", "\n", i))
-                continue
-
-            self._tokenize_line(line, i + 1)
-            self.tokens.append(Token("NEWLINE", "\n", i + 1))
-            i += 1
-
-    def _tokenize_line(self, line: str, line_num: int):
-        j = 0
-        while j < len(line):
-            if line[j].isspace():
-                j += 1
-            elif line[j] == '"':
-                end = line.index('"', j + 1)
-                self.tokens.append(Token("STRING", line[j+1:end], line_num))
-                j = end + 1
-            elif line[j] == '{':
-                self.tokens.append(Token("LBRACE", "{", line_num))
-                j += 1
-            elif line[j] == '}':
-                self.tokens.append(Token("RBRACE", "}", line_num))
-                j += 1
-            elif line[j] == '=':
-                self.tokens.append(Token("EQUALS", "=", line_num))
-                j += 1
-            elif line[j].isdigit():
-                m = re.match(r"\d+", line[j:])
-                self.tokens.append(Token("NUMBER", m.group(), line_num))
-                j += m.end()
-            else:
-                m = re.match(r"[a-zA-Z_][\w\-\.]*", line[j:])
-                if m:
-                    word = m.group()
-                    t = "KEYWORD" if word.upper() in KEYWORDS else "IDENT"
-                    self.tokens.append(Token(t, word, line_num))
-                    j += m.end()
-                else:
-                    j += 1
-
-
-class MMSParser:
-    """Parse MMS protocol into executable instructions."""
-
-    def parse(self, source: str) -> list[dict]:
-        lexer = Lexer(source)
-        tokens = lexer.tokens
-        instructions = []
-        i = 0
-
-        while i < len(tokens):
-            if tokens[i].type == "NEWLINE":
+            # Table header: [section.name]
+            m = re.match(r"^\[([^\]]+)\]$", line)
+            if m:
+                path = [p.strip() for p in m.group(1).split(".")]
+                current_path = path
+                current_table = root
+                for key in path:
+                    if key not in current_table:
+                        current_table[key] = {}
+                    current_table = current_table[key]
                 i += 1
                 continue
 
-            if tokens[i].type != "KEYWORD":
-                i = self._skip_line(tokens, i)
-                continue
+            # Key = value
+            m = re.match(r"^(\w+)\s*=\s*(.+)$", line)
+            if m:
+                key = m.group(1)
+                value_str = m.group(2).strip()
 
-            cmd = tokens[i].value.upper()
-
-            if cmd == "CAPSULE":
-                instr, i = self._parse_capsule(tokens, i + 1)
-                instructions.append(instr)
-            elif cmd == "EXEC":
-                instr, i = self._parse_exec(tokens, i + 1)
-                instructions.append(instr)
-            elif cmd == "ENV":
-                instr, i = self._parse_env(tokens, i + 1)
-                instructions.append(instr)
-            elif cmd == "PIPELINE":
-                instr, i = self._parse_pipeline(tokens, i + 1)
-                instructions.append(instr)
-            elif cmd == "WRITE":
-                instr, i = self._parse_write(tokens, i + 1)
-                instructions.append(instr)
-            else:
-                i = self._skip_line(tokens, i)
-
-        return instructions
-
-    def _parse_capsule(self, tokens, i) -> tuple[dict, int]:
-        sub = tokens[i].value.upper()
-        i += 1
-
-        if sub == "CREATE":
-            name = self._expect(tokens, i, "STRING").value
-            i += 1
-            params = self._parse_kv(tokens, i)
-            i = self._skip_line(tokens, i)
-            return {
-                "action": "capsule.create",
-                "name": name,
-                "runtime": params.get("runtime", "python"),
-                "isolation": params.get("isolation", "container"),
-                "deps": [d.strip() for d in params.get("deps", "").split(",") if d.strip()],
-                "code": params.get("code"),
-            }, i
-
-        elif sub == "LIST":
-            return {"action": "capsule.list"}, self._skip_line(tokens, i)
-
-        elif sub in ("START", "STOP", "DESTROY", "BUILD"):
-            target = self._expect(tokens, i, "STRING").value
-            i += 1
-            return {"action": f"capsule.{sub.lower()}", "target": target}, self._skip_line(tokens, i)
-
-        return {"action": "noop"}, self._skip_line(tokens, i)
-
-    def _parse_exec(self, tokens, i) -> tuple[dict, int]:
-        target = self._expect(tokens, i, "STRING").value
-        i += 1
-        command = self._expect(tokens, i, "STRING").value
-        i += 1
-        return {"action": "capsule.exec", "target": target, "command": command}, self._skip_line(tokens, i)
-
-    def _parse_env(self, tokens, i) -> tuple[dict, int]:
-        sub = tokens[i].value.upper()
-        i += 1
-
-        if sub == "CREATE":
-            name = self._expect(tokens, i, "STRING").value
-            i += 1
-            params = self._parse_kv(tokens, i)
-            i = self._skip_line(tokens, i)
-            packages = [p.strip() for p in params.get("packages", "").split(",") if p.strip()]
-            return {
-                "action": "env.create",
-                "name": name,
-                "runtime": params.get("runtime", "python"),
-                "packages": packages,
-            }, i
-
-        elif sub == "LIST":
-            return {"action": "env.list"}, self._skip_line(tokens, i)
-
-        return {"action": "noop"}, self._skip_line(tokens, i)
-
-    def _parse_pipeline(self, tokens, i) -> tuple[dict, int]:
-        name = self._expect(tokens, i, "STRING").value
-        i += 1
-        self._expect(tokens, i, "LBRACE")
-        i += 1
-
-        steps = []
-        while i < len(tokens) and tokens[i].type != "RBRACE":
-            if tokens[i].type == "NEWLINE":
-                i += 1
-                continue
-            if tokens[i].value.upper() == "STEP":
-                i += 1
-                step_name = self._expect(tokens, i, "STRING").value
-                i += 1
-                params = self._parse_kv(tokens, i)
-                i = self._skip_line(tokens, i)
-                steps.append({
-                    "capsule": params.get("capsule", step_name),
-                    "params": {"command": params.get("command", "")},
-                    "depends_on": [],
-                })
-            else:
-                i += 1
-
-        if i < len(tokens) and tokens[i].type == "RBRACE":
-            i += 1
-
-        return {"action": "pipeline.run", "name": name, "steps": steps}, i
-
-    def _parse_write(self, tokens, i) -> tuple[dict, int]:
-        target = self._expect(tokens, i, "STRING").value
-        i += 1
-        filename = self._expect(tokens, i, "STRING").value
-        i += 1
-        code = ""
-        if i < len(tokens) and tokens[i].type == "HEREDOC":
-            code = tokens[i].value
-            i += 1
-        return {
-            "action": "capsule.write",
-            "target": target,
-            "filename": filename,
-            "code": code,
-        }, self._skip_line(tokens, i)
-
-    def _parse_kv(self, tokens, i) -> dict:
-        """Parse key=value pairs until newline."""
-        kv = {}
-        while i < len(tokens) and tokens[i].type not in ("NEWLINE", "LBRACE", "RBRACE"):
-            if tokens[i].type in ("IDENT", "KEYWORD"):
-                key = tokens[i].value
-                if i + 1 < len(tokens) and tokens[i + 1].type == "EQUALS":
-                    i += 2
-                    if i < len(tokens) and tokens[i].type in ("STRING", "IDENT", "NUMBER"):
-                        kv[key] = tokens[i].value
+                # Multi-line string (triple quotes)
+                if value_str.startswith("'''") or value_str.startswith('"""'):
+                    quote = value_str[:3]
+                    if value_str.endswith(quote) and len(value_str) > 6:
+                        # Single-line triple quote
+                        current_table[key] = value_str[3:-3]
+                    else:
+                        # Multi-line
+                        content_lines = [value_str[3:]]
                         i += 1
+                        while i < len(lines):
+                            if lines[i].strip().endswith(quote):
+                                content_lines.append(lines[i].rstrip().removesuffix(quote))
+                                break
+                            content_lines.append(lines[i])
+                            i += 1
+                        current_table[key] = "\n".join(content_lines)
+                    i += 1
                     continue
-            i += 1
-        return kv
 
-    @staticmethod
-    def _expect(tokens, i, expected: str) -> Token:
-        if i >= len(tokens):
-            raise SyntaxError(f"Unexpected end, expected {expected}")
-        if tokens[i].type != expected:
-            raise SyntaxError(f"Line {tokens[i].line}: expected {expected}, got {tokens[i].type} '{tokens[i].value}'")
-        return tokens[i]
+                # Array: [...] possibly multi-line
+                if value_str.startswith("["):
+                    full = value_str
+                    while full.count("[") > full.count("]") and i + 1 < len(lines):
+                        i += 1
+                        full += " " + lines[i].strip()
+                    current_table[key] = self._parse_array(full)
+                    i += 1
+                    continue
 
-    @staticmethod
-    def _skip_line(tokens, i) -> int:
-        while i < len(tokens) and tokens[i].type != "NEWLINE":
+                # Simple value
+                current_table[key] = self._parse_value(value_str)
+                i += 1
+                continue
+
             i += 1
-        return i + 1 if i < len(tokens) else i
+
+        return root
+
+    def _parse_value(self, s: str) -> Any:
+        s = s.strip()
+        if s.startswith('"') and s.endswith('"'):
+            return s[1:-1]
+        if s.startswith("'") and s.endswith("'"):
+            return s[1:-1]
+        if s == "true":
+            return True
+        if s == "false":
+            return False
+        try:
+            return int(s)
+        except ValueError:
+            pass
+        try:
+            return float(s)
+        except ValueError:
+            pass
+        return s
+
+    def _parse_array(self, s: str) -> list:
+        """Parse a TOML array, including inline tables."""
+        s = s.strip()
+        if not s.startswith("[") or not s.endswith("]"):
+            return []
+
+        inner = s[1:-1].strip()
+        if not inner:
+            return []
+
+        # Inline table array: [{ ... }, { ... }]
+        if inner.startswith("{"):
+            items = []
+            depth = 0
+            current = ""
+            for ch in inner:
+                if ch == "{":
+                    depth += 1
+                    current += ch
+                elif ch == "}":
+                    depth -= 1
+                    current += ch
+                    if depth == 0:
+                        items.append(self._parse_inline_table(current.strip()))
+                        current = ""
+                elif ch == "," and depth == 0:
+                    continue
+                else:
+                    current += ch
+            return items
+
+        # Simple array: ["a", "b", "c"]
+        items = []
+        for part in inner.split(","):
+            part = part.strip()
+            if part:
+                items.append(self._parse_value(part))
+        return items
+
+    def _parse_inline_table(self, s: str) -> dict:
+        """Parse { key = "value", key2 = "value2" }."""
+        s = s.strip()
+        if s.startswith("{"):
+            s = s[1:]
+        if s.endswith("}"):
+            s = s[:-1]
+
+        result = {}
+        for pair in s.split(","):
+            pair = pair.strip()
+            if "=" in pair:
+                k, v = pair.split("=", 1)
+                result[k.strip()] = self._parse_value(v.strip())
+        return result

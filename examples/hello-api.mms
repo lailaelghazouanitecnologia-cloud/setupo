@@ -1,21 +1,33 @@
-# MMS Example: Create a FastAPI capsule with inline code
+# MMS - Hello API example
+# Creates a FastAPI capsule with inline code
 
-CAPSULE CREATE "hello-api" runtime=python isolation=container deps=fastapi,uvicorn
+[capsule.hello-api]
+runtime = "python"
+isolation = "container"
+entrypoint = "main.py"
+deps = ["fastapi", "uvicorn"]
+ports = [8080]
 
-WRITE "hello-api" "main.py" <<<
+[capsule.hello-api.env]
+PORT = "8080"
+
+[capsule.hello-api.code.main_py]
+source = '''
 from fastapi import FastAPI
 
 app = FastAPI()
 
 @app.get("/")
 def root():
-    return {"message": "Hello from MMS capsule!"}
+    return {"message": "Hello from MMS capsule!", "service": "hello-api"}
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
->>>
+'''
 
-CAPSULE BUILD "hello-api"
-CAPSULE START "hello-api"
-CAPSULE LIST
+[pipeline.start]
+steps = [
+    { capsule = "hello-api", action = "build" },
+    { capsule = "hello-api", action = "start" },
+]

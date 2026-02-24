@@ -1,44 +1,58 @@
-# MMS Example: Capsules in different runtimes working together
+# MMS - Multi-runtime capsules working together
+# Python API + Node frontend + Shell monitor
 
-# Python API
-CAPSULE CREATE "api" runtime=python deps=fastapi,uvicorn,httpx
+[capsule.api]
+runtime = "python"
+deps = ["fastapi", "uvicorn", "httpx"]
+entrypoint = "main.py"
+ports = [8080]
 
-# Node.js frontend
-CAPSULE CREATE "frontend" runtime=node
-
-# Shell utility
-CAPSULE CREATE "monitor" runtime=shell
-
-# Write the API code
-WRITE "api" "main.py" <<<
+[capsule.api.code.main_py]
+source = '''
 from fastapi import FastAPI
 app = FastAPI()
 
 @app.get("/data")
 def get_data():
     return {"items": [1, 2, 3], "source": "python-capsule"}
->>>
+'''
 
-# Write the Node frontend
-WRITE "frontend" "main.js" <<<
-const http = require('http');
+[capsule.frontend]
+runtime = "node"
+entrypoint = "main.js"
+ports = [3000]
+
+[capsule.frontend.code.main_js]
+source = '''
+const http = require("http");
 const server = http.createServer((req, res) => {
-    res.writeHead(200, {'Content-Type': 'text/html'});
-    res.end('<h1>MMS Frontend</h1><p>Served from Node.js capsule</p>');
+    res.writeHead(200, {"Content-Type": "text/html"});
+    res.end("<h1>MMS Frontend</h1><p>Served from Node.js capsule</p>");
 });
-server.listen(3000, () => console.log('Frontend on :3000'));
->>>
+server.listen(3000, () => console.log("Frontend on :3000"));
+'''
 
-# Write monitor script
-WRITE "monitor" "main.sh" <<<
+[capsule.monitor]
+runtime = "shell"
+entrypoint = "main.sh"
+
+[capsule.monitor.code.main_sh]
+source = '''
 #!/bin/sh
 while true; do
-    echo "[$(date)] System load: $(cat /proc/loadavg 2>/dev/null || echo 'N/A')"
+    echo "[$(date)] System load: $(cat /proc/loadavg 2>/dev/null || echo N/A)"
     sleep 10
 done
->>>
+'''
 
-CAPSULE START "api"
-CAPSULE START "frontend"
-CAPSULE START "monitor"
-CAPSULE LIST
+[pipeline.start-all]
+steps = [
+    { capsule = "api", action = "start" },
+    { capsule = "frontend", action = "start" },
+    { capsule = "monitor", action = "start" },
+]
+
+[instruction]
+run = [
+    { target = "api", command = "pip install requests" },
+]
