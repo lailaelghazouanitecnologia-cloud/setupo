@@ -1,0 +1,45 @@
+#cloud-config
+# MMS - Basic test: serve index.html from GitHub repo
+
+package_update: true
+
+packages:
+  - nginx
+  - git
+  - ufw
+  - certbot
+  - python3-certbot-nginx
+
+runcmd:
+  # Firewall
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp
+  - ufw allow 80/tcp
+  - ufw allow 443/tcp
+  - ufw --force enable
+
+  # Clone repo from GitHub
+  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
+
+  # Serve the static index.html via nginx
+  - rm -f /etc/nginx/sites-enabled/default
+  - |
+    cat > /etc/nginx/sites-available/mms <<'NGINX'
+    server {
+        listen 80;
+        server_name zarnetti.com www.zarnetti.com _;
+        root /opt/mms/public;
+        index index.html;
+
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+    }
+    NGINX
+  - ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
+  - nginx -t && systemctl restart nginx
+
+  # SSL (will work once DNS points here)
+  - sleep 30
+  - certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com || true

@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMS - zarnetti.com</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'SF Mono', 'JetBrains Mono', monospace;
+            background: #08080d;
+            color: #d0d0dc;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+        }
+        .container {
+            text-align: center;
+            max-width: 600px;
+            padding: 40px;
+        }
+        h1 {
+            font-size: 3em;
+            color: #b4a9fe;
+            letter-spacing: 4px;
+            margin-bottom: 8px;
+        }
+        .sub {
+            color: #6a6a82;
+            font-size: 0.85em;
+            margin-bottom: 40px;
+        }
+        .status {
+            background: #10101a;
+            border: 1px solid #252538;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00d68f;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .info {
+            font-size: 0.75em;
+            color: #6a6a82;
+            margin-top: 30px;
+            line-height: 1.8;
+        }
+        code {
+            background: #181825;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #b4a9fe;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>mms</h1>
+        <div class="sub">micro module system</div>
+        <div class="status">
+            <span class="dot"></span> System online
+        </div>
+        <div class="info">
+            <p>Dashboard: <code>/dashboard</code></p>
+            <p>API: <code>/api/health</code></p>
+            <p>Docs: <code>/docs</code></p>
+        </div>
+    </div>
+</body>
+</html>
