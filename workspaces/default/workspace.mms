@@ -1,19 +1,14 @@
 # MMS Workspace: default
-# This is the default workspace for zarnetti.com
+# Root workspace for zarnetti.com
 
 [workspace]
 name = "default"
-description = "Default MMS workspace"
+description = "Main workspace for zarnetti.com"
 domain = "zarnetti.com"
+root = "workspaces/default"
 
+# The landing page capsule
 [capsule.landing]
-runtime = "shell"
-entrypoint = "serve.sh"
-ports = [80]
-
-[capsule.landing.code.serve_sh]
-source = '''
-#!/bin/sh
-# The landing page is served directly by nginx from /opt/mms/public/
-echo "Landing page active at zarnetti.com"
-'''
+runtime = "static"
+entrypoint = "public/index.html"
+ports = [80, 443]
