@@ -1,1 +1,1 @@
-"""MMS Core - Micro Module System engine."""
+"""Setupo Core — Infrastructure management for AI agents."""

@@ -1,68 +1,113 @@
-"""MMS Server - Micro Module System API.
-Main FastAPI application serving the API and dashboard at zarnetti.com.
+"""Setupo Server — API platform for AI agents to manage infrastructure.
+
+FastAPI application serving the REST API and dashboard.
 """
 import os
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from core.engine import Engine
-from server.routes import auth, capsules, environments, pipelines, commands, health, fs, services, workspaces, terminal
-from server.ws import router as ws_router
+from core import db
+from core.errors import SetupoError
+from server.config import settings
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("mms")
-
-engine = Engine()
+logger = logging.getLogger("setupo")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("MMS starting...")
-    await engine.start()
+    logger.info("Setupo starting...")
+    await db.init_db()
     yield
-    logger.info("MMS shutting down...")
-    await engine.stop()
+    logger.info("Setupo shutting down...")
+    await db.close_db()
 
 
 app = FastAPI(
-    title="MMS - Micro Module System",
-    description="Encapsulated code modules, environments and pipelines",
-    version="0.1.0",
+    title="Setupo — AI Agent Infrastructure API",
+    description=(
+        "API for AI agents to manage projects, workspaces, compute instances, "
+        "domains, and deployments. Supports Vultr VPS and Cloudflare DNS."
+    ),
+    version="0.2.0",
     lifespan=lifespan,
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://zarnetti.com", "http://localhost:3000", "http://localhost:8000"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Store engine reference for routes
-app.state.engine = engine
 
-# API routes
+# ── Error handler ────────────────────────────────────────────────
+
+@app.exception_handler(SetupoError)
+async def setupo_error_handler(request: Request, exc: SetupoError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": exc.message},
+    )
+
+
+# ── Routes ───────────────────────────────────────────────────────
+
+# Public
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(capsules.router, prefix="/api/capsules", tags=["capsules"])
-app.include_router(environments.router, prefix="/api/envs", tags=["environments"])
-app.include_router(pipelines.router, prefix="/api/pipelines", tags=["pipelines"])
-app.include_router(commands.router, prefix="/api/commands", tags=["commands"])
-app.include_router(ws_router, prefix="/ws", tags=["websocket"])
-app.include_router(fs.router, prefix="/api/fs", tags=["filesystem"])
-app.include_router(services.router, prefix="/api/services", tags=["services"])
-app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
-app.include_router(terminal.router, prefix="/ws", tags=["terminal"])
 
-# Dashboard
+# Project management (admin or API key)
+app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
+
+# Project-scoped resources (require API key)
+app.include_router(
+    instances.router,
+    prefix="/api/projects/{project_id}/instances",
+    tags=["instances"],
+)
+app.include_router(
+    workspaces.router,
+    prefix="/api/projects/{project_id}/workspaces",
+    tags=["workspaces"],
+)
+app.include_router(
+    domains.router,
+    prefix="/api/projects/{project_id}/domains",
+    tags=["domains"],
+)
+app.include_router(
+    deploy.router,
+    prefix="/api/projects/{project_id}/instances",
+    tags=["deploy"],
+)
+
+
+# ── Dashboard (static files) ────────────────────────────────────
+
 dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
 if os.path.isdir(dashboard_dir):
     app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
+
+
+# ── Entrypoint ───────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "server.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=True,
+        log_level="info",
+    )

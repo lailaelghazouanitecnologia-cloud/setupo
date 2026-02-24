@@ -1,4 +1,4 @@
-"""MMS Data Models - Pydantic models for capsules, environments, pipelines."""
+"""Setupo Models - All Pydantic models for the platform."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,141 +10,163 @@ from pydantic import BaseModel, Field
 
 # ── Enums ────────────────────────────────────────────────────────
 
-class CapsuleState(str, Enum):
-    CREATED = "created"
-    BUILDING = "building"
+class InstanceType(str, Enum):
+    SETUP = "setup"        # VPS + domain + SSL + nginx — ready for deploy
+    DEV = "dev"            # Full dev environment, tooling
+    GPU = "gpu"            # GPU instance (Runpod)
+    CUSTOM = "custom"      # User-defined specs
+
+
+class InstanceState(str, Enum):
+    CREATING = "creating"
+    PROVISIONING = "provisioning"
     READY = "ready"
+    DEPLOYING = "deploying"
     RUNNING = "running"
     STOPPED = "stopped"
     ERROR = "error"
+    DESTROYING = "destroying"
 
 
-class RuntimeType(str, Enum):
-    PYTHON = "python"
-    NODE = "node"
-    RUST = "rust"
-    GO = "go"
-    SHELL = "shell"
-    DOCKER = "docker"
-    CUSTOM = "custom"
+class Provider(str, Enum):
+    VULTR = "vultr"
+    RUNPOD = "runpod"
 
 
-class IsolationLevel(str, Enum):
-    NONE = "none"          # Direct execution (dev only)
-    VENV = "venv"          # Python virtualenv
-    CONTAINER = "container" # Docker container
-    NAMESPACE = "namespace" # Linux namespaces
+# ── Project ──────────────────────────────────────────────────────
 
-
-# ── Capsule ──────────────────────────────────────────────────────
-
-class CapsuleManifest(BaseModel):
-    """Defines what a capsule IS - its blueprint."""
+class Project(BaseModel):
+    id: str                                         # proj_xxxx
     name: str
-    version: str = "0.1.0"
-    description: str = ""
-    runtime: RuntimeType = RuntimeType.PYTHON
-    isolation: IsolationLevel = IsolationLevel.CONTAINER
-    entrypoint: str = "main.py"
-    dependencies: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    ports: list[int] = Field(default_factory=list)
-    inputs: list[PortSpec] = Field(default_factory=list)
-    outputs: list[PortSpec] = Field(default_factory=list)
-    resources: ResourceSpec = Field(default_factory=lambda: ResourceSpec())
-    volumes: list[str] = Field(default_factory=list)
+    api_key_hash: str                               # SHA256 of sk_live_xxxx
+    owner: str = ""                                 # email or agent id
+    settings: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class PortSpec(BaseModel):
-    """Defines an input/output port on a capsule."""
+class CreateProjectRequest(BaseModel):
     name: str
-    type: str = "any"  # any, http, grpc, stream, file
-    port: int = 0
-    protocol: str = "tcp"
+    owner: str = ""
 
 
-class ResourceSpec(BaseModel):
-    """Resource limits for a capsule."""
-    cpu: float = 1.0       # CPU cores
-    memory_mb: int = 256   # RAM in MB
-    disk_mb: int = 512     # Disk in MB
-    timeout_s: int = 0     # 0 = no timeout
+class CreateProjectResponse(BaseModel):
+    project: Project
+    api_key: str                                    # Only returned once
 
 
-class Capsule(BaseModel):
-    """Runtime instance of a capsule."""
-    id: str
-    manifest: CapsuleManifest
-    state: CapsuleState = CapsuleState.CREATED
-    container_id: Optional[str] = None
-    pid: Optional[int] = None
+# ── Instance ─────────────────────────────────────────────────────
+
+class Instance(BaseModel):
+    id: str                                         # inst_xxxx
+    project_id: str
+    type: InstanceType = InstanceType.SETUP
+    provider: Provider = Provider.VULTR
+    provider_id: str = ""                           # Vultr VPS ID / Runpod Pod ID
+    label: str = ""
+    region: str = "ewr"                             # Vultr region slug
+    plan: str = "vc2-1c-1gb"                        # Vultr plan slug
+    os_id: int = 2284                               # Ubuntu 24.04
     ip: Optional[str] = None
-    created_at: datetime = Field(default_factory=datetime.now)
-    started_at: Optional[datetime] = None
+    domain: Optional[str] = None                    # User's custom domain
+    state: InstanceState = InstanceState.CREATING
+    ssh_key_id: Optional[str] = None                # Vultr SSH key ID
+    workspace: Optional[str] = None                 # Linked workspace name
     error: Optional[str] = None
-    logs: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    ready_at: Optional[datetime] = None
 
 
-# ── Environment ──────────────────────────────────────────────────
-
-class Environment(BaseModel):
-    """A managed runtime environment."""
-    id: str
-    name: str
-    runtime: RuntimeType
-    version: str = ""              # e.g. "3.12", "20.x"
-    path: str = ""                 # Path to env root
-    packages: list[str] = Field(default_factory=list)
-    created_at: datetime = Field(default_factory=datetime.now)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+class CreateInstanceRequest(BaseModel):
+    type: InstanceType = InstanceType.SETUP
+    label: str = ""
+    region: str = "ewr"
+    plan: str = "vc2-1c-1gb"
+    domain: Optional[str] = None                    # User provides their domain
+    workspace: Optional[str] = None                 # Auto-deploy from this workspace
 
 
-# ── Pipeline ─────────────────────────────────────────────────────
-
-class PipelineStep(BaseModel):
-    """A step in a pipeline."""
-    capsule: str              # Capsule name or ID
-    params: dict[str, Any] = Field(default_factory=dict)
-    depends_on: list[str] = Field(default_factory=list)
-
-
-class Pipeline(BaseModel):
-    """A composition of capsules executed in order."""
-    id: str
-    name: str
-    steps: list[PipelineStep]
-    state: str = "pending"   # pending, running, completed, failed
-    created_at: datetime = Field(default_factory=datetime.now)
-    results: dict[str, Any] = Field(default_factory=dict)
-
-
-# ── API Request/Response ─────────────────────────────────────────
-
-class CreateCapsuleRequest(BaseModel):
-    name: str
-    runtime: RuntimeType = RuntimeType.PYTHON
-    isolation: IsolationLevel = IsolationLevel.CONTAINER
-    entrypoint: str = "main.py"
-    code: Optional[str] = None         # Inline code
-    git_url: Optional[str] = None      # Clone from git
-    dependencies: list[str] = Field(default_factory=list)
-    env: dict[str, str] = Field(default_factory=dict)
-    ports: list[int] = Field(default_factory=list)
-    resources: ResourceSpec = Field(default_factory=lambda: ResourceSpec())
-
-
-class ExecRequest(BaseModel):
-    capsule_id: str
+class InstanceExecRequest(BaseModel):
     command: str
     timeout: int = 60
 
 
-class PipelineRequest(BaseModel):
+class InstanceExecResponse(BaseModel):
+    output: str
+    exit_code: int
+
+
+# ── Workspace ────────────────────────────────────────────────────
+
+class Workspace(BaseModel):
+    id: str                                         # ws_xxxx
+    project_id: str
     name: str
-    steps: list[PipelineStep]
+    path: str                                       # /opt/setupo/data/{project_id}/workspaces/{name}
+    git_url: Optional[str] = None
+    branch: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-class ProtocolRequest(BaseModel):
-    code: str
-    target: Optional[str] = None
+class CreateWorkspaceRequest(BaseModel):
+    name: str
+    git_url: Optional[str] = None
+    branch: str = "main"
+
+
+# ── Domain ───────────────────────────────────────────────────────
+
+class DomainRecord(BaseModel):
+    id: str                                         # dom_xxxx
+    project_id: str
+    instance_id: str
+    domain: str                                     # Full domain: app.example.com
+    record_type: str = "A"                          # A or CNAME
+    value: str = ""                                 # IP address
+    cf_zone_id: Optional[str] = None                # If managed via Cloudflare
+    cf_record_id: Optional[str] = None
+    proxied: bool = False
+    managed: bool = False                           # True if we manage DNS via CF
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class CreateDomainRequest(BaseModel):
+    instance_id: str
+    domain: str
+    cf_api_token: Optional[str] = None              # If user wants auto DNS
+    cf_zone_id: Optional[str] = None
+    proxied: bool = False
+
+
+# ── Deploy ───────────────────────────────────────────────────────
+
+class DeployRequest(BaseModel):
+    workspace: str
+    branch: str = "main"
+    command: Optional[str] = None                   # Override start command
+
+
+class DeployState(str, Enum):
+    SYNCING = "syncing"
+    INSTALLING = "installing"
+    STARTING = "starting"
+    LIVE = "live"
+    FAILED = "failed"
+
+
+class DeployStatus(BaseModel):
+    instance_id: str
+    state: DeployState
+    workspace: str
+    logs: list[str] = Field(default_factory=list)
+    url: Optional[str] = None
+
+
+# ── Capabilities (agent-friendly) ───────────────────────────────
+
+class Capabilities(BaseModel):
+    version: str = "0.1.0"
+    instance_types: list[dict[str, Any]] = Field(default_factory=list)
+    regions: list[dict[str, str]] = Field(default_factory=list)
+    plans: list[dict[str, Any]] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
