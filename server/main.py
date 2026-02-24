@@ -7,7 +7,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -93,11 +92,15 @@ app.include_router(
 )
 
 
-# ── Dashboard (static files) ────────────────────────────────────
+# ── Dashboard (static files — only for local dev) ───────────────
+# In production, nginx serves the frontend from /var/www/setupo.
+# Only mount here for local development when no reverse proxy is present.
 
-dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
-if os.path.isdir(dashboard_dir):
-    app.mount("/", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
+if os.environ.get("SETUPO_SERVE_STATIC"):
+    from fastapi.staticfiles import StaticFiles
+    dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
+    if os.path.isdir(dashboard_dir):
+        app.mount("/dashboard", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
 
 
 # ── Entrypoint ───────────────────────────────────────────────────
