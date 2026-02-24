@@ -15,8 +15,6 @@ packages:
   - python3-pip
   - python3-dev
   - build-essential
-  - certbot
-  - python3-certbot-nginx
   - jq
   - rsync
 
@@ -98,8 +96,8 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      set -euxo pipefail
       exec > /var/log/setupo-build.log 2>&1
+      set -x
 
       echo "=== Setupo v0.2 Deploy — $(date) ==="
 
@@ -120,10 +118,12 @@ write_files:
       # Clone repo FIRST (target dir must not exist)
       rm -rf /opt/setupo
       git clone -b claude/setup-vultr-python-server-IuMfs \
-        https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo
+        https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo || {
+        echo "FATAL: git clone failed"
+        exit 1
+      }
 
       echo "Git clone OK"
-      ls -la /opt/setupo/
 
       # Create data/config dirs AFTER clone
       mkdir -p /opt/setupo/config
@@ -134,7 +134,10 @@ write_files:
       cd /opt/setupo
       python3 -m venv /opt/setupo/venv
       /opt/setupo/venv/bin/pip install --upgrade pip
-      /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
+      /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt || {
+        echo "FATAL: pip install failed"
+        exit 1
+      }
 
       echo "=== pip install complete ==="
 
@@ -176,33 +179,33 @@ write_files:
       # ---- FRONTEND ----
       echo "=== Building React frontend ==="
       export HOME=/root
-      curl -fsSL https://bun.sh/install | bash
+      curl -fsSL https://bun.sh/install | bash || true
       export BUN_INSTALL=/root/.bun
       export PATH=$BUN_INSTALL/bin:$PATH
 
-      if [ -d /opt/setupo/workspaces/default ]; then
+      if [ -d /opt/setupo/workspaces/default ] && [ -f /opt/setupo/workspaces/default/package.json ]; then
         cd /opt/setupo/workspaces/default
-        bun install --no-save
-        bun run build
+        bun install --no-save || true
+        bun run build || true
 
         if [ -d /opt/setupo/workspaces/default/dist ]; then
           rm -rf /var/www/setupo/*
           cp -r /opt/setupo/workspaces/default/dist/* /var/www/setupo/
           echo "FRONTEND BUILD SUCCESS"
         else
-          echo "FRONTEND BUILD FAILED - dist/ not found"
+          echo "FRONTEND BUILD FAILED - dist/ not found, keeping fallback"
         fi
       else
-        echo "No workspaces/default found, using dashboard/static"
+        echo "No workspaces/default with package.json, using dashboard/static"
         if [ -d /opt/setupo/dashboard/static ]; then
+          rm -rf /var/www/setupo/*
           cp -r /opt/setupo/dashboard/static/* /var/www/setupo/
+          echo "Dashboard static files deployed"
         fi
       fi
 
-      systemctl restart nginx
-
-      # SSL (Cloudflare proxy might handle this, try anyway)
-      certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com --redirect 2>&1 || echo "Certbot skipped (likely Cloudflare proxied)"
+      # Final nginx restart (no certbot — Cloudflare handles SSL)
+      nginx -t && systemctl restart nginx
 
       echo "=== Setupo deployment complete — $(date) ==="
 
