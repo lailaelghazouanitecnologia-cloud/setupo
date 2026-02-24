@@ -1,0 +1,18 @@
+[Unit]
+Description=Setupo Orchestrator
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/setupo
+Environment=PATH=/opt/setupo/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/setupo/orchestrator.log
+StandardError=append:/var/log/setupo/orchestrator.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Setupo - Orchestrator Dashboard</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>setupo</h1>
+            <span class="version">v0.1.0</span>
+        </div>
+        <ul class="nav-links">
+            <li class="active" data-section="overview">Overview</li>
+            <li data-section="microvms">MicroVMs</li>
+            <li data-section="vms">VMs</li>
+            <li data-section="capsules">Capsules</li>
+            <li data-section="terminal">Terminal</li>
+            <li data-section="ssh">SSH</li>
+        </ul>
+        <div class="nav-footer">
+            <span id="health-status" class="status-dot red"></span>
+            <span id="health-text">Connecting...</span>
+        </div>
+    </nav>
+
+    <main class="content">
+        <!-- Overview -->
+        <section id="section-overview" class="section active">
+            <h2>Dashboard</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-number" id="stat-microvms">0</div>
+                    <div class="stat-label">MicroVMs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="stat-vms">0</div>
+                    <div class="stat-label">VMs</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="stat-capsules">0</div>
+                    <div class="stat-label">Capsules</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number" id="stat-disk">-</div>
+                    <div class="stat-label">Disk Free (GB)</div>
+                </div>
+            </div>
+            <div class="instances-table">
+                <h3>All Instances</h3>
+                <table id="instances-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>State</th>
+                            <th>IP</th>
+                            <th>CPU</th>
+                            <th>RAM</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="instances-tbody"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- MicroVMs -->
+        <section id="section-microvms" class="section">
+            <h2>MicroVMs (Firecracker)</h2>
+            <div class="create-form">
+                <h3>Create MicroVM</h3>
+                <form id="create-microvm-form">
+                    <input type="text" name="name" placeholder="Name" required>
+                    <input type="number" name="vcpus" placeholder="vCPUs" value="1" min="1" max="8">
+                    <input type="number" name="memory_mb" placeholder="RAM (MB)" value="256" min="128">
+                    <input type="number" name="disk_mb" placeholder="Disk (MB)" value="512" min="256">
+                    <button type="submit">Create</button>
+                </form>
+            </div>
+            <div id="microvms-list" class="instance-list"></div>
+        </section>
+
+        <!-- VMs -->
+        <section id="section-vms" class="section">
+            <h2>VMs (QEMU/KVM)</h2>
+            <div class="create-form">
+                <h3>Create VM</h3>
+                <form id="create-vm-form">
+                    <input type="text" name="name" placeholder="Name" required>
+                    <input type="number" name="vcpus" placeholder="vCPUs" value="2" min="1" max="16">
+                    <input type="number" name="memory_mb" placeholder="RAM (MB)" value="1024" min="256">
+                    <input type="number" name="disk_mb" placeholder="Disk (MB)" value="4096" min="1024">
+                    <button type="submit">Create</button>
+                </form>
+            </div>
+            <div id="vms-list" class="instance-list"></div>
+        </section>
+
+        <!-- Capsules -->
+        <section id="section-capsules" class="section">
+            <h2>Capsules</h2>
+            <div class="capsule-upload">
+                <h3>Upload Capsule</h3>
+                <form id="upload-capsule-form">
+                    <input type="file" name="file" required>
+                    <button type="submit">Upload</button>
+                </form>
+            </div>
+            <div id="capsules-list" class="capsule-grid"></div>
+        </section>
+
+        <!-- Terminal -->
+        <section id="section-terminal" class="section">
+            <h2>Terminal</h2>
+            <div class="terminal-container">
+                <div class="terminal-header">
+                    <select id="terminal-target">
+                        <option value="">Select instance...</option>
+                    </select>
+                </div>
+                <div id="terminal-output" class="terminal-output"></div>
+                <form id="terminal-form" class="terminal-input">
+                    <span class="prompt">$</span>
+                    <input type="text" id="terminal-cmd" placeholder="Enter command..." autocomplete="off">
+                </form>
+            </div>
+        </section>
+
+        <!-- SSH -->
+        <section id="section-ssh" class="section">
+            <h2>SSH to External Systems</h2>
+            <div class="ssh-form">
+                <form id="ssh-form">
+                    <input type="text" name="host" placeholder="user@host" required>
+                    <input type="text" name="command" placeholder="Command" required>
+                    <button type="submit">Execute</button>
+                </form>
+            </div>
+            <div id="ssh-output" class="terminal-output"></div>
+        </section>
+    </main>
+
+    <script src="/dashboard.js"></script>
+</body>
+</html>
