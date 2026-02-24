@@ -1,0 +1,156 @@
+/* src/styles/workflow-layout.css */
+
+.workflow-layout-v2 {
+  display: grid;
+  grid-template-areas:
+    "header header header"
+    "sidebar main right-panel";
+  grid-template-rows: var(--header-height) 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr var(--right-panel-width);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Header */
+.workflow-header {
+  grid-area: header;
+  background: var(--background);
+  border-bottom: 1px solid var(--border);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  padding: 0 1rem;
+}
+
+/* Body container */
+.workflow-body {
+  display: contents;
+}
+
+/* Sidebar izquierdo */
+.workflow-sidebar {
+  grid-area: sidebar;
+  background: var(--card);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Contenido principal */
+.workflow-main {
+  grid-area: main;
+  background: var(--background);
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Panel derecho */
+.workflow-right-panel {
+  grid-area: right-panel;
+  background: var(--card);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Variantes sin sidebars */
+.workflow-layout-v2:not(:has(.workflow-sidebar)) {
+  grid-template-areas:
+    "header header"
+    "main right-panel";
+  grid-template-columns: 1fr var(--right-panel-width);
+}
+
+.workflow-layout-v2:not(:has(.workflow-right-panel)) {
+  grid-template-areas:
+    "header header"
+    "sidebar main";
+  grid-template-columns: var(--sidebar-width) 1fr;
+}
+
+.workflow-layout-v2:not(:has(.workflow-sidebar)):not(:has(.workflow-right-panel)) {
+  grid-template-areas:
+    "header"
+    "main";
+  grid-template-columns: 1fr;
+}
+
+/* Responsive breakpoints */
+@media (max-width: 1024px) {
+  .workflow-layout-v2 {
+    --sidebar-width: 240px;
+    --right-panel-width: 320px;
+  }
+}
+
+@media (max-width: 768px) {
+  .workflow-layout-v2 {
+    grid-template-areas:
+      "header"
+      "main";
+    grid-template-columns: 1fr;
+  }
+
+  .workflow-sidebar,
+  .workflow-right-panel {
+    position: fixed;
+    top: var(--header-height);
+    bottom: 0;
+    width: var(--sidebar-width);
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+  }
+
+  .workflow-right-panel {
+    right: 0;
+    width: var(--right-panel-width);
+    transform: translateX(100%);
+  }
+
+  .workflow-sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .workflow-right-panel.mobile-open {
+    transform: translateX(0);
+  }
+}
+
+/* Estados de loading y animaciones */
+.workflow-main[data-loading="true"] {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.workflow-sidebar,
+.workflow-right-panel {
+  transition: all 0.2s ease;
+}
+
+/* Scroll personalizado */
+.workflow-sidebar::-webkit-scrollbar,
+.workflow-right-panel::-webkit-scrollbar,
+.workflow-main::-webkit-scrollbar {
+  width: 6px;
+}
+
+.workflow-sidebar::-webkit-scrollbar-track,
+.workflow-right-panel::-webkit-scrollbar-track,
+.workflow-main::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.workflow-sidebar::-webkit-scrollbar-thumb,
+.workflow-right-panel::-webkit-scrollbar-thumb,
+.workflow-main::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.workflow-sidebar::-webkit-scrollbar-thumb:hover,
+.workflow-right-panel::-webkit-scrollbar-thumb:hover,
+.workflow-main::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}

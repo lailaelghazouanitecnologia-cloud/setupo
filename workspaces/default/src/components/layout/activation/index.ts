@@ -1,0 +1,1 @@
+export { ActivationStrip } from './ActivationStrip';
