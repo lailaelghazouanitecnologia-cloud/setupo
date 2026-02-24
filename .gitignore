@@ -6,3 +6,7 @@ package-lock.json
 bun.lockb
 .env
 *.db
+# Workspace data (don't track generated workspace content, only config.toml)
+workspaces/*/node_modules/
+workspaces/*/.venv/
+workspaces/*/__pycache__/

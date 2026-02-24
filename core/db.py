@@ -76,9 +76,14 @@ async def _migrate(db: aiosqlite.Connection):
             project_id TEXT NOT NULL,
             name TEXT NOT NULL,
             path TEXT NOT NULL,
+            ws_type TEXT DEFAULT 'custom',
+            stack TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            instance_id TEXT,
             git_url TEXT,
             branch TEXT,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
@@ -118,6 +123,23 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(project_id, name);
 
     """)
+
+    # Add new workspace columns if upgrading from old schema
+    try:
+        await db.execute("SELECT ws_type FROM workspaces LIMIT 1")
+    except Exception:
+        for col, default in [
+            ("ws_type", "'custom'"),
+            ("stack", "''"),
+            ("description", "''"),
+            ("instance_id", "NULL"),
+            ("updated_at", "CURRENT_TIMESTAMP"),
+        ]:
+            try:
+                await db.execute(f"ALTER TABLE workspaces ADD COLUMN {col} TEXT DEFAULT {default}")
+            except Exception:
+                pass
+
     await db.commit()
     logger.info("Database migrations complete")
 

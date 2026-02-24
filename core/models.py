@@ -10,6 +10,12 @@ from pydantic import BaseModel, Field
 
 # ── Enums ────────────────────────────────────────────────────────
 
+class WorkspaceType(str, Enum):
+    CUSTOM = "custom"      # Empty workspace, user writes code
+    GIT = "git"            # Cloned from a git repo
+    TEMPLATE = "template"  # Created from a built-in template
+
+
 class InstanceType(str, Enum):
     SETUP = "setup"        # VPS + domain + SSL + nginx — ready for deploy
     DEV = "dev"            # Full dev environment, tooling
@@ -98,20 +104,58 @@ class InstanceExecResponse(BaseModel):
 
 # ── Workspace ────────────────────────────────────────────────────
 
+class WorkspaceGitConfig(BaseModel):
+    url: Optional[str] = None
+    branch: str = "main"
+    auto_pull: bool = False
+
+
+class WorkspaceDeployConfig(BaseModel):
+    instance_id: Optional[str] = None              # Linked instance
+    command: Optional[str] = None                  # Start command override
+    port: int = 3000
+    env: dict[str, str] = Field(default_factory=dict)
+
+
+class WorkspaceServiceConfig(BaseModel):
+    enabled: bool = True
+    domain: Optional[str] = None
+    ssl: bool = True
+
+
+class WorkspaceConfig(BaseModel):
+    """Represents the config.toml for a workspace."""
+    name: str
+    type: str = "custom"                           # python | node | static | docker | go | rust
+    description: str = ""
+    git: WorkspaceGitConfig = Field(default_factory=WorkspaceGitConfig)
+    deploy: WorkspaceDeployConfig = Field(default_factory=WorkspaceDeployConfig)
+    services: dict[str, WorkspaceServiceConfig] = Field(default_factory=dict)
+
+
 class Workspace(BaseModel):
     id: str                                         # ws_xxxx
     project_id: str
     name: str
-    path: str                                       # /opt/setupo/data/{project_id}/workspaces/{name}
+    path: str                                       # workspaces/{name}
+    ws_type: WorkspaceType = WorkspaceType.CUSTOM
+    stack: str = ""                                 # python | node | static | etc.
+    description: str = ""
+    instance_id: Optional[str] = None               # Linked instance
     git_url: Optional[str] = None
     branch: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class CreateWorkspaceRequest(BaseModel):
     name: str
+    ws_type: WorkspaceType = WorkspaceType.CUSTOM
+    stack: str = ""                                 # python | node | static
+    description: str = ""
     git_url: Optional[str] = None
     branch: str = "main"
+    instance_id: Optional[str] = None               # Link to instance on creation
 
 
 # ── Domain ───────────────────────────────────────────────────────

@@ -1,4 +1,8 @@
-"""Deploy pipeline — detect stack, install deps, start app on instance."""
+"""Deploy pipeline — detect stack, install deps, start app on instance.
+
+Reads config.toml from the workspace when available to determine stack,
+start command, port, and environment variables.
+"""
 import logging
 
 from core import db
@@ -6,6 +10,7 @@ from core.errors import NotFoundError, ProviderError
 from core.models import InstanceState, DeployState
 from core.instances.provisioner import run_ssh_command
 from core.deploy.sync import sync_workspace
+from core.workspace_config import read_config
 from server.config import settings
 
 logger = logging.getLogger("setupo.deploy")
@@ -30,6 +35,7 @@ async def deploy_to_instance(
 ) -> dict:
     """Full deploy pipeline: sync → detect → install → start.
 
+    Reads config.toml from the workspace for stack/command/port/env overrides.
     Returns deploy status dict.
     """
     # Validate instance
@@ -47,6 +53,16 @@ async def deploy_to_instance(
     ws = await db.fetch_one("workspaces", project_id=project_id, name=workspace_name)
     if not ws:
         raise NotFoundError("Workspace", workspace_name)
+
+    # Read config.toml for deploy settings
+    ws_config = read_config(ws["path"])
+    config_stack = ws_config.type if ws_config else None
+    config_command = ws_config.deploy.command if ws_config else None
+    config_port = ws_config.deploy.port if ws_config else 3000
+    config_env = ws_config.deploy.env if ws_config else {}
+    config_domain = None
+    if ws_config and ws_config.services.get("nginx"):
+        config_domain = ws_config.services["nginx"].domain
 
     keys_dir = settings.keys_dir(project_id)
     key_path = str(keys_dir / "id_ed25519")
@@ -66,25 +82,36 @@ async def deploy_to_instance(
             raise ProviderError("deploy", f"File sync failed: {sync_output}")
         await _log(instance_id, "Files synced successfully")
 
-        # 2. Detect stack
-        await _log(instance_id, "Detecting project stack...")
-        stack = await _detect_stack(ip, key_path, remote_dir)
-        await _log(instance_id, f"Detected stack: {stack}")
+        # 2. Detect stack (config.toml overrides auto-detection)
+        if config_stack and config_stack != "custom":
+            stack = config_stack
+            await _log(instance_id, f"Stack from config.toml: {stack}")
+        else:
+            await _log(instance_id, "Detecting project stack...")
+            stack = await _detect_stack(ip, key_path, remote_dir)
+            await _log(instance_id, f"Detected stack: {stack}")
 
         # 3. Install dependencies
         await _log(instance_id, "Installing dependencies...")
         await _install_deps(ip, key_path, remote_dir, stack)
         await _log(instance_id, "Dependencies installed")
 
-        # 4. Start application
-        start_cmd = command or _default_start_command(stack)
-        await _log(instance_id, f"Starting app: {start_cmd}")
-        await _start_app(ip, key_path, remote_dir, start_cmd)
+        # 4. Set env vars on instance if config.toml has them
+        if config_env:
+            await _log(instance_id, f"Setting {len(config_env)} env vars from config.toml")
+            env_lines = "\n".join(f"{k}={v}" for k, v in config_env.items())
+            await run_ssh_command(ip, f"cat >> {remote_dir}/.env << 'ENVEOF'\n{env_lines}\nENVEOF", key_path)
 
-        # 5. Configure nginx reverse proxy for the user app
-        domain = inst.get("domain")
+        # 5. Start application
+        start_cmd = command or config_command or _default_start_command(stack)
+        await _log(instance_id, f"Starting app: {start_cmd}")
+        port = config_port or 3000
+        await _start_app(ip, key_path, remote_dir, start_cmd, port=port, env_vars=config_env)
+
+        # 6. Configure nginx reverse proxy for the user app
+        domain = config_domain or inst.get("domain")
         await _log(instance_id, "Configuring nginx for app...")
-        await _setup_app_nginx(ip, key_path, domain, stack)
+        await _setup_app_nginx(ip, key_path, domain, stack, port=port)
 
         # 6. Setup SSL if domain is configured
         if domain:
@@ -171,10 +198,9 @@ def _default_start_command(stack: str) -> str:
     }.get(stack, "echo 'Unknown stack'")
 
 
-async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: str):
+async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: str, port: int = 3000):
     """Configure nginx on the instance to reverse-proxy the user's app."""
     server_name = domain or "_"
-    # Static sites are served directly; everything else is proxied to port 3000
     if stack == "static":
         location_block = """
         location / {
@@ -183,15 +209,15 @@ async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: st
             try_files $uri $uri/ /index.html;
         }"""
     else:
-        location_block = """
-        location / {
-            proxy_pass http://127.0.0.1:3000;
+        location_block = f"""
+        location / {{
+            proxy_pass http://127.0.0.1:{port};
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
             proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
             proxy_set_header X-Forwarded-Proto $scheme;
             proxy_read_timeout 300s;
-        }"""
+        }}"""
 
     nginx_conf = f"""server {{
     listen 80;
@@ -205,9 +231,16 @@ async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: st
     await run_ssh_command(ip, "nginx -t && systemctl reload nginx", key_path)
 
 
-async def _start_app(ip: str, key_path: str, remote_dir: str, command: str):
-    """Start the app as a background process via systemd or nohup."""
-    # Create a simple systemd service
+async def _start_app(ip: str, key_path: str, remote_dir: str, command: str, port: int = 3000, env_vars: dict | None = None):
+    """Start the app as a background process via systemd."""
+    env_lines = [
+        f"Environment=NODE_ENV=production",
+        f"Environment=PORT={port}",
+    ]
+    for k, v in (env_vars or {}).items():
+        env_lines.append(f"Environment={k}={v}")
+    env_block = "\n".join(env_lines)
+
     service = f"""[Unit]
 Description=Setupo App
 After=network.target
@@ -218,8 +251,7 @@ WorkingDirectory={remote_dir}
 ExecStart=/bin/bash -c '{command}'
 Restart=on-failure
 RestartSec=5
-Environment=NODE_ENV=production
-Environment=PORT=3000
+{env_block}
 
 [Install]
 WantedBy=multi-user.target

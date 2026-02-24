@@ -2,6 +2,9 @@
 import os
 from pathlib import Path
 
+# Root of the setupo project (where this repo lives)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Settings:
     # Paths
@@ -10,6 +13,9 @@ class Settings:
     KEYS_DIR = DATA_DIR / "keys"
     CONFIG_DIR = Path(os.environ.get("SETUPO_CONFIG_DIR", "/opt/setupo/config"))
     TOKEN_PATH = CONFIG_DIR / "token"
+
+    # Workspaces live in the repo under workspaces/
+    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", str(_PROJECT_ROOT / "workspaces")))
 
     # Dev fallbacks
     DEV_DATA_DIR = Path("/tmp/setupo/data")
@@ -52,10 +58,15 @@ class Settings:
         return p
 
     @classmethod
-    def workspace_dir(cls, project_id: str, name: str) -> Path:
-        p = cls.project_dir(project_id) / "workspaces" / name
-        p.mkdir(parents=True, exist_ok=True)
+    def workspace_path(cls, name: str) -> Path:
+        """Get the path for a workspace: workspaces/{name}."""
+        p = cls.WORKSPACES_DIR / name
         return p
+
+    @classmethod
+    def workspace_dir(cls, project_id: str, name: str) -> Path:
+        """Legacy: project-scoped workspace dir. Now uses flat workspaces/."""
+        return cls.workspace_path(name)
 
     @classmethod
     def keys_dir(cls, project_id: str) -> Path:
