@@ -17,41 +17,80 @@ write_files:
       server {
           listen 80;
           server_name zarnetti.com www.zarnetti.com _;
-          root /opt/mms/workspaces/default/dist;
+          root /var/www/mms;
           index index.html;
 
           location / {
               try_files $uri $uri/ /index.html;
           }
 
-          # Cache static assets
           location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff2?)$ {
               expires 30d;
               add_header Cache-Control "public, immutable";
           }
       }
 
+  - path: /opt/mms-build.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      set -x
+      exec > /var/log/mms-build.log 2>&1
+
+      # Ensure dirs
+      mkdir -p /var/www/mms
+
+      # Fallback page
+      cat > /var/www/mms/index.html <<'HTML'
+      <!DOCTYPE html><html><head><title>MMS - Building...</title>
+      <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
+      .c{text-align:center}h1{color:#b4a9fe;font-size:2em}p{color:#6a6a82}</style></head>
+      <body><div class="c"><h1>mms</h1><p>Building dashboard... check back in a minute.</p></div></body></html>
+      HTML
+
+      # Restart nginx with fallback
+      rm -f /etc/nginx/sites-enabled/default
+      ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
+      nginx -t && systemctl restart nginx
+
+      # Install Bun
+      export HOME=/root
+      curl -fsSL https://bun.sh/install | bash
+      export BUN_INSTALL=/root/.bun
+      export PATH=$BUN_INSTALL/bin:$PATH
+
+      # Clone repo
+      git clone -b claude/setup-vultr-python-server-IuMfs \
+        https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
+
+      # Build
+      cd /opt/mms/workspaces/default
+      bun install --no-save
+      bun run build
+
+      # Deploy built files
+      if [ -d /opt/mms/workspaces/default/dist ]; then
+        rm -rf /var/www/mms/*
+        cp -r /opt/mms/workspaces/default/dist/* /var/www/mms/
+        echo "BUILD SUCCESS"
+      else
+        echo "BUILD FAILED - dist/ not found"
+        # Write error page
+        cat > /var/www/mms/index.html <<'HTML'
+      <!DOCTYPE html><html><head><title>MMS - Build Failed</title>
+      <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
+      .c{text-align:center}h1{color:#ff5c5c;font-size:2em}pre{color:#6a6a82;text-align:left;max-width:600px;overflow:auto}</style></head>
+      <body><div class="c"><h1>mms build failed</h1><p>Check /var/log/mms-build.log on the server</p></div></body></html>
+      HTML
+      fi
+
+      systemctl restart nginx
+
 runcmd:
-  # Firewall
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
   - ufw --force enable
-
-  # Install Bun
-  - curl -fsSL https://bun.sh/install | bash
-  - ln -sf /root/.bun/bin/bun /usr/local/bin/bun
-  - ln -sf /root/.bun/bin/bunx /usr/local/bin/bunx
-
-  # Clone repo (specific branch)
-  - git clone -b claude/setup-vultr-python-server-IuMfs https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
-
-  # Build the React app
-  - cd /opt/mms/workspaces/default && bun install && bun run build
-
-  # Enable nginx site
-  - rm -f /etc/nginx/sites-enabled/default
-  - ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
-  - nginx -t && systemctl restart nginx
+  - bash /opt/mms-build.sh
