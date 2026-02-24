@@ -1,74 +1,56 @@
-"""Token-based authentication for the Setupo API.
-Token is generated at boot time and stored in /etc/setupo/token
-"""
+"""MMS Auth - Token-based API authentication."""
 import os
 import secrets
 import logging
-from fastapi import Request, HTTPException
-from fastapi.responses import JSONResponse
 
-logger = logging.getLogger("setupo.auth")
+from fastapi import Request, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
-TOKEN_PATH = "/etc/setupo/token"
+logger = logging.getLogger("mms.auth")
+
+TOKEN_PATH = os.environ.get("MMS_TOKEN_PATH", "/etc/mms/token")
+_cached_token: str | None = None
+
+security = HTTPBearer(auto_error=False)
 
 
 def load_token() -> str:
-    """Load the API token from disk, or generate one if missing."""
+    """Load or generate the API token."""
+    global _cached_token
+    if _cached_token:
+        return _cached_token
+
     if os.path.exists(TOKEN_PATH):
         with open(TOKEN_PATH) as f:
-            return f.read().strip()
+            _cached_token = f.read().strip()
+    else:
+        _cached_token = secrets.token_urlsafe(64)
+        os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
+        with open(TOKEN_PATH, "w") as f:
+            f.write(_cached_token)
+        os.chmod(TOKEN_PATH, 0o600)
+        logger.warning("Generated new token: %s...", _cached_token[:16])
 
-    # Generate token if it doesn't exist (dev mode)
-    token = secrets.token_urlsafe(64)
-    os.makedirs(os.path.dirname(TOKEN_PATH), exist_ok=True)
-    with open(TOKEN_PATH, "w") as f:
-        f.write(token)
-    os.chmod(TOKEN_PATH, 0o600)
-    logger.warning("Generated new API token (dev mode): %s", token[:12] + "...")
-    return token
-
-
-_cached_token: str | None = None
-
-
-def get_token() -> str:
-    global _cached_token
-    if _cached_token is None:
-        _cached_token = load_token()
     return _cached_token
 
 
-def verify_token(authorization: str | None) -> bool:
-    if not authorization:
-        return False
-    parts = authorization.split(" ", 1)
-    if len(parts) != 2 or parts[0] != "Bearer":
-        return False
-    return secrets.compare_digest(parts[1], get_token())
+# Public endpoints that don't need auth
+PUBLIC_PATHS = frozenset({"/api/health", "/docs", "/openapi.json", "/redoc"})
 
 
-# Paths that don't require authentication
-PUBLIC_PATHS = {"/api/health", "/docs", "/openapi.json", "/redoc"}
+async def require_token(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+):
+    """Dependency that validates the Bearer token."""
+    if request.url.path in PUBLIC_PATHS:
+        return None
 
+    if not credentials:
+        raise HTTPException(401, "Missing authorization token")
 
-async def auth_middleware(request: Request, call_next):
-    path = request.url.path
+    if not secrets.compare_digest(credentials.credentials, load_token()):
+        logger.warning("Invalid token from %s on %s", request.client.host, request.url.path)
+        raise HTTPException(401, "Invalid token")
 
-    # Public paths and dashboard static files
-    if path in PUBLIC_PATHS or not path.startswith("/api"):
-        return await call_next(request)
-
-    # Health endpoint is public
-    if path == "/api/health":
-        return await call_next(request)
-
-    # Verify token
-    auth_header = request.headers.get("Authorization")
-    if not verify_token(auth_header):
-        logger.warning("Unauthorized request to %s from %s", path, request.client.host)
-        return JSONResponse(
-            status_code=401,
-            content={"error": "unauthorized", "message": "Invalid or missing token"},
-        )
-
-    return await call_next(request)
+    return credentials.credentials

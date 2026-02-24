@@ -1,78 +1,105 @@
-"""Capsule (plugin/module) management routes."""
-from fastapi import APIRouter, Request, HTTPException, UploadFile, File
-from pydantic import BaseModel
-import json
+"""Capsule CRUD routes."""
+from fastapi import APIRouter, Request, HTTPException, Depends, UploadFile, File
 
-router = APIRouter()
+from core.models import CreateCapsuleRequest
+from server.auth import require_token
 
-
-class LoadCapsuleRequest(BaseModel):
-    capsule_name: str
-    target_instance: str
-    config: dict = {}
+router = APIRouter(dependencies=[Depends(require_token)])
 
 
 @router.get("/")
-async def list_capsules(request: Request):
-    """List available capsules."""
-    orch = request.app.state.orchestrator
-    loader = _get_loader()
-    available = loader.list_capsules() if loader else []
-    return {"capsules": available}
+async def list_capsules(request: Request, state: str = None):
+    engine = request.app.state.engine
+    capsules = await engine.store.list_capsules(state=state)
+    return {"capsules": capsules, "count": len(capsules)}
 
 
-@router.post("/load")
-async def load_capsule(req: LoadCapsuleRequest, request: Request):
-    """Load a capsule into a VM/MicroVM."""
-    orch = request.app.state.orchestrator
-    instance = orch.instances.get(req.target_instance)
-    if not instance:
-        raise HTTPException(404, f"Instance {req.target_instance} not found")
-
-    # Execute capsule's install script on the target instance
-    result = await orch.exec_on_instance(
-        req.target_instance,
-        f"cd /opt/capsules && ./install.sh {req.capsule_name}"
-    )
-    instance.capsules.append(req.capsule_name)
-    return {"status": "loaded", "capsule": req.capsule_name, "result": result}
+@router.post("/")
+async def create_capsule(req: CreateCapsuleRequest, request: Request):
+    engine = request.app.state.engine
+    capsule = await engine.create_capsule(req)
+    return {"capsule": capsule}
 
 
-@router.post("/upload")
-async def upload_capsule(file: UploadFile = File(...)):
-    """Upload a new capsule package."""
-    import aiofiles
-    from pathlib import Path
-
-    capsule_dir = Path("/var/lib/setupo/capsules")
-    capsule_dir.mkdir(parents=True, exist_ok=True)
-    dest = capsule_dir / file.filename
-
-    async with aiofiles.open(dest, "wb") as f:
-        content = await file.read()
-        await f.write(content)
-
-    return {"status": "uploaded", "filename": file.filename, "size": len(content)}
+@router.get("/{capsule_id}")
+async def get_capsule(capsule_id: str, request: Request):
+    engine = request.app.state.engine
+    capsule = await engine.store.get_capsule(capsule_id)
+    if not capsule:
+        raise HTTPException(404, f"Capsule {capsule_id} not found")
+    return {"capsule": capsule}
 
 
-@router.delete("/{capsule_name}")
-async def delete_capsule(capsule_name: str):
-    """Remove a capsule."""
-    from pathlib import Path
-    path = Path("/var/lib/setupo/capsules") / capsule_name
-    if not path.exists():
-        raise HTTPException(404, f"Capsule {capsule_name} not found")
-    import shutil
-    if path.is_dir():
-        shutil.rmtree(path)
-    else:
-        path.unlink()
-    return {"status": "deleted", "capsule": capsule_name}
-
-
-def _get_loader():
+@router.post("/{capsule_id}/build")
+async def build_capsule(capsule_id: str, request: Request):
+    engine = request.app.state.engine
     try:
-        from capsules.loader import CapsuleLoader
-        return CapsuleLoader()
-    except ImportError:
-        return None
+        capsule = await engine.build_capsule(capsule_id)
+        return {"capsule": capsule}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/{capsule_id}/start")
+async def start_capsule(capsule_id: str, request: Request):
+    engine = request.app.state.engine
+    try:
+        capsule = await engine.start_capsule(capsule_id)
+        return {"capsule": capsule}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/{capsule_id}/stop")
+async def stop_capsule(capsule_id: str, request: Request):
+    engine = request.app.state.engine
+    try:
+        capsule = await engine.stop_capsule(capsule_id)
+        return {"capsule": capsule}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.delete("/{capsule_id}")
+async def destroy_capsule(capsule_id: str, request: Request):
+    engine = request.app.state.engine
+    try:
+        return await engine.destroy_capsule(capsule_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.get("/{capsule_id}/logs")
+async def capsule_logs(capsule_id: str, request: Request):
+    engine = request.app.state.engine
+    try:
+        logs = await engine.get_capsule_logs(capsule_id)
+        return {"logs": logs}
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/{capsule_id}/call")
+async def call_capsule(capsule_id: str, request: Request):
+    """Make an HTTP call to a capsule's service."""
+    engine = request.app.state.engine
+    body = await request.json()
+    path = body.get("path", "/")
+    method = body.get("method", "GET")
+    data = body.get("body")
+    try:
+        return await engine.call_capsule(capsule_id, path, method, data)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
+@router.post("/{capsule_id}/upload")
+async def upload_file(capsule_id: str, file: UploadFile = File(...), request: Request = None):
+    """Upload a file to a capsule's workspace."""
+    engine = request.app.state.engine
+    capsule = await engine.store.get_capsule(capsule_id)
+    if not capsule:
+        raise HTTPException(404, f"Capsule {capsule_id} not found")
+    content = await file.read()
+    path = engine.sandbox.write_capsule_code(capsule_id, file.filename, content.decode())
+    return {"status": "uploaded", "path": str(path), "size": len(content)}

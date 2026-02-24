@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MMS - Micro Module System</title>
+    <link rel="stylesheet" href="/dashboard.css">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="logo">
+            <h1>mms</h1>
+            <span class="version">micro module system</span>
+        </div>
+        <ul class="nav-links">
+            <li class="active" data-section="overview">Overview</li>
+            <li data-section="capsules">Capsules</li>
+            <li data-section="environments">Environments</li>
+            <li data-section="pipelines">Pipelines</li>
+            <li data-section="terminal">Terminal</li>
+            <li data-section="protocol">Protocol</li>
+        </ul>
+        <div class="nav-footer">
+            <span id="health-dot" class="dot red"></span>
+            <span id="health-text">Connecting...</span>
+        </div>
+    </nav>
+
+    <main class="content">
+        <!-- Overview -->
+        <section id="section-overview" class="section active">
+            <h2>Dashboard</h2>
+            <div class="grid-4">
+                <div class="card stat">
+                    <div class="stat-val" id="s-capsules">0</div>
+                    <div class="stat-lbl">Capsules</div>
+                </div>
+                <div class="card stat">
+                    <div class="stat-val" id="s-running">0</div>
+                    <div class="stat-lbl">Running</div>
+                </div>
+                <div class="card stat">
+                    <div class="stat-val" id="s-envs">0</div>
+                    <div class="stat-lbl">Environments</div>
+                </div>
+                <div class="card stat">
+                    <div class="stat-val" id="s-disk">-</div>
+                    <div class="stat-lbl">Disk Free GB</div>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Capsules</h3>
+                <table>
+                    <thead><tr>
+                        <th>ID</th><th>Name</th><th>Runtime</th><th>State</th><th>Actions</th>
+                    </tr></thead>
+                    <tbody id="tbl-capsules"></tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Capsules -->
+        <section id="section-capsules" class="section">
+            <h2>Capsules</h2>
+            <div class="card">
+                <h3>Create Capsule</h3>
+                <form id="f-create-capsule">
+                    <div class="form-row">
+                        <input name="name" placeholder="Name" required>
+                        <select name="runtime">
+                            <option value="python">Python</option>
+                            <option value="node">Node.js</option>
+                            <option value="shell">Shell</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                        </select>
+                        <select name="isolation">
+                            <option value="container">Container</option>
+                            <option value="venv">Venv</option>
+                            <option value="none">None</option>
+                        </select>
+                    </div>
+                    <div class="form-row">
+                        <input name="entrypoint" placeholder="Entrypoint (main.py)" value="main.py">
+                        <input name="dependencies" placeholder="Dependencies (comma sep)">
+                    </div>
+                    <textarea name="code" placeholder="# Paste your code here..." rows="12"></textarea>
+                    <button type="submit">Create Capsule</button>
+                </form>
+            </div>
+            <div id="capsules-grid" class="grid-2"></div>
+        </section>
+
+        <!-- Environments -->
+        <section id="section-environments" class="section">
+            <h2>Environments</h2>
+            <div class="card">
+                <h3>Create Environment</h3>
+                <form id="f-create-env">
+                    <div class="form-row">
+                        <input name="name" placeholder="Name" required>
+                        <select name="runtime">
+                            <option value="python">Python</option>
+                            <option value="node">Node.js</option>
+                            <option value="shell">Shell</option>
+                        </select>
+                        <input name="packages" placeholder="Packages (comma sep)">
+                        <button type="submit">Create</button>
+                    </div>
+                </form>
+            </div>
+            <div id="envs-list"></div>
+        </section>
+
+        <!-- Pipelines -->
+        <section id="section-pipelines" class="section">
+            <h2>Pipelines</h2>
+            <div class="card">
+                <h3>Run Pipeline</h3>
+                <form id="f-run-pipeline">
+                    <input name="name" placeholder="Pipeline name" required>
+                    <textarea name="steps" rows="8" placeholder='[{"capsule":"my-api","params":{"command":"python main.py"}}]'></textarea>
+                    <button type="submit">Run</button>
+                </form>
+            </div>
+            <div id="pipelines-list"></div>
+        </section>
+
+        <!-- Terminal -->
+        <section id="section-terminal" class="section">
+            <h2>Terminal</h2>
+            <div class="terminal">
+                <div class="terminal-bar">
+                    <select id="term-target"><option value="">Select capsule...</option></select>
+                    <button id="btn-ws-connect" class="small">Connect WS</button>
+                </div>
+                <div id="term-output" class="term-output"></div>
+                <form id="f-term" class="term-input">
+                    <span class="prompt">$</span>
+                    <input id="term-cmd" autocomplete="off" placeholder="command...">
+                </form>
+            </div>
+        </section>
+
+        <!-- Protocol -->
+        <section id="section-protocol" class="section">
+            <h2>MMS Protocol</h2>
+            <div class="card">
+                <textarea id="proto-code" rows="15" placeholder="# MMS Protocol
+CAPSULE CREATE &quot;my-api&quot; runtime=python
+CAPSULE START &quot;my-api&quot;
+EXEC &quot;my-api&quot; &quot;pip install fastapi&quot;
+CAPSULE LIST"></textarea>
+                <button id="btn-proto-run">Execute</button>
+            </div>
+            <div id="proto-output" class="term-output" style="margin-top:15px;max-height:300px"></div>
+        </section>
+    </main>
+    <script src="/dashboard.js"></script>
+</body>
+</html>

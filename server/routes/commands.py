@@ -1,98 +1,91 @@
-"""Command execution and SSH routes."""
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+"""Command execution routes."""
+from fastapi import APIRouter, Request, HTTPException, Depends
 
-router = APIRouter()
+from core.models import ExecRequest, ProtocolRequest
+from server.auth import require_token
 
-
-class ExecRequest(BaseModel):
-    instance_id: str
-    command: str
-
-
-class SSHExecRequest(BaseModel):
-    host: str
-    command: str
-    key_path: str | None = None
-
-
-class ProtocolExecRequest(BaseModel):
-    code: str
-    target: str | None = None
+router = APIRouter(dependencies=[Depends(require_token)])
 
 
 @router.post("/exec")
 async def exec_command(req: ExecRequest, request: Request):
-    """Execute a command on a specific VM/MicroVM."""
-    orch = request.app.state.orchestrator
+    engine = request.app.state.engine
     try:
-        result = await orch.exec_on_instance(req.instance_id, req.command)
+        result = await engine.exec_in_capsule(req.capsule_id, req.command, req.timeout)
         return {"result": result}
     except ValueError as e:
         raise HTTPException(404, str(e))
 
 
-@router.post("/ssh")
-async def ssh_exec(req: SSHExecRequest, request: Request):
-    """Execute a command on an external host via SSH."""
-    orch = request.app.state.orchestrator
-    result = await orch.ssh_to_external(
-        host=req.host,
-        command=req.command,
-        key_path=req.key_path,
-    )
-    return {"result": result}
-
-
 @router.post("/protocol")
-async def protocol_exec(req: ProtocolExecRequest, request: Request):
-    """Execute setupo protocol commands."""
-    from protocol.parser import SetupoParser
-    parser = SetupoParser()
-    orch = request.app.state.orchestrator
+async def protocol_exec(req: ProtocolRequest, request: Request):
+    """Execute MMS protocol code."""
+    from protocol.parser import MMSParser
+    parser = MMSParser()
+    engine = request.app.state.engine
 
     try:
         instructions = parser.parse(req.code)
         results = []
         for instr in instructions:
-            result = await _execute_instruction(orch, instr, req.target)
+            result = await _execute_instruction(engine, instr)
             results.append(result)
         return {"results": results}
+    except SyntaxError as e:
+        raise HTTPException(400, f"Parse error: {e}")
     except Exception as e:
-        raise HTTPException(400, f"Protocol error: {e}")
+        raise HTTPException(400, f"Execution error: {e}")
 
 
-async def _execute_instruction(orch, instruction: dict, default_target: str = None):
-    """Execute a single parsed protocol instruction."""
-    action = instruction.get("action")
-    target = instruction.get("target", default_target)
+async def _execute_instruction(engine, instr: dict) -> dict:
+    action = instr.get("action")
 
-    if action == "create":
-        vm_type = instruction.get("type", "microvm")
-        name = instruction.get("name", "unnamed")
-        if vm_type == "vm":
-            inst = await orch.create_vm(name=name, **instruction.get("params", {}))
-        else:
-            inst = await orch.create_microvm(name=name, **instruction.get("params", {}))
-        return {"action": "created", "instance": inst.to_dict()}
-
-    elif action == "exec":
-        if not target:
-            return {"error": "No target specified for exec"}
-        return await orch.exec_on_instance(target, instruction.get("command", ""))
-
-    elif action == "destroy":
-        if not target:
-            return {"error": "No target specified for destroy"}
-        return await orch.destroy_instance(target)
-
-    elif action == "capsule":
-        capsule_name = instruction.get("name")
-        if not target:
-            return {"error": "No target specified for capsule"}
-        result = await orch.exec_on_instance(
-            target, f"cd /opt/capsules && ./install.sh {capsule_name}"
+    if action == "capsule.create":
+        from core.models import CreateCapsuleRequest, RuntimeType
+        req = CreateCapsuleRequest(
+            name=instr["name"],
+            runtime=RuntimeType(instr.get("runtime", "python")),
+            code=instr.get("code"),
+            dependencies=instr.get("deps", []),
         )
-        return {"action": "capsule_loaded", "capsule": capsule_name, "result": result}
+        return await engine.create_capsule(req)
+
+    elif action == "capsule.start":
+        cap = await engine.store.get_capsule_by_name(instr["target"])
+        if not cap:
+            return {"error": f"Capsule '{instr['target']}' not found"}
+        return await engine.start_capsule(cap["id"])
+
+    elif action == "capsule.stop":
+        cap = await engine.store.get_capsule_by_name(instr["target"])
+        if not cap:
+            return {"error": f"Capsule '{instr['target']}' not found"}
+        return await engine.stop_capsule(cap["id"])
+
+    elif action == "capsule.exec":
+        cap = await engine.store.get_capsule_by_name(instr["target"])
+        if not cap:
+            return {"error": f"Capsule '{instr['target']}' not found"}
+        return await engine.exec_in_capsule(cap["id"], instr["command"])
+
+    elif action == "capsule.destroy":
+        cap = await engine.store.get_capsule_by_name(instr["target"])
+        if not cap:
+            return {"error": f"Capsule '{instr['target']}' not found"}
+        return await engine.destroy_capsule(cap["id"])
+
+    elif action == "capsule.list":
+        return {"capsules": await engine.store.list_capsules()}
+
+    elif action == "pipeline.run":
+        return await engine.run_pipeline(instr["name"], instr["steps"])
+
+    elif action == "env.create":
+        from core.models import RuntimeType
+        return await engine.create_environment(
+            name=instr["name"],
+            runtime=RuntimeType(instr.get("runtime", "python")),
+            packages=instr.get("packages", []),
+        )
 
     return {"error": f"Unknown action: {action}"}

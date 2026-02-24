@@ -1,8 +1,0 @@
-name: nginx-proxy
-version: "1.0.0"
-description: "Nginx reverse proxy capsule - expose services from MicroVMs"
-type: service
-dependencies: []
-ports:
-  - 80
-  - 443

@@ -1,9 +1,0 @@
-name: python-app
-version: "1.0.0"
-description: "Python application runner - deploy any Python app inside a MicroVM"
-type: service
-dependencies:
-  - python3
-  - python3-pip
-ports:
-  - 8080

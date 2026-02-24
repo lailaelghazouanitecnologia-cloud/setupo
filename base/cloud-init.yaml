@@ -1,6 +1,6 @@
 #cloud-config
-# Setupo Base VM - Cloud-init for Vultr
-# Deploys: Orchestrator + Dashboard + Firecracker MicroVMs
+# MMS - Micro Module System - Cloud-init for Vultr
+# Bootstrap: Docker + MMS server + Dashboard at zarnetti.com
 
 package_update: true
 package_upgrade: true
@@ -16,40 +16,32 @@ packages:
   - git
   - curl
   - jq
-  - qemu-kvm
-  - libvirt-daemon-system
-  - bridge-utils
-  - iptables
+  - ca-certificates
+  - gnupg
 
 write_files:
-  - path: /etc/setupo/config.yaml
+  - path: /etc/mms/config.yaml
     permissions: "0600"
     content: |
       domain: zarnetti.com
       api_port: 8000
-      dashboard_port: 8080
-      microvm_subnet: 172.16.0.0/24
-      vm_subnet: 10.10.0.0/24
-      max_microvms: 50
-      max_vms: 10
-      capsule_dir: /opt/setupo/capsules
-      data_dir: /var/lib/setupo
-      log_dir: /var/log/setupo
+      data_dir: /var/lib/mms
+      log_dir: /var/log/mms
 
-  - path: /etc/setupo/generate_token.py
+  - path: /etc/mms/generate_token.py
     permissions: "0700"
     content: |
       #!/usr/bin/env python3
-      import secrets
-      import os
+      import secrets, os
       token = secrets.token_urlsafe(64)
-      os.makedirs("/etc/setupo", exist_ok=True)
-      with open("/etc/setupo/token", "w") as f:
+      os.makedirs("/etc/mms", exist_ok=True)
+      with open("/etc/mms/token", "w") as f:
           f.write(token)
-      os.chmod("/etc/setupo/token", 0o600)
-      print(f"===== SETUPO ACCESS TOKEN =====")
-      print(f"{token}")
-      print(f"===== SAVE THIS TOKEN NOW =====")
+      os.chmod("/etc/mms/token", 0o600)
+      print("=" * 50)
+      print("MMS ACCESS TOKEN")
+      print(token)
+      print("=" * 50)
 
 runcmd:
   # Firewall
@@ -57,42 +49,46 @@ runcmd:
   - ufw default allow outgoing
   - ufw allow 80/tcp
   - ufw allow 443/tcp
-  - ufw allow 8000/tcp
   - ufw --force enable
 
-  # Generate secure token
-  - python3 /etc/setupo/generate_token.py
+  # Install Docker
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 
-  # Clone repo
-  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo
+  # Generate token
+  - python3 /etc/mms/generate_token.py
 
-  # Setup Python environment
-  - python3 -m venv /opt/setupo/venv
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
+  # Clone MMS
+  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
 
-  # Create data directories
-  - mkdir -p /var/lib/setupo/vms
-  - mkdir -p /var/lib/setupo/microvms
-  - mkdir -p /var/lib/setupo/capsules
-  - mkdir -p /var/log/setupo
+  # Python env
+  - python3 -m venv /opt/mms/venv
+  - /opt/mms/venv/bin/pip install -r /opt/mms/requirements.txt
 
-  # Install Firecracker for MicroVMs
-  - bash /opt/setupo/base/install_firecracker.sh
+  # Data dirs
+  - mkdir -p /var/lib/mms/capsules
+  - mkdir -p /var/log/mms
 
-  # Setup networking for VMs
-  - bash /opt/setupo/base/setup_network.sh
+  # Pull base Docker images
+  - docker pull python:3.12-slim
+  - docker pull node:20-slim
+  - docker pull alpine:3.19
 
   # Deploy nginx
-  - cp /opt/setupo/deploy/nginx.conf /etc/nginx/sites-available/setupo
-  - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
+  - cp /opt/mms/deploy/nginx.conf /etc/nginx/sites-available/mms
+  - ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
   - rm -f /etc/nginx/sites-enabled/default
   - systemctl restart nginx
 
-  # Deploy systemd services
-  - cp /opt/setupo/deploy/setupo.service /etc/systemd/system/
+  # Deploy systemd
+  - cp /opt/mms/deploy/mms.service /etc/systemd/system/
   - systemctl daemon-reload
-  - systemctl enable setupo
-  - systemctl start setupo
+  - systemctl enable mms
+  - systemctl start mms
 
-  # SSL (will work once DNS points to this IP)
+  # SSL
   - certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com || true
