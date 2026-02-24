@@ -117,20 +117,6 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_deploy_logs_instance ON deploy_logs(instance_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(project_id, name);
 
-        -- Keep legacy tables for backwards compat
-        CREATE TABLE IF NOT EXISTS capsules (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            manifest TEXT NOT NULL,
-            state TEXT DEFAULT 'created',
-            container_id TEXT,
-            pid INTEGER,
-            ip TEXT,
-            error TEXT,
-            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            started_at TEXT,
-            metadata TEXT DEFAULT '{}'
-        );
     """)
     await db.commit()
     logger.info("Database migrations complete")

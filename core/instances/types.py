@@ -10,14 +10,14 @@ INSTANCE_CONFIGS = {
     "setup": {
         "description": "Basic server with nginx, SSL-ready, optimized for quick deploy",
         "default_plan": "vc2-1c-1gb",
-        "cloud_init": "cloud-init-setup.yaml",
+        "cloud_init": "cloud-init.yaml",
         "features": ["nginx", "certbot", "node", "python", "git", "ufw"],
     },
     "dev": {
         "description": "Full development environment with tooling",
         "default_plan": "vc2-1c-2gb",
-        "cloud_init": "cloud-init-dev.yaml",
-        "features": ["docker", "node", "python", "go", "rust", "git", "tmux"],
+        "cloud_init": "cloud-init.yaml",
+        "features": ["nginx", "node", "python", "git", "ufw"],
     },
     "gpu": {
         "description": "GPU-powered instance for ML/AI workloads (Runpod)",
@@ -28,7 +28,7 @@ INSTANCE_CONFIGS = {
     "custom": {
         "description": "User-defined specifications",
         "default_plan": "vc2-1c-1gb",
-        "cloud_init": "cloud-init-basic.yaml",
+        "cloud_init": "cloud-init.yaml",
         "features": [],
     },
 }
