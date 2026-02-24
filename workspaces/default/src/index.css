@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #08080d;
+  --color-bg2: #10101a;
+  --color-bg3: #181825;
+  --color-border: #252538;
+  --color-dim: #6a6a82;
+  --color-accent: #7c6ff7;
+  --color-accent2: #b4a9fe;
+}
+
+body {
+  font-family: "SF Mono", "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  background: var(--color-bg);
+  margin: 0;
+}
+
+/* Radix overrides for dark mono theme */
+.radix-themes {
+  --color-background: var(--color-bg) !important;
+}
