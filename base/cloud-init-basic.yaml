@@ -1,5 +1,6 @@
 #cloud-config
-# MMS - Full stack: React frontend + FastAPI backend
+# Setupo v0.2 — AI Agent Infrastructure API
+# Full stack: FastAPI backend + React dashboard
 
 package_update: true
 
@@ -12,12 +13,16 @@ packages:
   - python3
   - python3-venv
   - python3-pip
+  - certbot
+  - python3-certbot-nginx
+  - jq
+  - rsync
 
 write_files:
-  - path: /etc/nginx/sites-available/mms
+  - path: /etc/nginx/sites-available/setupo
     permissions: "0644"
     content: |
-      upstream mms_api {
+      upstream setupo_api {
           server 127.0.0.1:8000;
       }
 
@@ -27,7 +32,7 @@ write_files:
 
           # API proxy
           location /api/ {
-              proxy_pass http://mms_api;
+              proxy_pass http://setupo_api;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -37,7 +42,7 @@ write_files:
 
           # WebSocket proxy
           location /ws/ {
-              proxy_pass http://mms_api;
+              proxy_pass http://setupo_api;
               proxy_http_version 1.1;
               proxy_set_header Upgrade $http_upgrade;
               proxy_set_header Connection "upgrade";
@@ -46,12 +51,12 @@ write_files:
           }
 
           # FastAPI docs
-          location /docs { proxy_pass http://mms_api; }
-          location /openapi.json { proxy_pass http://mms_api; }
-          location /redoc { proxy_pass http://mms_api; }
+          location /docs { proxy_pass http://setupo_api; }
+          location /openapi.json { proxy_pass http://setupo_api; }
+          location /redoc { proxy_pass http://setupo_api; }
 
           # React frontend
-          root /var/www/mms;
+          root /var/www/setupo;
           index index.html;
 
           location / {
@@ -64,117 +69,121 @@ write_files:
           }
       }
 
-  - path: /etc/systemd/system/mms.service
+  - path: /etc/systemd/system/setupo.service
     permissions: "0644"
     content: |
       [Unit]
-      Description=MMS - Micro Module System
+      Description=Setupo — AI Agent Infrastructure API
       After=network.target
 
       [Service]
       Type=simple
       User=root
-      WorkingDirectory=/opt/mms
-      Environment=PATH=/opt/mms/venv/bin:/usr/local/bin:/usr/bin:/bin
-      Environment=MMS_TOKEN_PATH=/etc/mms/token
-      Environment=PYTHONPATH=/opt/mms
-      ExecStart=/opt/mms/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      WorkingDirectory=/opt/setupo
+      Environment=PATH=/opt/setupo/venv/bin:/usr/local/bin:/usr/bin:/bin
+      Environment=PYTHONPATH=/opt/setupo
+      Environment=SETUPO_DATA_DIR=/opt/setupo/data
+      Environment=SETUPO_CONFIG_DIR=/opt/setupo/config
+      Environment=VULTR_API_KEY=VZKRXDOZ2KXVUMCSCZVFQXB4WJJCCCVDMSNA
+      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
       Restart=always
       RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
 
-  - path: /opt/mms-build.sh
+  - path: /opt/setupo-build.sh
     permissions: "0755"
     content: |
       #!/bin/bash
       set -x
-      exec > /var/log/mms-build.log 2>&1
+      exec > /var/log/setupo-build.log 2>&1
+
+      echo "=== Setupo v0.2 Deploy ==="
 
       # Ensure dirs
-      mkdir -p /var/www/mms
-      mkdir -p /etc/mms
+      mkdir -p /var/www/setupo
+      mkdir -p /opt/setupo/config
+      mkdir -p /opt/setupo/data
 
       # Fallback page
-      cat > /var/www/mms/index.html <<'HTML'
-      <!DOCTYPE html><html><head><title>MMS - Building...</title>
-      <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
-      .c{text-align:center}h1{color:#b4a9fe;font-size:2em}p{color:#6a6a82}</style></head>
-      <body><div class="c"><h1>mms</h1><p>Building dashboard and backend... check back in a minute.</p></div></body></html>
+      cat > /var/www/setupo/index.html <<'HTML'
+      <!DOCTYPE html><html><head><title>Setupo - Building...</title>
+      <style>body{background:#0a0a0f;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
+      .c{text-align:center}h1{color:#7c9fff;font-size:2em}p{color:#6a6a82}</style></head>
+      <body><div class="c"><h1>setupo</h1><p>Building API and dashboard... check back in a minute.</p></div></body></html>
       HTML
 
-      # Setup nginx with fallback
+      # Setup nginx
       rm -f /etc/nginx/sites-enabled/default
-      ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
+      ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
       nginx -t && systemctl restart nginx
 
-      # Clone repo
+      # Clone repo (new branch)
       git clone -b claude/setup-vultr-python-server-IuMfs \
-        https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
+        https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo
 
-      # ---- BACKEND: Python venv + FastAPI ----
+      # ---- BACKEND ----
       echo "=== Setting up Python backend ==="
-      cd /opt/mms
-      python3 -m venv /opt/mms/venv
-      /opt/mms/venv/bin/pip install --upgrade pip
-      /opt/mms/venv/bin/pip install -r /opt/mms/requirements.txt
+      cd /opt/setupo
+      python3 -m venv /opt/setupo/venv
+      /opt/setupo/venv/bin/pip install --upgrade pip
+      /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
 
       # Generate auth token
-      /opt/mms/venv/bin/python3 -c "
+      /opt/setupo/venv/bin/python3 -c "
       import secrets, os
-      os.makedirs('/etc/mms', exist_ok=True)
+      os.makedirs('/opt/setupo/config', exist_ok=True)
       token = secrets.token_urlsafe(64)
-      with open('/etc/mms/token', 'w') as f:
+      with open('/opt/setupo/config/token', 'w') as f:
           f.write(token)
-      os.chmod('/etc/mms/token', 0o600)
+      os.chmod('/opt/setupo/config/token', 0o600)
       print(f'Token generated: {token[:16]}...')
       "
 
       # Start backend
       systemctl daemon-reload
-      systemctl enable mms
-      systemctl start mms
+      systemctl enable setupo
+      systemctl start setupo
       echo "Backend started on :8000"
 
-      # Wait for backend to be ready
-      for i in $(seq 1 15); do
+      # Wait for backend
+      for i in $(seq 1 20); do
         if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
-          echo "Backend is healthy"
+          echo "Backend is healthy!"
+          curl -s http://127.0.0.1:8000/api/health
           break
         fi
         echo "Waiting for backend... ($i)"
-        sleep 2
+        sleep 3
       done
 
-      # ---- FRONTEND: Bun + React build ----
+      # ---- FRONTEND ----
       echo "=== Building React frontend ==="
       export HOME=/root
       curl -fsSL https://bun.sh/install | bash
       export BUN_INSTALL=/root/.bun
       export PATH=$BUN_INSTALL/bin:$PATH
 
-      cd /opt/mms/workspaces/default
+      cd /opt/setupo/workspaces/default
       bun install --no-save
       bun run build
 
-      # Deploy built files
-      if [ -d /opt/mms/workspaces/default/dist ]; then
-        rm -rf /var/www/mms/*
-        cp -r /opt/mms/workspaces/default/dist/* /var/www/mms/
+      # Deploy frontend
+      if [ -d /opt/setupo/workspaces/default/dist ]; then
+        rm -rf /var/www/setupo/*
+        cp -r /opt/setupo/workspaces/default/dist/* /var/www/setupo/
         echo "FRONTEND BUILD SUCCESS"
       else
-        echo "FRONTEND BUILD FAILED - dist/ not found"
-        cat > /var/www/mms/index.html <<'HTML'
-      <!DOCTYPE html><html><head><title>MMS - Build Failed</title>
-      <style>body{background:#08080d;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
-      .c{text-align:center}h1{color:#ff5c5c;font-size:2em}pre{color:#6a6a82;text-align:left;max-width:600px;overflow:auto}</style></head>
-      <body><div class="c"><h1>mms build failed</h1><p>Check /var/log/mms-build.log on the server</p></div></body></html>
-      HTML
+        echo "FRONTEND BUILD FAILED - using fallback page"
       fi
 
       systemctl restart nginx
-      echo "=== MMS deployment complete ==="
+
+      # SSL
+      certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com --redirect || true
+
+      echo "=== Setupo deployment complete ==="
 
 runcmd:
   - ufw default deny incoming
@@ -183,4 +192,4 @@ runcmd:
   - ufw allow 80/tcp
   - ufw allow 443/tcp
   - ufw --force enable
-  - bash /opt/mms-build.sh
+  - bash /opt/setupo-build.sh
