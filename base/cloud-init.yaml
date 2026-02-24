@@ -1,6 +1,6 @@
 #cloud-config
 # Setupo — Cloud-init for Vultr VPS
-# Bootstraps: Python + Setupo API server + Nginx reverse proxy
+# Bootstraps: Python + Setupo API server + Nginx reverse proxy + SSL
 
 package_update: true
 package_upgrade: true
@@ -22,7 +22,7 @@ write_files:
   - path: /opt/setupo/.env
     permissions: "0600"
     content: |
-      VULTR_API_KEY=I5LHJ37GZDZQYGUEMEJHOLSNQUAQ5FTNW3YA
+      VULTR_API_KEY=__VULTR_API_KEY__
       SETUPO_HOST=0.0.0.0
       SETUPO_PORT=8000
       SETUPO_DATA_DIR=/opt/setupo/data
@@ -50,32 +50,33 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  # Firewall
+  # ── Firewall ──────────────────────────────────────────────
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
-  - ufw allow 8000/tcp
   - ufw --force enable
 
-  # Clone setupo
-  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
+  # ── Clone setupo ──────────────────────────────────────────
+  # NOTE: If repo is private, replace URL with:
+  #   https://<GITHUB_TOKEN>@github.com/lailaelghazouanitecnologia-cloud/setupo.git
+  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || { echo "FATAL: git clone failed"; exit 1; }
   - cp -r /opt/setupo/repo/* /opt/setupo/
   - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
   - rm -rf /opt/setupo/repo
 
-  # Python virtual env
+  # ── Python virtual env ────────────────────────────────────
   - python3 -m venv /opt/setupo/venv
   - /opt/setupo/venv/bin/pip install --upgrade pip
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
+  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt || { echo "FATAL: pip install failed"; exit 1; }
 
-  # Data dirs
+  # ── Data dirs ─────────────────────────────────────────────
   - mkdir -p /opt/setupo/data
   - mkdir -p /opt/setupo/config
   - mkdir -p /var/log/setupo
 
-  # Nginx config
+  # ── Nginx (HTTP-only bootstrap — certbot adds SSL after) ──
   - |
     cat > /etc/nginx/sites-available/setupo <<'NGINX'
     upstream setupo_api {
@@ -84,7 +85,7 @@ runcmd:
 
     server {
         listen 80;
-        server_name _;
+        server_name zarnetti.com;
 
         location /api/ {
             proxy_pass http://setupo_api;
@@ -122,7 +123,12 @@ runcmd:
   - rm -f /etc/nginx/sites-enabled/default
   - nginx -t && systemctl restart nginx
 
-  # Start setupo
+  # ── Start setupo service ──────────────────────────────────
   - systemctl daemon-reload
   - systemctl enable setupo
   - systemctl start setupo
+
+  # ── SSL with certbot (requires DNS already pointing here) ─
+  # Wait a few seconds for nginx + setupo to be fully up
+  - sleep 5
+  - certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m ayman_gha@hotmail.com --redirect || echo "WARN: certbot failed — SSL not configured. Ensure DNS A record points to this server."
