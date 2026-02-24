@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+node_modules/
+dist/
+package-lock.json
+bun.lockb
+.env
+*.db
