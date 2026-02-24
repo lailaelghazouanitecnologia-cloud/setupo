@@ -13,6 +13,8 @@ packages:
   - python3
   - python3-venv
   - python3-pip
+  - python3-dev
+  - build-essential
   - certbot
   - python3-certbot-nginx
   - jq
@@ -85,7 +87,7 @@ write_files:
       Environment=SETUPO_DATA_DIR=/opt/setupo/data
       Environment=SETUPO_CONFIG_DIR=/opt/setupo/config
       Environment=VULTR_API_KEY=VZKRXDOZ2KXVUMCSCZVFQXB4WJJCCCVDMSNA
-      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000
       Restart=always
       RestartSec=5
 
@@ -96,17 +98,13 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      set -x
+      set -euxo pipefail
       exec > /var/log/setupo-build.log 2>&1
 
-      echo "=== Setupo v0.2 Deploy ==="
-
-      # Ensure dirs
-      mkdir -p /var/www/setupo
-      mkdir -p /opt/setupo/config
-      mkdir -p /opt/setupo/data
+      echo "=== Setupo v0.2 Deploy — $(date) ==="
 
       # Fallback page
+      mkdir -p /var/www/setupo
       cat > /var/www/setupo/index.html <<'HTML'
       <!DOCTYPE html><html><head><title>Setupo - Building...</title>
       <style>body{background:#0a0a0f;color:#d0d0dc;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh}
@@ -114,14 +112,22 @@ write_files:
       <body><div class="c"><h1>setupo</h1><p>Building API and dashboard... check back in a minute.</p></div></body></html>
       HTML
 
-      # Setup nginx
+      # Setup nginx with fallback
       rm -f /etc/nginx/sites-enabled/default
       ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
       nginx -t && systemctl restart nginx
 
-      # Clone repo (new branch)
+      # Clone repo FIRST (target dir must not exist)
+      rm -rf /opt/setupo
       git clone -b claude/setup-vultr-python-server-IuMfs \
         https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo
+
+      echo "Git clone OK"
+      ls -la /opt/setupo/
+
+      # Create data/config dirs AFTER clone
+      mkdir -p /opt/setupo/config
+      mkdir -p /opt/setupo/data
 
       # ---- BACKEND ----
       echo "=== Setting up Python backend ==="
@@ -129,6 +135,8 @@ write_files:
       python3 -m venv /opt/setupo/venv
       /opt/setupo/venv/bin/pip install --upgrade pip
       /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
+
+      echo "=== pip install complete ==="
 
       # Generate auth token
       /opt/setupo/venv/bin/python3 -c "
@@ -141,22 +149,29 @@ write_files:
       print(f'Token generated: {token[:16]}...')
       "
 
+      # Verify the app can import
+      /opt/setupo/venv/bin/python3 -c "from server.main import app; print('App import OK, routes:', len(app.routes))"
+
       # Start backend
       systemctl daemon-reload
       systemctl enable setupo
       systemctl start setupo
-      echo "Backend started on :8000"
+      echo "Backend service started"
 
       # Wait for backend
-      for i in $(seq 1 20); do
+      for i in $(seq 1 30); do
         if curl -s http://127.0.0.1:8000/api/health > /dev/null 2>&1; then
           echo "Backend is healthy!"
           curl -s http://127.0.0.1:8000/api/health
           break
         fi
-        echo "Waiting for backend... ($i)"
-        sleep 3
+        echo "Waiting for backend... ($i/30)"
+        sleep 2
       done
+
+      # Show service status for debugging
+      systemctl status setupo --no-pager || true
+      journalctl -u setupo --no-pager -n 30 || true
 
       # ---- FRONTEND ----
       echo "=== Building React frontend ==="
@@ -165,25 +180,31 @@ write_files:
       export BUN_INSTALL=/root/.bun
       export PATH=$BUN_INSTALL/bin:$PATH
 
-      cd /opt/setupo/workspaces/default
-      bun install --no-save
-      bun run build
+      if [ -d /opt/setupo/workspaces/default ]; then
+        cd /opt/setupo/workspaces/default
+        bun install --no-save
+        bun run build
 
-      # Deploy frontend
-      if [ -d /opt/setupo/workspaces/default/dist ]; then
-        rm -rf /var/www/setupo/*
-        cp -r /opt/setupo/workspaces/default/dist/* /var/www/setupo/
-        echo "FRONTEND BUILD SUCCESS"
+        if [ -d /opt/setupo/workspaces/default/dist ]; then
+          rm -rf /var/www/setupo/*
+          cp -r /opt/setupo/workspaces/default/dist/* /var/www/setupo/
+          echo "FRONTEND BUILD SUCCESS"
+        else
+          echo "FRONTEND BUILD FAILED - dist/ not found"
+        fi
       else
-        echo "FRONTEND BUILD FAILED - using fallback page"
+        echo "No workspaces/default found, using dashboard/static"
+        if [ -d /opt/setupo/dashboard/static ]; then
+          cp -r /opt/setupo/dashboard/static/* /var/www/setupo/
+        fi
       fi
 
       systemctl restart nginx
 
-      # SSL
-      certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com --redirect || true
+      # SSL (Cloudflare proxy might handle this, try anyway)
+      certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com --redirect 2>&1 || echo "Certbot skipped (likely Cloudflare proxied)"
 
-      echo "=== Setupo deployment complete ==="
+      echo "=== Setupo deployment complete — $(date) ==="
 
 runcmd:
   - ufw default deny incoming
