@@ -40,7 +40,10 @@ async function request<T = unknown>(
 }
 
 // Auth
-export async function login(email: string, password: string): Promise<{ token: string; email: string; role: string }> {
+export async function login(
+  email: string,
+  password: string
+): Promise<{ token: string; email: string; role: string }> {
   const res = await fetch(`${API_BASE}/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -58,7 +61,7 @@ export async function login(email: string, password: string): Promise<{ token: s
 // Health
 export const getHealth = () => request("GET", "/health");
 
-// Capsules
+// Capsules (legacy)
 export const listCapsules = (state?: string) =>
   request<{ capsules: Capsule[]; count: number }>(
     "GET",
@@ -86,7 +89,67 @@ export const execInCapsule = (capsuleId: string, command: string) =>
     command,
   });
 
-// Environments
+// Services
+export const listServices = () =>
+  request<{ services: Service[]; count: number }>("GET", "/services/");
+
+export const createService = (data: CreateServiceInput) =>
+  request("POST", "/services/", data);
+
+export const stopService = (name: string) =>
+  request("POST", `/services/${name}/stop`);
+
+export const restartService = (name: string) =>
+  request("POST", `/services/${name}/restart`);
+
+export const deleteService = (name: string) =>
+  request("DELETE", `/services/${name}`);
+
+export const getServiceLogs = (name: string, tail?: number) =>
+  request<{ name: string; logs: string[]; total: number }>(
+    "GET",
+    `/services/${name}/logs${tail ? `?tail=${tail}` : ""}`
+  );
+
+// File System
+export const listDir = (path?: string) =>
+  request<{ path: string; items: FSItem[]; count: number }>(
+    "GET",
+    `/fs/list${path ? `?path=${encodeURIComponent(path)}` : ""}`
+  );
+
+export const readFile = (path: string) =>
+  request<{ path: string; content: string; size: number }>(
+    "GET",
+    `/fs/read?path=${encodeURIComponent(path)}`
+  );
+
+export const writeFile = (path: string, content: string) =>
+  request("POST", "/fs/write", { path, content });
+
+export const deleteFile = (path: string) =>
+  request("DELETE", `/fs/delete?path=${encodeURIComponent(path)}`);
+
+export const mkDir = (path: string) =>
+  request("POST", "/fs/mkdir", { path });
+
+// Workspaces
+export const listWorkspaces = () =>
+  request<{ workspaces: Workspace[]; count: number }>("GET", "/workspaces/");
+
+export const cloneWorkspace = (
+  repo: string,
+  branch?: string,
+  name?: string
+) => request("POST", "/workspaces/clone", { repo, branch: branch || "main", name });
+
+export const pullWorkspace = (name: string) =>
+  request("POST", `/workspaces/${name}/pull`);
+
+export const deleteWorkspace = (name: string) =>
+  request("DELETE", `/workspaces/${name}`);
+
+// Environments (legacy)
 export const listEnvironments = () =>
   request<{ environments: Environment[] }>("GET", "/envs/");
 
@@ -96,18 +159,59 @@ export const createEnvironment = (data: CreateEnvInput) =>
 export const destroyEnvironment = (id: string) =>
   request("DELETE", `/envs/${id}`);
 
-// Pipelines
+// Pipelines (legacy)
 export const listPipelines = () =>
   request<{ pipelines: Pipeline[] }>("GET", "/pipelines/");
 
 export const runPipeline = (name: string, steps: PipelineStep[]) =>
   request("POST", "/pipelines/", { name, steps });
 
-// Protocol
+// Protocol (legacy)
 export const execProtocol = (code: string) =>
   request<{ results: unknown[] }>("POST", "/commands/protocol", { code });
 
-// Types
+// Types - Services
+export interface Service {
+  id: string;
+  name: string;
+  command: string;
+  port: number | null;
+  pid: number | null;
+  status: string;
+  working_dir: string;
+  started_at: string | null;
+  output_lines: number;
+}
+
+export interface CreateServiceInput {
+  name: string;
+  command: string;
+  working_dir?: string;
+  port?: number;
+  env?: Record<string, string>;
+}
+
+// Types - File System
+export interface FSItem {
+  name: string;
+  path: string;
+  type: "file" | "dir" | "unknown";
+  size: number | null;
+  modified: number | null;
+  permissions: string;
+}
+
+// Types - Workspaces
+export interface Workspace {
+  name: string;
+  path: string;
+  is_git: boolean;
+  modified: number;
+  repo?: string;
+  branch?: string;
+}
+
+// Types - Capsules (legacy)
 export interface Capsule {
   id: string;
   name: string;

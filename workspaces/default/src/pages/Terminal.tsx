@@ -1,134 +1,149 @@
-import { useEffect, useRef, useState } from "react";
-import { Box, Text, Flex, Card, Select, Button } from "@radix-ui/themes";
-import { listCapsules, execInCapsule, type Capsule } from "../lib/api";
-
-interface Line {
-  type: "cmd" | "stdout" | "stderr" | "info";
-  text: string;
-}
+import { useEffect, useRef } from "react";
+import { Terminal as XTerm } from "xterm";
+import { FitAddon } from "xterm-addon-fit";
+import { WebLinksAddon } from "xterm-addon-web-links";
+import "xterm/css/xterm.css";
 
 export default function Terminal() {
-  const [capsules, setCapsules] = useState<Capsule[]>([]);
-  const [target, setTarget] = useState("");
-  const [cmd, setCmd] = useState("");
-  const [lines, setLines] = useState<Line[]>([
-    { type: "info", text: "MMS Terminal - Select a capsule and run commands" },
-  ]);
-  const [ws, setWs] = useState<WebSocket | null>(null);
-  const outputRef = useRef<HTMLDivElement>(null);
+  const termRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<XTerm | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const fitAddonRef = useRef<FitAddon | null>(null);
 
   useEffect(() => {
-    listCapsules("running").then((d) => setCapsules(d.capsules));
-  }, []);
+    if (!termRef.current) return;
 
-  useEffect(() => {
-    outputRef.current?.scrollTo(0, outputRef.current.scrollHeight);
-  }, [lines]);
+    const term = new XTerm({
+      theme: {
+        background: "oklch(0.145 0.005 285)",
+        foreground: "#e0e0e0",
+        cursor: "#b4a9fe",
+        selectionBackground: "rgba(124, 111, 247, 0.3)",
+        black: "#1a1a2e",
+        red: "#ff5c5c",
+        green: "#4ade80",
+        yellow: "#facc15",
+        blue: "#60a5fa",
+        magenta: "#c084fc",
+        cyan: "#22d3ee",
+        white: "#e0e0e0",
+        brightBlack: "#4a4a6a",
+        brightRed: "#ff7a7a",
+        brightGreen: "#6ee7a0",
+        brightYellow: "#fde047",
+        brightBlue: "#93bbfd",
+        brightMagenta: "#d8b4fe",
+        brightCyan: "#67e8f9",
+        brightWhite: "#ffffff",
+      },
+      fontSize: 13,
+      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
+      cursorBlink: true,
+      cursorStyle: "bar",
+      allowProposedApi: true,
+      scrollback: 5000,
+      convertEol: true,
+    });
 
-  const addLine = (line: Line) => setLines((prev) => [...prev, line]);
+    const fitAddon = new FitAddon();
+    const webLinksAddon = new WebLinksAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(webLinksAddon);
+    term.open(termRef.current);
 
-  const exec = async () => {
-    if (!cmd.trim() || !target) return;
-    addLine({ type: "cmd", text: `$ ${cmd}` });
-    const input = cmd;
-    setCmd("");
+    // Delay initial fit to ensure container is rendered
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+    });
 
-    try {
-      const { result } = await execInCapsule(target, input);
-      if (result.stdout) addLine({ type: "stdout", text: result.stdout });
-      if (result.stderr) addLine({ type: "stderr", text: result.stderr });
-      if (result.error) addLine({ type: "stderr", text: result.error });
-    } catch (e: any) {
-      addLine({ type: "stderr", text: e.message });
-    }
-  };
-
-  const connectWs = () => {
-    if (!target) return;
-    if (ws) ws.close();
+    // Connect WebSocket
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const token = localStorage.getItem("mms_token") || "";
-    const proto = location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(
-      `${proto}//${location.host}/ws/terminal/${target}?token=${token}`
+    const ws = new WebSocket(
+      `${proto}//${window.location.host}/ws/shell?token=${encodeURIComponent(token)}`
     );
-    socket.onmessage = (e) => {
-      const data = JSON.parse(e.data);
-      if (data.type === "output") {
-        if (data.stdout) addLine({ type: "stdout", text: data.stdout });
-        if (data.stderr) addLine({ type: "stderr", text: data.stderr });
-      } else if (data.type === "connected") {
-        addLine({ type: "info", text: data.data });
+    ws.binaryType = "arraybuffer";
+
+    ws.onopen = () => {
+      // Send initial resize
+      ws.send(
+        JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
+      );
+    };
+
+    ws.onmessage = (e) => {
+      if (e.data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(e.data));
+      } else {
+        term.write(e.data);
       }
     };
-    socket.onclose = () => addLine({ type: "info", text: "WebSocket disconnected" });
-    setWs(socket);
-    addLine({ type: "info", text: "Connecting via WebSocket..." });
-  };
 
-  const COLOR: Record<string, string> = {
-    cmd: "text-green-400",
-    stdout: "text-[var(--color-text)]",
-    stderr: "text-red-400",
-    info: "text-[var(--color-accent2)]",
-  };
+    ws.onclose = () => {
+      term.write("\r\n\x1b[31m[Connection closed]\x1b[0m\r\n");
+    };
+
+    ws.onerror = () => {
+      term.write("\r\n\x1b[31m[Connection error]\x1b[0m\r\n");
+    };
+
+    term.onData((data) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+      }
+    });
+
+    // Handle window resize
+    const onResize = () => {
+      try {
+        fitAddon.fit();
+      } catch {
+        // ignore fit errors during teardown
+      }
+    };
+    window.addEventListener("resize", onResize);
+
+    // Also observe the container for size changes
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(() => {
+        try {
+          fitAddon.fit();
+        } catch {
+          // ignore
+        }
+      });
+    });
+    observer.observe(termRef.current);
+
+    xtermRef.current = term;
+    wsRef.current = ws;
+    fitAddonRef.current = fitAddon;
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      observer.disconnect();
+      ws.close();
+      term.dispose();
+    };
+  }, []);
 
   return (
-    <Box>
-      <Text size="5" weight="bold" className="text-[var(--color-accent2)] mb-4 block">
-        Terminal
-      </Text>
-
-      <Card className="overflow-hidden p-0">
-        {/* Header */}
-        <Flex gap="2" align="center" className="p-2 bg-[var(--color-bg3)] border-b border-[var(--color-border)]">
-          <Select.Root value={target} onValueChange={setTarget}>
-            <Select.Trigger placeholder="Select capsule..." className="w-48" />
-            <Select.Content>
-              {capsules.map((c) => (
-                <Select.Item key={c.id} value={c.id}>
-                  {c.name} ({c.id.slice(0, 6)})
-                </Select.Item>
-              ))}
-            </Select.Content>
-          </Select.Root>
-          <Button size="1" variant="soft" onClick={connectWs} disabled={!target}>
-            WebSocket
-          </Button>
-          <Button
-            size="1"
-            variant="soft"
-            color="red"
-            onClick={() => setLines([{ type: "info", text: "Cleared" }])}
-          >
-            Clear
-          </Button>
-        </Flex>
-
-        {/* Output */}
-        <div
-          ref={outputRef}
-          className="h-96 overflow-y-auto p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap"
-        >
-          {lines.map((l, i) => (
-            <div key={i} className={COLOR[l.type] || ""}>{l.text}</div>
-          ))}
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">Terminal</h2>
+          <p className="text-xs text-muted-foreground">System shell</p>
         </div>
-
-        {/* Input */}
-        <form
-          onSubmit={(e) => { e.preventDefault(); exec(); }}
-          className="flex border-t border-[var(--color-border)]"
-        >
-          <span className="px-3 py-2 text-green-400 font-bold font-mono">$</span>
-          <input
-            value={cmd}
-            onChange={(e) => setCmd(e.target.value)}
-            placeholder="command..."
-            autoComplete="off"
-            className="flex-1 bg-transparent text-[var(--color-text)] font-mono text-sm px-2 py-2 outline-none"
-          />
-        </form>
-      </Card>
-    </Box>
+      </div>
+      <div className="flex-1 rounded-lg border bg-card overflow-hidden min-h-0">
+        <div ref={termRef} className="h-full w-full" />
+      </div>
+    </div>
   );
 }

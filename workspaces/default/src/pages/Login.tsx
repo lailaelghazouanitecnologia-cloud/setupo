@@ -1,6 +1,11 @@
 import { useState } from "react";
-import { Box, Text, TextField, Button, Flex, Card, Callout } from "@radix-ui/themes";
 import { login } from "../lib/api";
+import { cn } from "../lib/utils";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Card, CardContent } from "../components/ui/card";
+import { Loader2, LogIn } from "lucide-react";
 
 export default function Login({ onLogin }: { onLogin: () => void }) {
   const [email, setEmail] = useState("");
@@ -23,56 +28,79 @@ export default function Login({ onLogin }: { onLogin: () => void }) {
   };
 
   return (
-    <Flex align="center" justify="center" className="h-screen bg-[var(--color-bg)]">
-      <Card size="3" className="w-96">
-        <Flex direction="column" gap="4" align="center">
-          <Text size="7" weight="bold" className="text-[var(--color-accent2)] tracking-widest">
-            mms
-          </Text>
-          <Text size="2" className="text-[var(--color-dim)]">
-            micro module system
-          </Text>
+    <div className="flex items-center justify-center min-h-screen bg-background">
+      <Card className="w-full max-w-sm mx-4">
+        <CardContent className="space-y-6">
+          {/* Branding */}
+          <div className="text-center space-y-1">
+            <h1 className="text-3xl font-bold text-primary tracking-widest">
+              mms
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              micro module system
+            </p>
+          </div>
 
+          {/* Error */}
           {error && (
-            <Callout.Root color="red" size="1" className="w-full">
-              <Callout.Text>{error}</Callout.Text>
-            </Callout.Root>
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-3 py-2">
+              <p className="text-sm text-destructive">{error}</p>
+            </div>
           )}
 
-          <Box className="w-full">
-            <Text size="1" className="text-[var(--color-dim)] mb-1 block">Email</Text>
-            <TextField.Root
-              placeholder="email@example.com"
-              size="3"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
-          </Box>
+          {/* Form */}
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email" className="text-xs text-muted-foreground">
+                Email
+              </Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="email@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                autoComplete="email"
+                autoFocus
+              />
+            </div>
 
-          <Box className="w-full">
-            <Text size="1" className="text-[var(--color-dim)] mb-1 block">Password</Text>
-            <TextField.Root
-              placeholder="Password"
-              size="3"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLogin()}
-            />
-          </Box>
+            <div className="space-y-2">
+              <Label htmlFor="password" className="text-xs text-muted-foreground">
+                Password
+              </Label>
+              <Input
+                id="password"
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
+                autoComplete="current-password"
+              />
+            </div>
 
-          <Button
-            size="3"
-            className="w-full"
-            disabled={!email || !password || loading}
-            onClick={handleLogin}
-          >
-            {loading ? "Signing in..." : "Sign In"}
-          </Button>
-        </Flex>
+            <Button
+              className="w-full"
+              disabled={!email || !password || loading}
+              onClick={handleLogin}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                <>
+                  <LogIn className="h-4 w-4" />
+                  Sign In
+                </>
+              )}
+            </Button>
+          </div>
+        </CardContent>
       </Card>
-    </Flex>
+    </div>
   );
 }

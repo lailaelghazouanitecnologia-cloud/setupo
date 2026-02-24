@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.engine import Engine
-from server.routes import auth, capsules, environments, pipelines, commands, health
+from server.routes import auth, capsules, environments, pipelines, commands, health, fs, services, workspaces, terminal
 from server.ws import router as ws_router
 
 logging.basicConfig(
@@ -57,6 +57,10 @@ app.include_router(environments.router, prefix="/api/envs", tags=["environments"
 app.include_router(pipelines.router, prefix="/api/pipelines", tags=["pipelines"])
 app.include_router(commands.router, prefix="/api/commands", tags=["commands"])
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
+app.include_router(fs.router, prefix="/api/fs", tags=["filesystem"])
+app.include_router(services.router, prefix="/api/services", tags=["services"])
+app.include_router(workspaces.router, prefix="/api/workspaces", tags=["workspaces"])
+app.include_router(terminal.router, prefix="/ws", tags=["terminal"])
 
 # Dashboard
 dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
