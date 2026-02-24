@@ -1,6 +1,6 @@
 #cloud-config
-# MMS - Micro Module System - Cloud-init for Vultr
-# Bootstrap: Docker + MMS server + Dashboard at zarnetti.com
+# Setupo — Cloud-init for Vultr VPS
+# Bootstraps: Python + Setupo API server + Nginx reverse proxy
 
 package_update: true
 package_upgrade: true
@@ -17,78 +17,112 @@ packages:
   - curl
   - jq
   - ca-certificates
-  - gnupg
 
 write_files:
-  - path: /etc/mms/config.yaml
+  - path: /opt/setupo/.env
     permissions: "0600"
     content: |
-      domain: zarnetti.com
-      api_port: 8000
-      data_dir: /var/lib/mms
-      log_dir: /var/log/mms
+      VULTR_API_KEY=I5LHJ37GZDZQYGUEMEJHOLSNQUAQ5FTNW3YA
+      SETUPO_HOST=0.0.0.0
+      SETUPO_PORT=8000
+      SETUPO_DATA_DIR=/opt/setupo/data
+      SETUPO_CONFIG_DIR=/opt/setupo/config
+      SETUPO_CORS_ORIGINS=https://zarnetti.com,http://localhost:3000
+      SETUPO_ADMIN_EMAIL=ayman_gha@hotmail.com
 
-  - path: /etc/mms/generate_token.py
-    permissions: "0700"
+  - path: /etc/systemd/system/setupo.service
+    permissions: "0644"
     content: |
-      #!/usr/bin/env python3
-      import secrets, os
-      token = secrets.token_urlsafe(64)
-      os.makedirs("/etc/mms", exist_ok=True)
-      with open("/etc/mms/token", "w") as f:
-          f.write(token)
-      os.chmod("/etc/mms/token", 0o600)
-      print("=" * 50)
-      print("MMS ACCESS TOKEN")
-      print(token)
-      print("=" * 50)
+      [Unit]
+      Description=Setupo — AI Agent Infrastructure API
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/opt/setupo
+      EnvironmentFile=/opt/setupo/.env
+      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
 
 runcmd:
   # Firewall
   - ufw default deny incoming
   - ufw default allow outgoing
+  - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
+  - ufw allow 8000/tcp
   - ufw --force enable
 
-  # Install Docker
-  - install -m 0755 -d /etc/apt/keyrings
-  - curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-  - chmod a+r /etc/apt/keyrings/docker.asc
-  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list
-  - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
+  # Clone setupo
+  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
+  - cp -r /opt/setupo/repo/* /opt/setupo/
+  - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
+  - rm -rf /opt/setupo/repo
 
-  # Generate token
-  - python3 /etc/mms/generate_token.py
-
-  # Clone MMS
-  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms
-
-  # Python env
-  - python3 -m venv /opt/mms/venv
-  - /opt/mms/venv/bin/pip install -r /opt/mms/requirements.txt
+  # Python virtual env
+  - python3 -m venv /opt/setupo/venv
+  - /opt/setupo/venv/bin/pip install --upgrade pip
+  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
 
   # Data dirs
-  - mkdir -p /var/lib/mms/capsules
-  - mkdir -p /var/log/mms
+  - mkdir -p /opt/setupo/data
+  - mkdir -p /opt/setupo/config
+  - mkdir -p /var/log/setupo
 
-  # Pull base Docker images
-  - docker pull python:3.12-slim
-  - docker pull node:20-slim
-  - docker pull alpine:3.19
+  # Nginx config
+  - |
+    cat > /etc/nginx/sites-available/setupo <<'NGINX'
+    upstream setupo_api {
+        server 127.0.0.1:8000;
+    }
 
-  # Deploy nginx
-  - cp /opt/mms/deploy/nginx.conf /etc/nginx/sites-available/mms
-  - ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
+    server {
+        listen 80;
+        server_name _;
+
+        location /api/ {
+            proxy_pass http://setupo_api;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+        }
+
+        location /docs {
+            proxy_pass http://setupo_api;
+        }
+
+        location /openapi.json {
+            proxy_pass http://setupo_api;
+        }
+
+        location /ws/ {
+            proxy_pass http://setupo_api;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host $host;
+            proxy_read_timeout 86400s;
+        }
+
+        location / {
+            return 200 '{"status":"ok","service":"setupo"}';
+            add_header Content-Type application/json;
+        }
+    }
+    NGINX
+  - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
   - rm -f /etc/nginx/sites-enabled/default
-  - systemctl restart nginx
+  - nginx -t && systemctl restart nginx
 
-  # Deploy systemd
-  - cp /opt/mms/deploy/mms.service /etc/systemd/system/
+  # Start setupo
   - systemctl daemon-reload
-  - systemctl enable mms
-  - systemctl start mms
-
-  # SSL
-  - certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m admin@zarnetti.com || true
+  - systemctl enable setupo
+  - systemctl start setupo
