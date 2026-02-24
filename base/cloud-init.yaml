@@ -1,6 +1,9 @@
 #cloud-config
-# Setupo — Cloud-init for Vultr VPS
-# Bootstraps: Python + Setupo API server + Nginx reverse proxy + SSL
+# Setupo — Cloud-init template for VPS provisioning
+# Placeholders replaced at runtime by types.py:
+#   {{DOMAIN}}         → user's domain or "localhost"
+#   {{VULTR_API_KEY}}  → Vultr API key from server config
+#   {{ADMIN_EMAIL}}    → admin email for certbot
 
 package_update: true
 package_upgrade: true
@@ -22,13 +25,13 @@ write_files:
   - path: /opt/setupo/.env
     permissions: "0600"
     content: |
-      VULTR_API_KEY=__VULTR_API_KEY__
+      VULTR_API_KEY={{VULTR_API_KEY}}
       SETUPO_HOST=0.0.0.0
       SETUPO_PORT=8000
       SETUPO_DATA_DIR=/opt/setupo/data
       SETUPO_CONFIG_DIR=/opt/setupo/config
-      SETUPO_CORS_ORIGINS=https://zarnetti.com,http://localhost:3000
-      SETUPO_ADMIN_EMAIL=ayman_gha@hotmail.com
+      SETUPO_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
+      SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
 
   - path: /etc/systemd/system/setupo.service
     permissions: "0644"
@@ -59,8 +62,6 @@ runcmd:
   - ufw --force enable
 
   # ── Clone setupo ──────────────────────────────────────────
-  # NOTE: If repo is private, replace URL with:
-  #   https://<GITHUB_TOKEN>@github.com/lailaelghazouanitecnologia-cloud/setupo.git
   - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || { echo "FATAL: git clone failed"; exit 1; }
   - cp -r /opt/setupo/repo/* /opt/setupo/
   - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
@@ -75,6 +76,7 @@ runcmd:
   - mkdir -p /opt/setupo/data
   - mkdir -p /opt/setupo/config
   - mkdir -p /var/log/setupo
+  - mkdir -p /opt/app
 
   # ── Nginx (HTTP-only bootstrap — certbot adds SSL after) ──
   - |
@@ -85,7 +87,7 @@ runcmd:
 
     server {
         listen 80;
-        server_name zarnetti.com;
+        server_name {{DOMAIN}};
 
         location /api/ {
             proxy_pass http://setupo_api;
@@ -128,7 +130,11 @@ runcmd:
   - systemctl enable setupo
   - systemctl start setupo
 
-  # ── SSL with certbot (requires DNS already pointing here) ─
-  # Wait a few seconds for nginx + setupo to be fully up
-  - sleep 5
-  - certbot --nginx -d zarnetti.com --non-interactive --agree-tos -m ayman_gha@hotmail.com --redirect || echo "WARN: certbot failed — SSL not configured. Ensure DNS A record points to this server."
+  # ── SSL with certbot (skip if domain is localhost) ────────
+  - |
+    DOMAIN="{{DOMAIN}}"
+    if [ "$DOMAIN" != "localhost" ] && [ -n "$DOMAIN" ]; then
+      sleep 5
+      certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect \
+        || echo "WARN: certbot failed — SSL not configured. Ensure DNS A record points to this server."
+    fi

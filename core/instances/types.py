@@ -2,6 +2,8 @@
 import base64
 from pathlib import Path
 
+from server.config import settings
+
 CLOUD_INIT_DIR = Path(__file__).parent.parent.parent / "base"
 
 
@@ -44,17 +46,14 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
 
     template_path = CLOUD_INIT_DIR / template_name
     if not template_path.exists():
-        # Fallback to basic
-        template_path = CLOUD_INIT_DIR / "cloud-init-basic.yaml"
-        if not template_path.exists():
-            return ""
+        return ""
 
     content = template_path.read_text()
 
     # Replace placeholders
-    if domain:
-        content = content.replace("{{DOMAIN}}", domain)
-    content = content.replace("{{DOMAIN}}", "localhost")
+    content = content.replace("{{DOMAIN}}", domain or "localhost")
+    content = content.replace("{{VULTR_API_KEY}}", settings.VULTR_API_KEY)
+    content = content.replace("{{ADMIN_EMAIL}}", settings.ADMIN_EMAIL)
 
     return base64.b64encode(content.encode()).decode()
 

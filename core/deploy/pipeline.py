@@ -81,10 +81,20 @@ async def deploy_to_instance(
         await _log(instance_id, f"Starting app: {start_cmd}")
         await _start_app(ip, key_path, remote_dir, start_cmd)
 
-        # 5. Setup domain if configured
+        # 5. Configure nginx reverse proxy for the user app
         domain = inst.get("domain")
+        await _log(instance_id, "Configuring nginx for app...")
+        await _setup_app_nginx(ip, key_path, domain, stack)
+
+        # 6. Setup SSL if domain is configured
         if domain:
-            await _log(instance_id, f"Domain configured: {domain}")
+            await _log(instance_id, f"Setting up SSL for {domain}...")
+            from core.instances.provisioner import setup_ssl
+            ssl_out, ssl_code = await setup_ssl(ip, domain, key_path)
+            if ssl_code == 0:
+                await _log(instance_id, f"SSL configured for {domain}")
+            else:
+                await _log(instance_id, f"SSL setup failed (non-fatal): {ssl_out[:200]}", level="warning")
 
         await db.update("instances", instance_id, {
             "state": InstanceState.RUNNING.value,
@@ -159,6 +169,40 @@ def _default_start_command(stack: str) -> str:
         "docker": "docker compose up -d",
         "static": "echo 'Static site served by nginx'",
     }.get(stack, "echo 'Unknown stack'")
+
+
+async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: str):
+    """Configure nginx on the instance to reverse-proxy the user's app."""
+    server_name = domain or "_"
+    # Static sites are served directly; everything else is proxied to port 3000
+    if stack == "static":
+        location_block = """
+        location / {
+            root /opt/app;
+            index index.html;
+            try_files $uri $uri/ /index.html;
+        }"""
+    else:
+        location_block = """
+        location / {
+            proxy_pass http://127.0.0.1:3000;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_read_timeout 300s;
+        }"""
+
+    nginx_conf = f"""server {{
+    listen 80;
+    server_name {server_name};
+{location_block}
+}}
+"""
+    write_cmd = f"cat > /etc/nginx/sites-available/app << 'NGINXEOF'\n{nginx_conf}\nNGINXEOF"
+    await run_ssh_command(ip, write_cmd, key_path)
+    await run_ssh_command(ip, "ln -sf /etc/nginx/sites-available/app /etc/nginx/sites-enabled/app", key_path)
+    await run_ssh_command(ip, "nginx -t && systemctl reload nginx", key_path)
 
 
 async def _start_app(ip: str, key_path: str, remote_dir: str, command: str):
