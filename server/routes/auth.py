@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from server.auth.middleware import LoginRequest, LoginResponse, verify_password, load_admin_token
 
-logger = logging.getLogger("setupo.auth")
+logger = logging.getLogger("mms.auth")
 router = APIRouter()
 
 

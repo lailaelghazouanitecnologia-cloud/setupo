@@ -15,7 +15,7 @@ from core.models import (
     WorkspaceServiceConfig,
 )
 
-logger = logging.getLogger("setupo.workspace_config")
+logger = logging.getLogger("mms.workspace_config")
 
 CONFIG_FILENAME = "config.toml"
 

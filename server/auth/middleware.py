@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from server.config import settings
 from core import db
 
-logger = logging.getLogger("setupo.auth")
+logger = logging.getLogger("mms.auth")
 
 security = HTTPBearer(auto_error=False)
 
@@ -95,7 +95,7 @@ async def resolve_auth(
     """Resolve Bearer token to auth context.
 
     Supports:
-    - Admin token (from /etc/setupo/token or generated)
+    - Admin token (from /opt/mms/config/token or generated)
     - Project API key (sk_live_xxxx)
     """
     if request.url.path in PUBLIC_PATHS:

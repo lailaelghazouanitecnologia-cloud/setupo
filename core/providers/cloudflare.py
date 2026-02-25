@@ -5,7 +5,7 @@ import httpx
 
 from core.errors import ProviderError
 
-logger = logging.getLogger("setupo.cloudflare")
+logger = logging.getLogger("mms.cloudflare")
 
 BASE = "https://api.cloudflare.com/client/v4"
 

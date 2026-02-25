@@ -1,6 +1,7 @@
-"""Setupo Server — API platform for AI agents to manage infrastructure.
+"""MMS — API platform for AI agents to manage infrastructure.
 
 FastAPI application serving the REST API and dashboard.
+Everything via curl. No SSH. No manual access.
 """
 import os
 import logging
@@ -11,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from core import db
-from core.errors import SetupoError
+from core.errors import MmsError
 from server.config import settings
 from server.routes import auth, health, projects, instances, workspaces, domains, deploy
 
@@ -19,25 +20,26 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("setupo")
+logger = logging.getLogger("mms")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Setupo starting...")
+    logger.info("MMS starting...")
     await db.init_db()
     yield
-    logger.info("Setupo shutting down...")
+    logger.info("MMS shutting down...")
     await db.close_db()
 
 
 app = FastAPI(
-    title="Setupo — AI Agent Infrastructure API",
+    title="MMS — AI Agent Infrastructure API",
     description=(
-        "API for AI agents to manage projects, workspaces, compute instances, "
-        "domains, and deployments. Supports Vultr VPS and Cloudflare DNS."
+        "HTTP API for AI agents to manage projects, workspaces, compute instances, "
+        "domains, and deployments. Supports Vultr VPS and Cloudflare DNS. "
+        "Everything via curl — no SSH, no manual access."
     ),
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -52,8 +54,8 @@ app.add_middleware(
 
 # ── Error handler ────────────────────────────────────────────────
 
-@app.exception_handler(SetupoError)
-async def setupo_error_handler(request: Request, exc: SetupoError):
+@app.exception_handler(MmsError)
+async def mms_error_handler(request: Request, exc: MmsError):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.message},
@@ -93,10 +95,10 @@ app.include_router(
 
 
 # ── Dashboard (static files — only for local dev) ───────────────
-# In production, nginx serves the frontend from /var/www/setupo.
+# In production, nginx serves the frontend from /var/www/mms.
 # Only mount here for local development when no reverse proxy is present.
 
-if os.environ.get("SETUPO_SERVE_STATIC"):
+if os.environ.get("MMS_SERVE_STATIC"):
     from fastapi.staticfiles import StaticFiles
     dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
     if os.path.isdir(dashboard_dir):

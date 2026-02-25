@@ -2,7 +2,7 @@
 import asyncio
 import logging
 
-logger = logging.getLogger("setupo.provisioner")
+logger = logging.getLogger("mms.provisioner")
 
 
 async def wait_for_ssh(ip: str, port: int = 22, timeout: int = 300) -> bool:

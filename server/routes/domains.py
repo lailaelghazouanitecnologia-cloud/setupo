@@ -10,7 +10,7 @@ from core.providers.cloudflare import CloudflareProvider
 from server.deps import require_project
 from server.config import settings
 
-logger = logging.getLogger("setupo.domains")
+logger = logging.getLogger("mms.domains")
 router = APIRouter()
 
 

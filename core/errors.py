@@ -1,34 +1,38 @@
-"""Setupo Errors - Custom exceptions for the platform."""
+"""MMS Errors - Custom exceptions for the platform."""
 
 
-class SetupoError(Exception):
-    """Base error for all setupo errors."""
+class MmsError(Exception):
+    """Base error for all MMS errors."""
     def __init__(self, message: str, status_code: int = 500):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
 
 
-class NotFoundError(SetupoError):
+# Keep backward compat alias
+SetupoError = MmsError
+
+
+class NotFoundError(MmsError):
     def __init__(self, resource: str, resource_id: str):
         super().__init__(f"{resource} '{resource_id}' not found", 404)
 
 
-class ConflictError(SetupoError):
+class ConflictError(MmsError):
     def __init__(self, message: str):
         super().__init__(message, 409)
 
 
-class ProviderError(SetupoError):
+class ProviderError(MmsError):
     def __init__(self, provider: str, message: str):
         super().__init__(f"[{provider}] {message}", 502)
 
 
-class AuthError(SetupoError):
+class AuthError(MmsError):
     def __init__(self, message: str = "Unauthorized"):
         super().__init__(message, 401)
 
 
-class ValidationError(SetupoError):
+class ValidationError(MmsError):
     def __init__(self, message: str):
         super().__init__(message, 422)

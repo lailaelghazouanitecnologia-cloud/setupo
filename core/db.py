@@ -1,4 +1,4 @@
-"""Setupo DB - Async SQLite persistence layer."""
+"""MMS DB - Async SQLite persistence layer."""
 import json
 import logging
 from datetime import datetime
@@ -7,7 +7,7 @@ import aiosqlite
 
 from server.config import settings
 
-logger = logging.getLogger("setupo.db")
+logger = logging.getLogger("mms.db")
 
 _db: aiosqlite.Connection | None = None
 

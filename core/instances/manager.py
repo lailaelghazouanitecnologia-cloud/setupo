@@ -1,9 +1,11 @@
-"""Instance manager — full lifecycle: create → provision → ready → deploy → destroy."""
+"""Instance manager — full lifecycle: create -> provision -> ready -> deploy -> destroy."""
 import asyncio
 import logging
 import secrets
 from datetime import datetime
 from pathlib import Path
+
+import httpx
 
 from core import db
 from core.errors import NotFoundError, ProviderError
@@ -13,11 +15,29 @@ from core.instances.types import get_cloud_init
 from core.instances.provisioner import wait_for_ssh
 from server.config import settings
 
-logger = logging.getLogger("setupo.instances")
+logger = logging.getLogger("mms.instances")
 
 
 def _gen_id() -> str:
     return f"inst_{secrets.token_hex(8)}"
+
+
+def _gen_provision_token() -> str:
+    """Generate a one-time token for the VPS to report metrics."""
+    return f"prov_{secrets.token_urlsafe(32)}"
+
+
+async def _register_metrics(instance_id: str, provision_token: str):
+    """Register instance with mms-metrics service for tracking."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{settings.METRICS_URL}/register",
+                json={"instance_id": instance_id, "token": provision_token},
+            )
+        logger.info("Registered instance %s with mms-metrics", instance_id)
+    except Exception as e:
+        logger.warning("Could not register with mms-metrics: %s", e)
 
 
 async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
@@ -28,7 +48,7 @@ async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
 
     if not priv.exists():
         proc = await asyncio.create_subprocess_exec(
-            "ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", "", "-C", f"setupo-{project_id}",
+            "ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", "", "-C", f"mms-{project_id}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -39,15 +59,16 @@ async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
 
 
 async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instance:
-    """Create a new instance — provisions VPS and starts background setup."""
+    """Create a new instance -- provisions VPS and starts background setup."""
     instance_id = _gen_id()
+    provision_token = _gen_provision_token()
 
     instance = Instance(
         id=instance_id,
         project_id=project_id,
         type=req.type,
         provider=Provider.VULTR,
-        label=req.label or f"setupo-{req.type.value}",
+        label=req.label or f"mms-{req.type.value}",
         region=req.region,
         plan=req.plan,
         domain=req.domain,
@@ -72,19 +93,22 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         "ssh_key_id": None,
         "workspace": instance.workspace,
         "error": None,
-        "metadata": instance.metadata,
+        "metadata": {"provision_token": provision_token},
         "created_at": instance.created_at,
         "ready_at": None,
     })
 
+    # Register with mms-metrics for progress tracking
+    await _register_metrics(instance_id, provision_token)
+
     # Start provisioning in background
-    asyncio.create_task(_provision_instance(project_id, instance_id, req))
+    asyncio.create_task(_provision_instance(project_id, instance_id, req, provision_token))
 
     logger.info("Created instance %s (type=%s) for project %s", instance_id, req.type.value, project_id)
     return instance
 
 
-async def _provision_instance(project_id: str, instance_id: str, req: CreateInstanceRequest):
+async def _provision_instance(project_id: str, instance_id: str, req: CreateInstanceRequest, provision_token: str):
     """Background task: create VPS on Vultr, wait for SSH, mark ready."""
     vultr = VultrProvider()
     try:
@@ -92,7 +116,7 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
         priv_path, pub_key = await _generate_ssh_key(project_id)
 
         # Register SSH key with Vultr
-        ssh_key = await vultr.create_ssh_key(f"setupo-{project_id}", pub_key)
+        ssh_key = await vultr.create_ssh_key(f"mms-{project_id}", pub_key)
         ssh_key_id = ssh_key.get("id", "")
 
         await db.update("instances", instance_id, {
@@ -100,18 +124,23 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
             "state": InstanceState.PROVISIONING.value,
         })
 
-        # Get cloud-init script
-        user_data = get_cloud_init(req.type.value, domain=req.domain)
+        # Get cloud-init script (now includes metrics callbacks)
+        user_data = get_cloud_init(
+            req.type.value,
+            domain=req.domain,
+            instance_id=instance_id,
+            provision_token=provision_token,
+        )
 
         # Create the VPS
         vps = await vultr.create_instance(
             region=req.region,
             plan=req.plan,
             os_id=settings.VULTR_DEFAULT_OS,
-            label=req.label or f"setupo-{req.type.value}-{instance_id[:8]}",
+            label=req.label or f"mms-{req.type.value}-{instance_id[:8]}",
             ssh_key_ids=[ssh_key_id],
             user_data=user_data,
-            tag="setupo",
+            tag="mms",
         )
 
         provider_id = vps.get("id", "")
@@ -199,6 +228,13 @@ async def delete_instance(project_id: str, instance_id: str):
             pass
         finally:
             await vultr.close()
+
+    # Clean up metrics
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.delete(f"{settings.METRICS_URL}/status/{instance_id}")
+    except Exception:
+        pass
 
     # Delete domain records
     await db.delete_where("domains", instance_id=instance_id)

@@ -9,7 +9,7 @@ from core.models import Project, CreateProjectRequest
 from server.auth.keys import generate_api_key, hash_api_key
 from server.config import settings
 
-logger = logging.getLogger("setupo.projects")
+logger = logging.getLogger("mms.projects")
 
 
 def _gen_id() -> str:

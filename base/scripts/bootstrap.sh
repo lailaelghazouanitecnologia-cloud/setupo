@@ -1,8 +1,8 @@
 #!/bin/bash
-# Setupo — Post-boot bootstrap script (runs via SSH after VPS is ready)
+# MMS — Post-boot bootstrap script (runs via SSH after VPS is ready)
 set -euo pipefail
 
-echo "=== Setupo bootstrap starting ==="
+echo "=== MMS bootstrap starting ==="
 
 # Wait for cloud-init to finish
 cloud-init status --wait 2>/dev/null || true
@@ -16,4 +16,8 @@ echo "Nginx: $(nginx -v 2>&1 || echo 'not installed')"
 # Ensure app dir
 mkdir -p /opt/app
 
-echo "=== Setupo bootstrap complete ==="
+# Check MMS services
+echo "MMS API: $(systemctl is-active mms 2>/dev/null || echo 'not running')"
+echo "MMS Metrics: $(systemctl is-active mms-metrics 2>/dev/null || echo 'not running')"
+
+echo "=== MMS bootstrap complete ==="

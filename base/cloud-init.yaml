@@ -1,11 +1,15 @@
 #cloud-config
-# Setupo — Cloud-init template for VPS provisioning
+# MMS — Cloud-init template for VPS provisioning
+#
 # Placeholders replaced at runtime by types.py:
-#   {{DOMAIN}}         → user's domain or "localhost"
-#   {{VULTR_API_KEY}}  → Vultr API key from server config
-#   {{CF_API_TOKEN}}   → Cloudflare API token
-#   {{ADMIN_EMAIL}}    → admin email for certbot
-#   {{GIT_BRANCH}}     → branch to checkout (default: main)
+#   {{DOMAIN}}           → user's domain or "localhost"
+#   {{VULTR_API_KEY}}    → Vultr API key from server config
+#   {{CF_API_TOKEN}}     → Cloudflare API token
+#   {{ADMIN_EMAIL}}      → admin email for certbot
+#   {{GIT_BRANCH}}       → branch to checkout (default: main)
+#   {{INSTANCE_ID}}      → instance ID for metrics reporting
+#   {{PROVISION_TOKEN}}  → one-time token for metrics auth
+#   {{METRICS_URL}}      → URL of mms-metrics service (remote)
 
 bootcmd:
   # Flush Vultr default iptables FIRST (before anything else)
@@ -39,43 +43,76 @@ packages:
   - rsync
 
 write_files:
-  - path: /opt/setupo/.env
+  - path: /opt/mms/.env
     permissions: "0600"
     content: |
       VULTR_API_KEY={{VULTR_API_KEY}}
       CF_API_TOKEN={{CF_API_TOKEN}}
-      SETUPO_HOST=0.0.0.0
-      SETUPO_PORT=8000
-      SETUPO_DATA_DIR=/opt/setupo/data
-      SETUPO_CONFIG_DIR=/opt/setupo/config
-      SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
-      SETUPO_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
-      SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
+      MMS_HOST=0.0.0.0
+      MMS_PORT=8000
+      MMS_DATA_DIR=/opt/mms/data
+      MMS_CONFIG_DIR=/opt/mms/config
+      MMS_WORKSPACES_DIR=/opt/mms/workspaces
+      MMS_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
+      MMS_ADMIN_EMAIL={{ADMIN_EMAIL}}
+      MMS_METRICS_URL=http://127.0.0.1:8081
 
-  - path: /etc/systemd/system/setupo.service
+  - path: /opt/mms/provision.env
+    permissions: "0600"
+    content: |
+      INSTANCE_ID={{INSTANCE_ID}}
+      PROVISION_TOKEN={{PROVISION_TOKEN}}
+      METRICS_URL={{METRICS_URL}}
+
+  - path: /etc/systemd/system/mms.service
     permissions: "0644"
     content: |
       [Unit]
-      Description=Setupo — AI Agent Infrastructure API
+      Description=MMS — AI Agent Infrastructure API
       After=network.target
 
       [Service]
       Type=simple
       User=root
-      WorkingDirectory=/opt/setupo
-      EnvironmentFile=/opt/setupo/.env
-      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      WorkingDirectory=/opt/mms
+      EnvironmentFile=/opt/mms/.env
+      ExecStart=/opt/mms/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
       Restart=always
       RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
 
-  - path: /etc/nginx/sites-available/setupo
+  - path: /etc/systemd/system/mms-metrics.service
     permissions: "0644"
     content: |
-      upstream setupo_api {
+      [Unit]
+      Description=MMS Metrics — Installation progress tracker
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/opt/mms/mms-metrics
+      EnvironmentFile=/opt/mms/.env
+      Environment=MMS_METRICS_HOST=0.0.0.0
+      Environment=MMS_METRICS_PORT=8081
+      ExecStart=/opt/mms/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8081
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/nginx/sites-available/mms
+    permissions: "0644"
+    content: |
+      upstream mms_api {
           server 127.0.0.1:8000;
+      }
+
+      upstream mms_metrics {
+          server 127.0.0.1:8081;
       }
 
       server {
@@ -83,7 +120,7 @@ write_files:
           server_name {{DOMAIN}} *.{{DOMAIN}};
 
           location /api/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://mms_api;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -92,15 +129,15 @@ write_files:
           }
 
           location /docs {
-              proxy_pass http://setupo_api;
+              proxy_pass http://mms_api;
           }
 
           location /openapi.json {
-              proxy_pass http://setupo_api;
+              proxy_pass http://mms_api;
           }
 
           location /ws/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://mms_api;
               proxy_http_version 1.1;
               proxy_set_header Upgrade $http_upgrade;
               proxy_set_header Connection "upgrade";
@@ -108,44 +145,112 @@ write_files:
               proxy_read_timeout 86400s;
           }
 
+          # Metrics endpoints (public for curl access)
+          location /metrics/ {
+              proxy_pass http://mms_metrics/;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+          }
+
           location / {
-              return 200 '{"status":"ok","service":"setupo","docs":"/docs"}';
+              return 200 '{"status":"ok","service":"mms","docs":"/docs","metrics":"/metrics/health"}';
               add_header Content-Type application/json;
           }
       }
 
+  - path: /usr/local/bin/mms-report
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # MMS metric reporter — called during cloud-init to report progress
+      # Usage: mms-report <stage> <progress> <message>
+      source /opt/mms/provision.env 2>/dev/null || true
+
+      STAGE="${1:-booting}"
+      PROGRESS="${2:-0}"
+      MESSAGE="${3:-}"
+
+      # Report to local mms-metrics if running
+      curl -s -X POST "http://127.0.0.1:8081/report" \
+        -H "Content-Type: application/json" \
+        -d "{\"instance_id\":\"${INSTANCE_ID}\",\"token\":\"${PROVISION_TOKEN}\",\"stage\":\"${STAGE}\",\"progress\":${PROGRESS},\"message\":\"${MESSAGE}\"}" \
+        2>/dev/null || true
+
+      # Also report to remote metrics if configured and different from local
+      if [ -n "${METRICS_URL}" ] && [ "${METRICS_URL}" != "http://127.0.0.1:8081" ]; then
+        curl -s -X POST "${METRICS_URL}/report" \
+          -H "Content-Type: application/json" \
+          -d "{\"instance_id\":\"${INSTANCE_ID}\",\"token\":\"${PROVISION_TOKEN}\",\"stage\":\"${STAGE}\",\"progress\":${PROGRESS},\"message\":\"${MESSAGE}\"}" \
+          2>/dev/null || true
+      fi
+
+      echo "[mms] stage=${STAGE} progress=${PROGRESS}% — ${MESSAGE}"
+
 runcmd:
-  # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
+  # ── Report: Booting ────────────────────────────────────────
+  - mms-report booting 0 "Cloud-init starting"
+
+  # ── Firewall ───────────────────────────────────────────────
+  - mms-report firewall 5 "Configuring firewall"
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
   - ufw allow 80/tcp
   - ufw allow 443/tcp
+  - ufw allow 8081/tcp
   - ufw --force enable
+  - mms-report firewall 10 "Firewall configured"
 
-  # ── Clone setupo (specific branch) ────────────────────────
-  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
-  - cp -r /opt/setupo/repo/* /opt/setupo/
-  - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
-  - rm -rf /opt/setupo/repo
+  # ── Packages (already installed via packages: section) ─────
+  - mms-report packages 15 "System packages installed"
 
-  # ── Python virtual env ────────────────────────────────────
-  - python3 -m venv /opt/setupo/venv
-  - /opt/setupo/venv/bin/pip install --upgrade pip
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
+  # ── Clone MMS repo ─────────────────────────────────────────
+  - mms-report clone_repo 30 "Cloning MMS repository"
+  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/mms/repo
+  - cp -r /opt/mms/repo/* /opt/mms/
+  - cp -r /opt/mms/repo/.* /opt/mms/ 2>/dev/null || true
+  - rm -rf /opt/mms/repo
+  - mms-report clone_repo 40 "Repository cloned"
 
-  # ── Data dirs ─────────────────────────────────────────────
-  - mkdir -p /opt/setupo/data /opt/setupo/config /opt/setupo/workspaces /var/log/setupo /opt/app
+  # ── Python virtual env ─────────────────────────────────────
+  - mms-report python_setup 45 "Creating Python virtual environment"
+  - python3 -m venv /opt/mms/venv
+  - /opt/mms/venv/bin/pip install --upgrade pip
+  - mms-report python_setup 50 "Installing Python dependencies"
+  - /opt/mms/venv/bin/pip install -r /opt/mms/requirements.txt
+  - /opt/mms/venv/bin/pip install -r /opt/mms/mms-metrics/requirements.txt
+  - mms-report python_setup 60 "Python setup complete"
 
-  # ── Activate nginx config (file written by write_files) ───
-  - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
+  # ── Nginx ──────────────────────────────────────────────────
+  - mms-report nginx_setup 65 "Configuring nginx"
+  - ln -sf /etc/nginx/sites-available/mms /etc/nginx/sites-enabled/mms
   - rm -f /etc/nginx/sites-enabled/default
   - nginx -t && systemctl restart nginx
+  - mms-report nginx_setup 75 "Nginx configured"
 
-  # ── Start setupo service ──────────────────────────────────
+  # ── Data dirs ──────────────────────────────────────────────
+  - mms-report data_dirs 78 "Creating data directories"
+  - mkdir -p /opt/mms/data /opt/mms/config /opt/mms/workspaces /var/log/mms /opt/app
+  - mms-report data_dirs 82 "Data directories created"
+
+  # ── Start mms-metrics first (so it tracks remaining steps locally) ──
+  - mms-report service_start 85 "Starting mms-metrics service"
   - systemctl daemon-reload
-  - systemctl enable setupo
-  - systemctl start setupo
+  - systemctl enable mms-metrics
+  - systemctl start mms-metrics
+  - sleep 2
+  - mms-report service_start 88 "mms-metrics running"
+
+  # ── Start MMS main service ─────────────────────────────────
+  - mms-report service_start 90 "Starting MMS API service"
+  - systemctl enable mms
+  - systemctl start mms
+  - mms-report service_start 93 "MMS API started"
+
+  # ── Health check ───────────────────────────────────────────
+  - mms-report health_check 95 "Running health check"
+  - sleep 5
+  - 'curl -sf http://127.0.0.1:8000/api/health > /dev/null && mms-report ready 100 "MMS is ready" || mms-report error 95 "Health check failed"'
 
   # ── SSL (disabled when behind Cloudflare proxy) ────────────
   # Cloudflare handles SSL termination. Certbot redirect causes loops.

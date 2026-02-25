@@ -36,7 +36,12 @@ INSTANCE_CONFIGS = {
 }
 
 
-def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
+def get_cloud_init(
+    instance_type: str,
+    domain: str | None = None,
+    instance_id: str = "",
+    provision_token: str = "",
+) -> str:
     """Load and customize cloud-init for an instance type."""
     config = INSTANCE_CONFIGS.get(instance_type, INSTANCE_CONFIGS["custom"])
     template_name = config.get("cloud_init")
@@ -55,7 +60,10 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
     content = content.replace("{{VULTR_API_KEY}}", settings.VULTR_API_KEY)
     content = content.replace("{{CF_API_TOKEN}}", settings.CF_API_TOKEN)
     content = content.replace("{{ADMIN_EMAIL}}", settings.ADMIN_EMAIL)
-    content = content.replace("{{GIT_BRANCH}}", "claude/review-codebase-Ft57o")
+    content = content.replace("{{GIT_BRANCH}}", "main")
+    content = content.replace("{{INSTANCE_ID}}", instance_id)
+    content = content.replace("{{PROVISION_TOKEN}}", provision_token)
+    content = content.replace("{{METRICS_URL}}", settings.METRICS_URL)
 
     return base64.b64encode(content.encode()).decode()
 

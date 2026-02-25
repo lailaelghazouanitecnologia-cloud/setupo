@@ -17,7 +17,8 @@ async def health():
     uptime = (datetime.utcnow() - _start_time).total_seconds()
     return {
         "status": "ok",
-        "version": "0.2.0",
+        "service": "mms",
+        "version": "0.3.0",
         "uptime_seconds": int(uptime),
         "platform": platform.system(),
     }
@@ -27,7 +28,7 @@ async def health():
 async def capabilities():
     """Agent-friendly endpoint: what can this API do?"""
     return Capabilities(
-        version="0.2.0",
+        version="0.3.0",
         instance_types=[
             {
                 "type": t,
@@ -62,7 +63,7 @@ async def capabilities():
             "projects.create", "projects.delete", "projects.rotate_key",
             "workspaces.create", "workspaces.delete", "workspaces.pull", "workspaces.files",
             "instances.create", "instances.delete", "instances.stop", "instances.start",
-            "instances.exec", "instances.deploy", "instances.logs",
+            "instances.exec", "instances.deploy", "instances.logs", "instances.metrics",
             "domains.create", "domains.delete",
         ],
     ).model_dump()

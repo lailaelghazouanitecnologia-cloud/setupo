@@ -26,7 +26,7 @@ from core.workspace_config import read_config, write_config, generate_config_tom
 from server.deps import require_project
 from server.config import settings
 
-logger = logging.getLogger("setupo.workspaces")
+logger = logging.getLogger("mms.workspaces")
 router = APIRouter()
 
 

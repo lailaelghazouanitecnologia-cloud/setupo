@@ -4,7 +4,7 @@ import logging
 
 from core.instances.provisioner import scp_upload, run_ssh_command
 
-logger = logging.getLogger("setupo.deploy.sync")
+logger = logging.getLogger("mms.deploy.sync")
 
 
 async def sync_workspace(

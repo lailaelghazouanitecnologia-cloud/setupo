@@ -1,25 +1,25 @@
-"""Setupo Config - Settings loaded from environment variables."""
+"""MMS Config - Settings loaded from environment variables."""
 import os
 from pathlib import Path
 
-# Root of the setupo project (where this repo lives)
+# Root of the mms project (where this repo lives)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings:
     # Paths
-    DATA_DIR = Path(os.environ.get("SETUPO_DATA_DIR", "/opt/setupo/data"))
-    DB_PATH = DATA_DIR / "setupo.db"
+    DATA_DIR = Path(os.environ.get("MMS_DATA_DIR", "/opt/mms/data"))
+    DB_PATH = DATA_DIR / "mms.db"
     KEYS_DIR = DATA_DIR / "keys"
-    CONFIG_DIR = Path(os.environ.get("SETUPO_CONFIG_DIR", "/opt/setupo/config"))
+    CONFIG_DIR = Path(os.environ.get("MMS_CONFIG_DIR", "/opt/mms/config"))
     TOKEN_PATH = CONFIG_DIR / "token"
 
     # Workspaces live in the repo under workspaces/
-    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", str(_PROJECT_ROOT / "workspaces")))
+    WORKSPACES_DIR = Path(os.environ.get("MMS_WORKSPACES_DIR", str(_PROJECT_ROOT / "workspaces")))
 
     # Dev fallbacks
-    DEV_DATA_DIR = Path("/tmp/setupo/data")
-    DEV_DB_PATH = DEV_DATA_DIR / "setupo.db"
+    DEV_DATA_DIR = Path("/tmp/mms/data")
+    DEV_DB_PATH = DEV_DATA_DIR / "mms.db"
 
     # Vultr
     VULTR_API_KEY = os.environ.get("VULTR_API_KEY", "")
@@ -32,15 +32,18 @@ class Settings:
     CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 
     # Server
-    HOST = os.environ.get("SETUPO_HOST", "0.0.0.0")
-    PORT = int(os.environ.get("SETUPO_PORT", "8000"))
+    HOST = os.environ.get("MMS_HOST", "0.0.0.0")
+    PORT = int(os.environ.get("MMS_PORT", "8000"))
     CORS_ORIGINS = os.environ.get(
-        "SETUPO_CORS_ORIGINS",
+        "MMS_CORS_ORIGINS",
         "https://zarnetti.com,http://localhost:3000,http://localhost:8000"
     ).split(",")
 
+    # Metrics service
+    METRICS_URL = os.environ.get("MMS_METRICS_URL", "http://127.0.0.1:8081")
+
     # Admin
-    ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "ayman_gha@hotmail.com")
+    ADMIN_EMAIL = os.environ.get("MMS_ADMIN_EMAIL", "ayman_gha@hotmail.com")
 
     @classmethod
     def db_path(cls) -> Path:

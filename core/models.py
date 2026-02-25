@@ -1,4 +1,4 @@
-"""Setupo Models - All Pydantic models for the platform."""
+"""MMS Models - All Pydantic models for the platform."""
 from __future__ import annotations
 
 from datetime import datetime
