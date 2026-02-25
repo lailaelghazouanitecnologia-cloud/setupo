@@ -4,6 +4,7 @@ node_modules/
 dist/
 .next/
 out/
+dashboard/static/
 package-lock.json
 bun.lockb
 .env

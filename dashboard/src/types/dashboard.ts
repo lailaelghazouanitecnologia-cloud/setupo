@@ -1,4 +1,4 @@
-export type DashboardView = "overview" | "instances" | "files" | "terminal" | "settings";
+export type DashboardView = "inbox" | "instances" | "projects" | "secrets" | "plugins";
 
 export interface Instance {
   id: string;
@@ -44,4 +44,16 @@ export interface ApiHealth {
   version: string;
   uptime_seconds: number;
   platform: string;
+}
+
+export interface Project {
+  name: string;
+  path: string;
+  created?: number;
+}
+
+export interface Secret {
+  key: string;
+  value?: string;
+  masked: boolean;
 }

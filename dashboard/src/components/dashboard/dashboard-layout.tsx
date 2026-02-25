@@ -2,17 +2,17 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import {
-  LayoutDashboard, Server, FolderOpen, Terminal, Settings,
-  X, LogOut, ChevronDown, Plus, Circle,
+  Mail, Server, FolderKanban, Key, Puzzle,
+  X, LogOut, ChevronDown, Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useDashboardStore, type Workspace } from "@/stores/dashboard-store";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import { getApiHealth, getAgentHealth } from "@/lib/api/client";
-import { OverviewPanel } from "./overview-panel";
+import { InboxPanel } from "./inbox-panel";
 import { InstancesPanel } from "./instances-panel";
-import { FilesPanel } from "./files-panel";
-import { TerminalPanel } from "./terminal-panel";
-import { SettingsPanel } from "./settings-panel";
+import { ProjectsPanel } from "./projects-panel";
+import { SecretsPanel } from "./secrets-panel";
+import { PluginsPanel } from "./plugins-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -38,89 +38,20 @@ const IC_Menu = () => (
    NAV CONFIG
    ═══════════════════════════════════════════ */
 const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "inbox", label: "Inbox", icon: Mail },
   { id: "instances", label: "Instances", icon: Server },
-  { id: "files", label: "Files", icon: FolderOpen },
-  { id: "terminal", label: "Terminal", icon: Terminal },
-  { id: "settings", label: "Settings", icon: Settings },
+  { id: "projects", label: "Projects", icon: FolderKanban },
+  { id: "secrets", label: "Secrets", icon: Key },
+  { id: "plugins", label: "Plugins", icon: Puzzle },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
-  overview: "Overview",
+  inbox: "Inbox",
   instances: "Instances",
-  files: "Files",
-  terminal: "Terminal",
-  settings: "Settings",
+  projects: "Projects",
+  secrets: "Secrets",
+  plugins: "Plugins",
 };
-
-const WS_COLORS = ["#4cb782", "#3b82f6", "#f2c94c", "#a78bfa", "#02b8cc", "#e5484d", "#f59e0b"];
-
-/* ═══════════════════════════════════════════
-   WORKSPACE SWITCHER
-   ═══════════════════════════════════════════ */
-function WorkspaceSection() {
-  const workspaces = useDashboardStore((s) => s.workspaces);
-  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
-  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
-  const addWorkspace = useDashboardStore((s) => s.addWorkspace);
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (adding && inputRef.current) inputRef.current.focus();
-  }, [adding]);
-
-  function handleAdd() {
-    const name = newName.trim();
-    if (!name) { setAdding(false); return; }
-    const id = name.toLowerCase().replace(/\s+/g, "-") + "-" + Date.now().toString(36);
-    const color = WS_COLORS[workspaces.length % WS_COLORS.length];
-    addWorkspace({ id, name, color });
-    setNewName("");
-    setAdding(false);
-  }
-
-  return (
-    <div className="fsidebar-section">
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 8px 6px" }}>
-        <span className="fsidebar-section-title" style={{ padding: 0, marginBottom: 0 }}>Workspaces</span>
-        <button
-          className="ibtn"
-          style={{ width: 18, height: 18 }}
-          onClick={() => setAdding(true)}
-          aria-label="Add workspace"
-        >
-          <Plus className="h-3 w-3" />
-        </button>
-      </div>
-      {workspaces.map((ws) => (
-        <button
-          key={ws.id}
-          className={cn("fmenu", activeWorkspace === ws.id && "active")}
-          onClick={() => setActiveWorkspace(ws.id)}
-        >
-          <Circle className="h-2.5 w-2.5" style={{ color: ws.color, fill: ws.color }} />
-          <span>{ws.name}</span>
-        </button>
-      ))}
-      {adding && (
-        <div style={{ padding: "2px 8px" }}>
-          <input
-            ref={inputRef}
-            className="ws-input"
-            type="text"
-            placeholder="Workspace name..."
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") { setAdding(false); setNewName(""); } }}
-            onBlur={handleAdd}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════
    USER PROFILE (bottom of sidebar)
@@ -129,7 +60,6 @@ function UserProfile() {
   const userEmail = useDashboardStore((s) => s.userEmail);
   const userRole = useDashboardStore((s) => s.userRole);
   const logout = useDashboardStore((s) => s.logout);
-  const setActiveView = useDashboardStore((s) => s.setActiveView);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -157,10 +87,6 @@ function UserProfile() {
             </div>
           </div>
           <div className="user-profile-menu-sep" />
-          <button className="user-profile-menu-item" onClick={() => { setMenuOpen(false); setActiveView("settings"); }}>
-            <Settings className="h-3.5 w-3.5" />
-            <span>Settings</span>
-          </button>
           <button className="user-profile-menu-item destructive" onClick={logout}>
             <LogOut className="h-3.5 w-3.5" />
             <span>Log out</span>
@@ -268,12 +194,7 @@ export function DashboardLayout() {
 
         <div className="fsidebar-sep" />
 
-        {/* Workspaces */}
-        <WorkspaceSection />
-
-        <div className="fsidebar-sep" />
-
-        {/* Services */}
+        {/* Services status */}
         <div className="fsidebar-section">
           <div className="fsidebar-section-title">Services</div>
           {[
@@ -284,7 +205,7 @@ export function DashboardLayout() {
             <div
               key={i}
               className="fsidebar-service"
-              onClick={() => setActiveView("settings")}
+              onClick={() => setActiveView("instances")}
             >
               <div className="status-dot" style={{ background: svc.status ? "var(--color-green)" : "var(--color-red)" }} />
               <span>{svc.name}</span>
@@ -302,12 +223,12 @@ export function DashboardLayout() {
 
       {/* ════ MAIN CONTENT ════ */}
       <div className={cn("fmain", sidebarOpen && "shifted")}>
-        <div className={cn("fmain-content", activeView === "terminal" && "no-pad")}>
-          {activeView === "overview" && <OverviewPanel apiHealth={apiHealth} agentHealth={agentHealth} />}
+        <div className="fmain-content">
+          {activeView === "inbox" && <InboxPanel />}
           {activeView === "instances" && <InstancesPanel />}
-          {activeView === "files" && <FilesPanel />}
-          {activeView === "terminal" && <TerminalPanel />}
-          {activeView === "settings" && <SettingsPanel />}
+          {activeView === "projects" && <ProjectsPanel />}
+          {activeView === "secrets" && <SecretsPanel />}
+          {activeView === "plugins" && <PluginsPanel />}
         </div>
       </div>
     </div>
