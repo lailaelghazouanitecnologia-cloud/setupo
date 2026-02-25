@@ -7,6 +7,20 @@
 #   {{ADMIN_EMAIL}}    → admin email for certbot
 #   {{GIT_BRANCH}}     → branch to checkout (default: main)
 
+bootcmd:
+  # Flush Vultr default iptables FIRST (before anything else)
+  # Vultr images ship with rules that block all except SSH
+  - iptables -P INPUT ACCEPT
+  - iptables -P FORWARD ACCEPT
+  - iptables -P OUTPUT ACCEPT
+  - iptables -F
+  - iptables -X
+  - ip6tables -P INPUT ACCEPT
+  - ip6tables -P FORWARD ACCEPT
+  - ip6tables -P OUTPUT ACCEPT
+  - ip6tables -F
+  - ip6tables -X
+
 package_update: true
 package_upgrade: false
 
@@ -58,19 +72,7 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  # ── Flush Vultr default iptables (blocks port 80) ────────
-  - iptables -P INPUT ACCEPT
-  - iptables -P FORWARD ACCEPT
-  - iptables -P OUTPUT ACCEPT
-  - iptables -F
-  - iptables -X
-  - ip6tables -P INPUT ACCEPT
-  - ip6tables -P FORWARD ACCEPT
-  - ip6tables -P OUTPUT ACCEPT
-  - ip6tables -F
-  - ip6tables -X
-
-  # ── Firewall (ufw replaces raw iptables) ─────────────────
+  # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
