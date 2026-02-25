@@ -71,6 +71,49 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  - path: /etc/nginx/sites-available/setupo
+    permissions: "0644"
+    content: |
+      upstream setupo_api {
+          server 127.0.0.1:8000;
+      }
+
+      server {
+          listen 80;
+          server_name {{DOMAIN}} *.{{DOMAIN}};
+
+          location /api/ {
+              proxy_pass http://setupo_api;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_read_timeout 300s;
+          }
+
+          location /docs {
+              proxy_pass http://setupo_api;
+          }
+
+          location /openapi.json {
+              proxy_pass http://setupo_api;
+          }
+
+          location /ws/ {
+              proxy_pass http://setupo_api;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $host;
+              proxy_read_timeout 86400s;
+          }
+
+          location / {
+              return 200 '{"status":"ok","service":"setupo","docs":"/docs"}';
+              add_header Content-Type application/json;
+          }
+      }
+
 runcmd:
   # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
   - ufw default deny incoming
@@ -81,71 +124,20 @@ runcmd:
   - ufw --force enable
 
   # ── Clone setupo (specific branch) ────────────────────────
-  - |
-    BRANCH="{{GIT_BRANCH}}"
-    [ -z "$BRANCH" ] && BRANCH="main"
-    git clone -b "$BRANCH" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo \
-      || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo \
-      || { echo "FATAL: git clone failed"; exit 1; }
-    cp -r /opt/setupo/repo/* /opt/setupo/
-    cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
-    rm -rf /opt/setupo/repo
+  - BRANCH="{{GIT_BRANCH}}" && [ -z "$BRANCH" ] && BRANCH="main" && git clone -b "$BRANCH" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
+  - cp -r /opt/setupo/repo/* /opt/setupo/
+  - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
+  - rm -rf /opt/setupo/repo
 
   # ── Python virtual env ────────────────────────────────────
   - python3 -m venv /opt/setupo/venv
   - /opt/setupo/venv/bin/pip install --upgrade pip
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt || { echo "FATAL: pip install failed"; exit 1; }
+  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
 
   # ── Data dirs ─────────────────────────────────────────────
-  - mkdir -p /opt/setupo/data
-  - mkdir -p /opt/setupo/config
-  - mkdir -p /opt/setupo/workspaces
-  - mkdir -p /var/log/setupo
-  - mkdir -p /opt/app
+  - mkdir -p /opt/setupo/data /opt/setupo/config /opt/setupo/workspaces /var/log/setupo /opt/app
 
-  # ── Nginx ─────────────────────────────────────────────────
-  - |
-    cat > /etc/nginx/sites-available/setupo <<'NGINX'
-    upstream setupo_api {
-        server 127.0.0.1:8000;
-    }
-
-    server {
-        listen 80;
-        server_name {{DOMAIN}} *.{{DOMAIN}};
-
-        location /api/ {
-            proxy_pass http://setupo_api;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-            proxy_read_timeout 300s;
-        }
-
-        location /docs {
-            proxy_pass http://setupo_api;
-        }
-
-        location /openapi.json {
-            proxy_pass http://setupo_api;
-        }
-
-        location /ws/ {
-            proxy_pass http://setupo_api;
-            proxy_http_version 1.1;
-            proxy_set_header Upgrade $http_upgrade;
-            proxy_set_header Connection "upgrade";
-            proxy_set_header Host $host;
-            proxy_read_timeout 86400s;
-        }
-
-        location / {
-            return 200 '{"status":"ok","service":"setupo","docs":"/docs"}';
-            add_header Content-Type application/json;
-        }
-    }
-    NGINX
+  # ── Activate nginx config (file written by write_files) ───
   - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
   - rm -f /etc/nginx/sites-enabled/default
   - nginx -t && systemctl restart nginx
@@ -156,10 +148,4 @@ runcmd:
   - systemctl start setupo
 
   # ── SSL (skip if behind Cloudflare proxy or localhost) ────
-  - |
-    DOMAIN="{{DOMAIN}}"
-    if [ "$DOMAIN" != "localhost" ] && [ -n "$DOMAIN" ]; then
-      sleep 5
-      certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect \
-        || echo "WARN: certbot failed — if behind Cloudflare proxy this is expected."
-    fi
+  - DOMAIN="{{DOMAIN}}" && if [ "$DOMAIN" != "localhost" ] && [ -n "$DOMAIN" ]; then sleep 5 && certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect || echo "WARN certbot failed"; fi
