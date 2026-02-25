@@ -3,10 +3,12 @@
 # Placeholders replaced at runtime by types.py:
 #   {{DOMAIN}}         → user's domain or "localhost"
 #   {{VULTR_API_KEY}}  → Vultr API key from server config
+#   {{CF_API_TOKEN}}   → Cloudflare API token
 #   {{ADMIN_EMAIL}}    → admin email for certbot
+#   {{GIT_BRANCH}}     → branch to checkout (default: main)
 
 package_update: true
-package_upgrade: true
+package_upgrade: false
 
 packages:
   - python3
@@ -20,16 +22,19 @@ packages:
   - curl
   - jq
   - ca-certificates
+  - rsync
 
 write_files:
   - path: /opt/setupo/.env
     permissions: "0600"
     content: |
       VULTR_API_KEY={{VULTR_API_KEY}}
+      CF_API_TOKEN={{CF_API_TOKEN}}
       SETUPO_HOST=0.0.0.0
       SETUPO_PORT=8000
       SETUPO_DATA_DIR=/opt/setupo/data
       SETUPO_CONFIG_DIR=/opt/setupo/config
+      SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
       SETUPO_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
       SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
 
@@ -61,11 +66,16 @@ runcmd:
   - ufw allow 443/tcp
   - ufw --force enable
 
-  # ── Clone setupo ──────────────────────────────────────────
-  - git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || { echo "FATAL: git clone failed"; exit 1; }
-  - cp -r /opt/setupo/repo/* /opt/setupo/
-  - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
-  - rm -rf /opt/setupo/repo
+  # ── Clone setupo (specific branch) ────────────────────────
+  - |
+    BRANCH="{{GIT_BRANCH}}"
+    [ -z "$BRANCH" ] && BRANCH="main"
+    git clone -b "$BRANCH" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo \
+      || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo \
+      || { echo "FATAL: git clone failed"; exit 1; }
+    cp -r /opt/setupo/repo/* /opt/setupo/
+    cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
+    rm -rf /opt/setupo/repo
 
   # ── Python virtual env ────────────────────────────────────
   - python3 -m venv /opt/setupo/venv
@@ -75,10 +85,11 @@ runcmd:
   # ── Data dirs ─────────────────────────────────────────────
   - mkdir -p /opt/setupo/data
   - mkdir -p /opt/setupo/config
+  - mkdir -p /opt/setupo/workspaces
   - mkdir -p /var/log/setupo
   - mkdir -p /opt/app
 
-  # ── Nginx (HTTP-only bootstrap — certbot adds SSL after) ──
+  # ── Nginx ─────────────────────────────────────────────────
   - |
     cat > /etc/nginx/sites-available/setupo <<'NGINX'
     upstream setupo_api {
@@ -87,7 +98,7 @@ runcmd:
 
     server {
         listen 80;
-        server_name {{DOMAIN}};
+        server_name {{DOMAIN}} *.{{DOMAIN}};
 
         location /api/ {
             proxy_pass http://setupo_api;
@@ -116,7 +127,7 @@ runcmd:
         }
 
         location / {
-            return 200 '{"status":"ok","service":"setupo"}';
+            return 200 '{"status":"ok","service":"setupo","docs":"/docs"}';
             add_header Content-Type application/json;
         }
     }
@@ -130,11 +141,11 @@ runcmd:
   - systemctl enable setupo
   - systemctl start setupo
 
-  # ── SSL with certbot (skip if domain is localhost) ────────
+  # ── SSL (skip if behind Cloudflare proxy or localhost) ────
   - |
     DOMAIN="{{DOMAIN}}"
     if [ "$DOMAIN" != "localhost" ] && [ -n "$DOMAIN" ]; then
       sleep 5
       certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect \
-        || echo "WARN: certbot failed — SSL not configured. Ensure DNS A record points to this server."
+        || echo "WARN: certbot failed — if behind Cloudflare proxy this is expected."
     fi

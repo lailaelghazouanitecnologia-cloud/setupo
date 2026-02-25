@@ -53,7 +53,9 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
     # Replace placeholders
     content = content.replace("{{DOMAIN}}", domain or "localhost")
     content = content.replace("{{VULTR_API_KEY}}", settings.VULTR_API_KEY)
+    content = content.replace("{{CF_API_TOKEN}}", settings.CF_API_TOKEN)
     content = content.replace("{{ADMIN_EMAIL}}", settings.ADMIN_EMAIL)
+    content = content.replace("{{GIT_BRANCH}}", "claude/review-codebase-Ft57o")
 
     return base64.b64encode(content.encode()).decode()
 
