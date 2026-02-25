@@ -4,7 +4,7 @@ export async function apiCall<T>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("setupo_token") : null;
+  const token = typeof window !== "undefined" ? localStorage.getItem("nso_token") : null;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),

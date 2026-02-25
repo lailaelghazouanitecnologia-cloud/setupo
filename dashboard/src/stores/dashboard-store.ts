@@ -32,38 +32,38 @@ interface DashboardState {
 function loadWorkspaces(): Workspace[] {
   if (typeof window === "undefined") return DEFAULT_WORKSPACES;
   try {
-    const raw = localStorage.getItem("setupo_workspaces");
+    const raw = localStorage.getItem("nso_workspaces");
     return raw ? JSON.parse(raw) : DEFAULT_WORKSPACES;
   } catch { return DEFAULT_WORKSPACES; }
 }
 
 function saveWorkspaces(ws: Workspace[]) {
-  localStorage.setItem("setupo_workspaces", JSON.stringify(ws));
+  localStorage.setItem("nso_workspaces", JSON.stringify(ws));
 }
 
 export const useDashboardStore = create<DashboardState>((set, get) => ({
   activeView: "overview",
   sidebarOpen: true,
-  token: typeof window !== "undefined" ? localStorage.getItem("setupo_token") : null,
-  userEmail: typeof window !== "undefined" ? localStorage.getItem("setupo_email") : null,
-  userRole: typeof window !== "undefined" ? localStorage.getItem("setupo_role") : null,
+  token: typeof window !== "undefined" ? localStorage.getItem("nso_token") : null,
+  userEmail: typeof window !== "undefined" ? localStorage.getItem("nso_email") : null,
+  userRole: typeof window !== "undefined" ? localStorage.getItem("nso_role") : null,
   workspaces: loadWorkspaces(),
   activeWorkspace: typeof window !== "undefined"
-    ? localStorage.getItem("setupo_active_ws") || "default"
+    ? localStorage.getItem("nso_active_ws") || "default"
     : "default",
   setActiveView: (view) => set({ activeView: view }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setToken: (token) => {
     if (token) {
-      localStorage.setItem("setupo_token", token);
+      localStorage.setItem("nso_token", token);
     } else {
-      localStorage.removeItem("setupo_token");
+      localStorage.removeItem("nso_token");
     }
     set({ token });
   },
   setUser: (email, role) => {
-    localStorage.setItem("setupo_email", email);
-    localStorage.setItem("setupo_role", role);
+    localStorage.setItem("nso_email", email);
+    localStorage.setItem("nso_role", role);
     set({ userEmail: email, userRole: role });
   },
   addWorkspace: (ws) => {
@@ -75,17 +75,17 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
     const updated = get().workspaces.filter((w) => w.id !== id);
     saveWorkspaces(updated);
     const active = get().activeWorkspace === id ? (updated[0]?.id || "default") : get().activeWorkspace;
-    localStorage.setItem("setupo_active_ws", active);
+    localStorage.setItem("nso_active_ws", active);
     set({ workspaces: updated, activeWorkspace: active });
   },
   setActiveWorkspace: (id) => {
-    localStorage.setItem("setupo_active_ws", id);
+    localStorage.setItem("nso_active_ws", id);
     set({ activeWorkspace: id });
   },
   logout: () => {
-    localStorage.removeItem("setupo_token");
-    localStorage.removeItem("setupo_email");
-    localStorage.removeItem("setupo_role");
+    localStorage.removeItem("nso_token");
+    localStorage.removeItem("nso_email");
+    localStorage.removeItem("nso_role");
     set({ token: null, userEmail: null, userRole: null });
   },
 }));
