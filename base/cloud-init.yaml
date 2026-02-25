@@ -192,7 +192,15 @@ runcmd:
   - systemctl enable setupo
   - systemctl start setupo
 
-  # ── SSL (disabled when behind Cloudflare proxy) ────────────
-  # Cloudflare handles SSL termination. Certbot redirect causes loops.
-  # Uncomment below if NOT using Cloudflare proxy:
-  # - certbot --nginx -d "{{DOMAIN}}" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect || true
+  # ── Diagnostics ──────────────────────────────────────────
+  - sleep 5
+  - 'echo "=== Agent Status ===" > /opt/setupo/dashboard/static/debug.txt'
+  - 'systemctl status setupo-agent >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
+  - 'echo "=== Journal ===" >> /opt/setupo/dashboard/static/debug.txt'
+  - 'journalctl -u setupo-agent --no-pager -n 50 >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
+  - 'echo "=== Python Imports ===" >> /opt/setupo/dashboard/static/debug.txt'
+  - '/opt/setupo/venv/bin/python3 -c "import fastapi; import aiosqlite; print(\"OK\")" >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
+  - 'echo "=== Files ===" >> /opt/setupo/dashboard/static/debug.txt'
+  - 'ls -la /opt/setupo/mms-metrics/ >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
+  - 'echo "=== App Load ===" >> /opt/setupo/dashboard/static/debug.txt'
+  - 'cd /opt/setupo/mms-metrics && timeout 5 /opt/setupo/venv/bin/python3 -c "from main import app; print(\"app OK\")" >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
