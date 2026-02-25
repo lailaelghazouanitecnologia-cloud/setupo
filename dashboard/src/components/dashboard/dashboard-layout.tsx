@@ -302,7 +302,7 @@ export function DashboardLayout() {
 
       {/* ════ MAIN CONTENT ════ */}
       <div className={cn("fmain", sidebarOpen && "shifted")}>
-        <div className="fmain-content">
+        <div className={cn("fmain-content", activeView === "terminal" && "no-pad")}>
           {activeView === "overview" && <OverviewPanel apiHealth={apiHealth} agentHealth={agentHealth} />}
           {activeView === "instances" && <InstancesPanel />}
           {activeView === "files" && <FilesPanel />}

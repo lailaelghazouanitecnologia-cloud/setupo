@@ -1,113 +1,152 @@
 "use client";
 
 import { useState } from "react";
-import { RefreshCw, Play, Square, RotateCcw } from "lucide-react";
+import { RefreshCw, Play, Square, RotateCcw, Monitor } from "lucide-react";
 import { manageService, execCommand } from "@/lib/api/client";
 
-const SERVICES = ["setupo", "setupo-agent", "nginx"];
+const SERVICES = [
+  { name: "setupo", display: "NSO API", description: "Main REST API server" },
+  { name: "setupo-agent", display: "NSO Agent", description: "Remote execution agent" },
+  { name: "nginx", display: "nginx", description: "Reverse proxy & TLS" },
+];
 
 export function SettingsPanel() {
-  const [results, setResults] = useState<Record<string, any>>({});
+  const [statuses, setStatuses] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState<string | null>(null);
-  const [sysInfo, setSysInfo] = useState<string | null>(null);
+  const [sysInfo, setSysInfo] = useState<Record<string, string>>({});
+  const [sysLoading, setSysLoading] = useState(false);
 
   const handleService = async (action: string, name: string) => {
     setLoading(`${name}-${action}`);
     try {
       const res = await manageService(action, name);
-      setResults((prev) => ({ ...prev, [name]: res }));
+      setStatuses((prev) => ({ ...prev, [name]: res }));
     } catch (err: any) {
-      setResults((prev) => ({ ...prev, [name]: { error: err.message } }));
+      setStatuses((prev) => ({ ...prev, [name]: { error: err.message } }));
     }
     setLoading(null);
   };
 
   const fetchSysInfo = async () => {
-    setLoading("sysinfo");
+    setSysLoading(true);
     try {
-      const res = await execCommand("echo '=== OS ===' && cat /etc/os-release | head -3 && echo '=== Memory ===' && free -h | head -2 && echo '=== Disk ===' && df -h / | tail -1 && echo '=== CPU ===' && nproc && echo '=== Uptime ===' && uptime", "/opt/setupo", 10);
-      setSysInfo(res.stdout);
+      const res = await execCommand(
+        "cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'",
+        "/opt/setupo", 5,
+      );
+      const mem = await execCommand("free -h | awk '/Mem:/{print $2, $3}'", "/opt/setupo", 5);
+      const disk = await execCommand("df -h / | awk 'NR==2{print $2, $3, $5}'", "/opt/setupo", 5);
+      const cpu = await execCommand("nproc", "/opt/setupo", 5);
+      const up = await execCommand("uptime -p", "/opt/setupo", 5);
+
+      setSysInfo({
+        os: res.stdout.trim(),
+        memory: mem.stdout.trim(),
+        disk: disk.stdout.trim(),
+        cpu: `${cpu.stdout.trim()} cores`,
+        uptime: up.stdout.trim().replace("up ", ""),
+      });
     } catch {}
-    setLoading(null);
+    setSysLoading(false);
   };
 
   return (
-    <div className="animate-fade-in">
+    <div>
       {/* Services */}
-      <div style={{ fontSize: "var(--font-lg)", fontWeight: 500, marginBottom: 12 }}>Services</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
-        {SERVICES.map((svc) => (
-          <div key={svc} className="note-block" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 500, fontSize: "var(--font-md)" }}>{svc}</div>
-              {results[svc] && (
-                <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", marginTop: 2 }}>
-                  {results[svc].error
-                    ? <span style={{ color: "var(--color-red)" }}>{results[svc].error}</span>
-                    : <>Exit: {results[svc].exit_code} {results[svc].active !== undefined && (results[svc].active ? " — Active" : " — Inactive")}</>
-                  }
+      <div className="settings-section">
+        <div className="settings-section-title">Services</div>
+        <div className="svc-list">
+          {SERVICES.map((svc) => {
+            const st = statuses[svc.name];
+            const isActive = st?.active;
+            const hasError = st?.error;
+            return (
+              <div key={svc.name} className="svc-row">
+                <div className="svc-info">
+                  <div className="svc-status-dot" style={{
+                    background: hasError ? "var(--color-red)"
+                      : isActive ? "var(--color-green)"
+                      : isActive === false ? "var(--color-red)"
+                      : "var(--muted-foreground)",
+                    opacity: isActive == null && !hasError ? 0.3 : 1,
+                  }} />
+                  <div>
+                    <div className="svc-name">{svc.display}</div>
+                    <div className="svc-desc">
+                      {hasError ? <span style={{ color: "var(--color-red)" }}>{st.error}</span>
+                        : isActive != null ? (isActive ? "Active" : "Inactive")
+                        : svc.description}
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button
-                className="ibtn"
-                title="Status"
-                onClick={() => handleService("status", svc)}
-                disabled={loading === `${svc}-status`}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className="ibtn"
-                title="Start"
-                onClick={() => handleService("start", svc)}
-                style={{ color: "var(--color-green)" }}
-              >
-                <Play className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className="ibtn"
-                title="Stop"
-                onClick={() => handleService("stop", svc)}
-                style={{ color: "var(--color-red)" }}
-              >
-                <Square className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className="ibtn"
-                title="Restart"
-                onClick={() => handleService("restart", svc)}
-                style={{ color: "var(--color-yellow)" }}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-        ))}
+                <div className="svc-actions">
+                  <button
+                    className="svc-btn"
+                    title="Check status"
+                    onClick={() => handleService("status", svc.name)}
+                    disabled={loading === `${svc.name}-status`}
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loading === `${svc.name}-status` ? "animate-spin" : ""}`} />
+                  </button>
+                  <button
+                    className="svc-btn green"
+                    title="Start"
+                    onClick={() => handleService("start", svc.name)}
+                  >
+                    <Play className="h-3 w-3" />
+                  </button>
+                  <button
+                    className="svc-btn red"
+                    title="Stop"
+                    onClick={() => handleService("stop", svc.name)}
+                  >
+                    <Square className="h-3 w-3" />
+                  </button>
+                  <button
+                    className="svc-btn yellow"
+                    title="Restart"
+                    onClick={() => handleService("restart", svc.name)}
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
-      {/* System info */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <span style={{ fontSize: "var(--font-lg)", fontWeight: 500 }}>System Info</span>
-        <button className="task-btn" style={{ width: "auto", padding: "0 12px", marginBottom: 0 }} onClick={fetchSysInfo}>
-          {loading === "sysinfo" ? "Loading..." : "Fetch"}
-        </button>
+      {/* System */}
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <span className="settings-section-title">System</span>
+          <button className="panel-btn-sm" onClick={fetchSysInfo} disabled={sysLoading}>
+            <RefreshCw className={`h-3 w-3 ${sysLoading ? "animate-spin" : ""}`} />
+            <span>{sysLoading ? "Loading" : "Fetch"}</span>
+          </button>
+        </div>
+        {Object.keys(sysInfo).length > 0 ? (
+          <div className="sys-grid">
+            {[
+              { label: "OS", value: sysInfo.os },
+              { label: "CPU", value: sysInfo.cpu },
+              { label: "Memory", value: sysInfo.memory },
+              { label: "Disk", value: sysInfo.disk },
+              { label: "Uptime", value: sysInfo.uptime },
+            ].map((item) => (
+              <div key={item.label} className="sys-card">
+                <div className="sys-label">{item.label}</div>
+                <div className="sys-value">{item.value || "—"}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="settings-placeholder">
+            <Monitor className="h-6 w-6" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+            <span>Click Fetch to load system information</span>
+          </div>
+        )}
       </div>
-      {sysInfo && (
-        <pre style={{
-          background: "oklch(0.13 0.005 286)",
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          padding: 12,
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--font-sm)",
-          color: "#e0e0e0",
-          whiteSpace: "pre-wrap",
-        }}>
-          {sysInfo}
-        </pre>
-      )}
     </div>
   );
 }
