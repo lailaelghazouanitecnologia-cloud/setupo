@@ -17,7 +17,7 @@ Usage:
 
     # List files (with token)
     curl -H "Authorization: Bearer <token>" \\
-      https://server:8081/files/list?path=/opt/mms
+      https://server:8081/files/list?path=/opt/setupo
 
     # Execute command
     curl -X POST -H "Authorization: Bearer <token>" \\

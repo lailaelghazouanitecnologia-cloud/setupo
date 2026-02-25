@@ -22,8 +22,8 @@ from models import (
 
 logger = logging.getLogger("mms-metrics.store")
 
-DB_PATH = Path("/opt/mms/data/metrics.db")
-DEV_DB_PATH = Path("/tmp/mms/metrics.db")
+DB_PATH = Path("/opt/setupo/data/metrics.db")
+DEV_DB_PATH = Path("/tmp/setupo/metrics.db")
 
 _db: aiosqlite.Connection | None = None
 

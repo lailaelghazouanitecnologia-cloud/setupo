@@ -19,13 +19,13 @@ logger = logging.getLogger("mms-agent.files")
 router = APIRouter(prefix="/files", tags=["files"])
 
 # Allowed root paths — prevent escaping
-ALLOWED_ROOTS = ["/opt/mms", "/opt/app", "/var/log/mms", "/tmp"]
+ALLOWED_ROOTS = ["/opt/setupo", "/opt/app", "/var/log/setupo", "/tmp"]
 
 
 def _safe_path(path: str) -> Path:
     """Resolve and validate a path is within allowed roots."""
     if not path:
-        path = "/opt/mms"
+        path = "/opt/setupo"
     resolved = Path(path).resolve()
     for root in ALLOWED_ROOTS:
         if str(resolved).startswith(root):
@@ -96,13 +96,13 @@ def _stat_item(p: Path) -> FSItem:
 
 @router.get("/list", response_model=DirListing)
 async def list_directory(
-    path: str = Query("/opt/mms", description="Directory to list"),
+    path: str = Query("/opt/setupo", description="Directory to list"),
     admin: AdminUser = Depends(require_admin),
 ):
     """List contents of a directory.
 
     curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/list?path=/opt/mms"
+      "https://server:8081/files/list?path=/opt/setupo"
     """
     target = _safe_path(path)
     if not target.exists():
@@ -128,7 +128,7 @@ async def read_file(
     """Read contents of a file.
 
     curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/read?path=/opt/mms/.env"
+      "https://server:8081/files/read?path=/opt/setupo/.env"
     """
     target = _safe_path(path)
     if not target.exists():
@@ -229,14 +229,14 @@ async def delete_path(
 
 @router.get("/tree")
 async def file_tree(
-    path: str = Query("/opt/mms", description="Root directory"),
+    path: str = Query("/opt/setupo", description="Root directory"),
     depth: int = Query(3, ge=1, le=5, description="Max depth"),
     admin: AdminUser = Depends(require_admin),
 ):
     """Get a directory tree (useful for agents to understand structure).
 
     curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/tree?path=/opt/mms&depth=2"
+      "https://server:8081/files/tree?path=/opt/setupo&depth=2"
     """
     target = _safe_path(path)
     if not target.exists() or not target.is_dir():

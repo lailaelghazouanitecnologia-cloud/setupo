@@ -22,7 +22,7 @@ MAX_OUTPUT = 1024 * 512  # 512KB max output
 
 class ExecRequest(BaseModel):
     command: str
-    working_dir: str = "/opt/mms"
+    working_dir: str = "/opt/setupo"
     timeout: int = Field(default=60, ge=1, le=MAX_TIMEOUT)
     env: dict[str, str] = Field(default_factory=dict)
 
@@ -69,7 +69,7 @@ async def execute_command(
 
     curl -X POST -H "Authorization: Bearer <token>" \\
       -H "Content-Type: application/json" \\
-      -d '{"command":"ls -la /opt/mms","timeout":30}' \\
+      -d '{"command":"ls -la /opt/setupo","timeout":30}' \\
       https://server:8081/exec/
 
     Examples:
@@ -83,7 +83,7 @@ async def execute_command(
 
     # Validate working dir exists
     if not os.path.isdir(req.working_dir):
-        req.working_dir = "/opt/mms"
+        req.working_dir = "/opt/setupo"
 
     env = {**os.environ, **req.env}
 
@@ -144,7 +144,7 @@ async def manage_service(
         raise HTTPException(400, f"Invalid action: {action}")
 
     # Only allow known service names
-    allowed = {"mms", "mms-metrics", "mms-app", "nginx"}
+    allowed = {"setupo", "setupo-agent", "nginx"}
     if name not in allowed:
         raise HTTPException(403, f"Service not in allowed list: {name}")
 
