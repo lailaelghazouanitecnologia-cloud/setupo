@@ -92,7 +92,7 @@ export function TerminalPanel() {
           history.map((entry, i) => (
             <div key={i} style={{ marginBottom: 12 }}>
               <div style={{ color: "#4cb782" }}>
-                <span style={{ color: "#3b82f6" }}>setupo</span>
+                <span style={{ color: "#3b82f6" }}>nso</span>
                 <span style={{ color: "#737373" }}>:</span>
                 <span style={{ color: "#02b8cc" }}>{cwd}</span>
                 <span style={{ color: "#737373" }}>$ </span>
