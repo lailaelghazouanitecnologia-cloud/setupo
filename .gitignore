@@ -3,6 +3,7 @@ __pycache__/
 node_modules/
 dist/
 .next/
+out/
 package-lock.json
 bun.lockb
 .env
