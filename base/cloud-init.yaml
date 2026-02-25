@@ -124,7 +124,7 @@ runcmd:
   - ufw --force enable
 
   # ── Clone setupo (specific branch) ────────────────────────
-  - BRANCH="{{GIT_BRANCH}}" && [ -z "$BRANCH" ] && BRANCH="main" && git clone -b "$BRANCH" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
+  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
   - cp -r /opt/setupo/repo/* /opt/setupo/
   - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
   - rm -rf /opt/setupo/repo
@@ -147,5 +147,7 @@ runcmd:
   - systemctl enable setupo
   - systemctl start setupo
 
-  # ── SSL (skip if behind Cloudflare proxy or localhost) ────
-  - DOMAIN="{{DOMAIN}}" && if [ "$DOMAIN" != "localhost" ] && [ -n "$DOMAIN" ]; then sleep 5 && certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect || echo "WARN certbot failed"; fi
+  # ── SSL (disabled when behind Cloudflare proxy) ────────────
+  # Cloudflare handles SSL termination. Certbot redirect causes loops.
+  # Uncomment below if NOT using Cloudflare proxy:
+  # - certbot --nginx -d "{{DOMAIN}}" --non-interactive --agree-tos -m "{{ADMIN_EMAIL}}" --redirect || true
