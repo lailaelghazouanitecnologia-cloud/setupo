@@ -58,7 +58,19 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  # ── Firewall ──────────────────────────────────────────────
+  # ── Flush Vultr default iptables (blocks port 80) ────────
+  - iptables -P INPUT ACCEPT
+  - iptables -P FORWARD ACCEPT
+  - iptables -P OUTPUT ACCEPT
+  - iptables -F
+  - iptables -X
+  - ip6tables -P INPUT ACCEPT
+  - ip6tables -P FORWARD ACCEPT
+  - ip6tables -P OUTPUT ACCEPT
+  - ip6tables -F
+  - ip6tables -X
+
+  # ── Firewall (ufw replaces raw iptables) ─────────────────
   - ufw default deny incoming
   - ufw default allow outgoing
   - ufw allow 22/tcp
