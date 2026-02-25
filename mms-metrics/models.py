@@ -1,4 +1,4 @@
-"""MMS Metrics — Data models for installation tracking."""
+"""MMS Agent — Data models."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,6 +7,8 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
+
+# ── Installation stages ──────────────────────────────────────────
 
 class Stage(str, Enum):
     """Installation stages in order."""
@@ -23,7 +25,6 @@ class Stage(str, Enum):
     ERROR = "error"
 
 
-# Ordered stages with their expected progress %
 STAGE_ORDER: list[tuple[Stage, int]] = [
     (Stage.BOOTING, 0),
     (Stage.FIREWALL, 5),
@@ -40,12 +41,14 @@ STAGE_ORDER: list[tuple[Stage, int]] = [
 STAGE_PROGRESS = {stage: pct for stage, pct in STAGE_ORDER}
 
 
+# ── Metrics models ───────────────────────────────────────────────
+
 class MetricReport(BaseModel):
     """What the VPS sends to report its status."""
     instance_id: str
-    token: str                              # provision_token for auth
+    token: str
     stage: Stage
-    progress: int = 0                       # 0-100
+    progress: int = 0
     message: str = ""
     error: Optional[str] = None
 
@@ -53,7 +56,7 @@ class MetricReport(BaseModel):
 class StageInfo(BaseModel):
     """Status of a single installation stage."""
     name: str
-    status: str = "pending"                 # pending | in_progress | done | error
+    status: str = "pending"
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     duration_s: Optional[float] = None
@@ -74,8 +77,17 @@ class InstanceMetrics(BaseModel):
     error: Optional[str] = None
 
 
+# ── Health ───────────────────────────────────────────────────────
+
 class HealthResponse(BaseModel):
-    service: str = "mms-metrics"
+    service: str = "mms-agent"
     status: str = "ok"
-    version: str = "0.1.0"
+    version: str = "0.2.0"
     tracked_instances: int = 0
+    features: list[str] = Field(default_factory=lambda: [
+        "auth",
+        "metrics",
+        "files",
+        "exec",
+        "services",
+    ])

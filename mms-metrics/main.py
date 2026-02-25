@@ -1,22 +1,35 @@
-"""MMS Metrics — Standalone installation metrics service.
+"""MMS Agent — Standalone VPS management service.
 
-Lightweight FastAPI service running on port 8081.
-Receives progress reports from VPS instances during cloud-init
-and serves installation status to users/agents via curl.
+Runs on port 8081 on each provisioned VPS. Provides:
+  - Admin authentication (JWT)
+  - Installation metrics tracking
+  - File system operations (browse, read, write, delete)
+  - Command execution
+  - Service management
+
+Everything via curl. No SSH needed.
 
 Usage:
-    curl POST /report         — VPS reports its stage
-    curl GET  /status/{id}    — Check installation progress
-    curl GET  /health         — Service health check
+    # Login
+    curl -X POST https://server:8081/auth/login \\
+      -H "Content-Type: application/json" \\
+      -d '{"email":"admin@example.com","password":"xxx"}'
 
-Example:
-    # Check installation progress
-    curl https://your-server:8081/status/inst_abc123
+    # List files (with token)
+    curl -H "Authorization: Bearer <token>" \\
+      https://server:8081/files/list?path=/opt/mms
 
-    # VPS reports (called from cloud-init)
-    curl -X POST https://your-server:8081/report \
-      -H "Content-Type: application/json" \
-      -d '{"instance_id":"inst_abc","token":"prov_xxx","stage":"packages","message":"Installing nginx..."}'
+    # Execute command
+    curl -X POST -H "Authorization: Bearer <token>" \\
+      -H "Content-Type: application/json" \\
+      -d '{"command":"systemctl status mms"}' \\
+      https://server:8081/exec/
+
+    # Check installation metrics (no auth needed)
+    curl https://server:8081/status/inst_abc123
+
+    # Health check
+    curl https://server:8081/health
 """
 import logging
 import os
@@ -24,16 +37,24 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 import store
-from models import MetricReport, HealthResponse, InstanceMetrics
+from auth import (
+    LoginRequest,
+    LoginResponse,
+    AdminUser,
+    authenticate,
+    require_admin,
+)
+from models import MetricReport, HealthResponse
+from files import router as files_router
+from exec import router as exec_router
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("mms-metrics")
+logger = logging.getLogger("mms-agent")
 
 HOST = os.environ.get("MMS_METRICS_HOST", "0.0.0.0")
 PORT = int(os.environ.get("MMS_METRICS_PORT", "8081"))
@@ -41,17 +62,21 @@ PORT = int(os.environ.get("MMS_METRICS_PORT", "8081"))
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("mms-metrics starting on %s:%d", HOST, PORT)
+    logger.info("MMS Agent starting on %s:%d", HOST, PORT)
     await store.init()
     yield
-    logger.info("mms-metrics shutting down")
+    logger.info("MMS Agent shutting down")
     await store.close()
 
 
 app = FastAPI(
-    title="MMS Metrics",
-    description="Installation progress tracking for MMS instances",
-    version="0.1.0",
+    title="MMS Agent",
+    description=(
+        "VPS management agent for MMS. "
+        "Provides admin auth, file operations, command execution, "
+        "and installation metrics. Everything via curl."
+    ),
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -63,7 +88,13 @@ app.add_middleware(
 )
 
 
-# ── Health ────────────────────────────────────────────────────────
+# ── Include routers ──────────────────────────────────────────────
+
+app.include_router(files_router)
+app.include_router(exec_router)
+
+
+# ── Health (public) ──────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
@@ -71,16 +102,37 @@ async def health():
     return HealthResponse(tracked_instances=count)
 
 
-# ── Report (VPS → mms-metrics) ──────────────────────────────────
+# ── Auth ─────────────────────────────────────────────────────────
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(req: LoginRequest):
+    """Login as admin. Returns JWT token.
+
+    curl -X POST https://server:8081/auth/login \\
+      -H "Content-Type: application/json" \\
+      -d '{"email":"ayman_gha@hotmail.com","password":"xxx"}'
+    """
+    token = authenticate(req.email, req.password)
+    if not token:
+        raise HTTPException(401, "Invalid email or password")
+    return LoginResponse(token=token, email=req.email)
+
+
+@app.get("/auth/me")
+async def whoami(admin: AdminUser = Depends(require_admin)):
+    """Check current auth status."""
+    return admin
+
+
+# ── Metrics: Report (VPS → agent, public) ────────────────────────
 
 @app.post("/report")
 async def report_metric(data: MetricReport):
-    """Receive a progress report from a VPS during cloud-init.
+    """Receive a progress report during cloud-init.
 
-    Called by the cloud-init script at each installation stage.
-    Requires a valid provision_token for authentication.
+    Called by the mms-report script at each installation stage.
+    No admin auth needed — uses provision_token.
     """
-    # Verify token (unless it's the first report which auto-registers)
     existing = await store.get_metrics(data.instance_id)
     if existing:
         valid = await store.verify_token(data.instance_id, data.token)
@@ -95,14 +147,13 @@ async def report_metric(data: MetricReport):
     return {"ok": True, "progress": metrics.progress, "stage": metrics.current_stage}
 
 
-# ── Register (MMS API → mms-metrics) ────────────────────────────
+# ── Metrics: Register (MMS API → agent) ─────────────────────────
 
 @app.post("/register")
 async def register_instance(data: dict):
-    """Register a new instance for tracking.
+    """Register a new instance for metrics tracking.
 
-    Called by the MMS API when an instance is created.
-    Body: { "instance_id": "inst_xxx", "token": "prov_xxx" }
+    Called by MMS API when instance is created.
     """
     instance_id = data.get("instance_id")
     token = data.get("token")
@@ -114,14 +165,13 @@ async def register_instance(data: dict):
     return {"ok": True, "instance_id": instance_id}
 
 
-# ── Status (user/agent queries) ─────────────────────────────────
+# ── Metrics: Status (public) ─────────────────────────────────────
 
 @app.get("/status/{instance_id}")
 async def get_status(instance_id: str):
     """Get installation metrics for an instance.
 
-    This is the main endpoint for checking progress:
-        curl https://your-server:8081/status/inst_abc123
+    curl https://server:8081/status/inst_abc123
     """
     metrics = await store.get_metrics(instance_id)
     if not metrics:
@@ -129,11 +179,9 @@ async def get_status(instance_id: str):
     return metrics
 
 
-# ── Cleanup ──────────────────────────────────────────────────────
-
 @app.delete("/status/{instance_id}")
 async def delete_status(instance_id: str):
-    """Remove metrics for an instance (cleanup after done)."""
+    """Remove metrics for an instance."""
     await store.delete_metrics(instance_id)
     return {"deleted": True}
 
