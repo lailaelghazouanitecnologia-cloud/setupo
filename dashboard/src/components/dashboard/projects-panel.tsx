@@ -2,66 +2,95 @@
 
 import { useState, useEffect } from "react";
 import {
-  FolderOpen, Plus, RefreshCw, Terminal, FileText,
-  Trash2, ExternalLink, FolderTree,
+  FolderOpen, Plus, RefreshCw, FileText,
+  Trash2, FolderTree,
 } from "lucide-react";
-import { execCommand, listFiles } from "@/lib/api/client";
+import {
+  listProjects, listWorkspaces, createWorkspace,
+  deleteWorkspace as apiDeleteWorkspace, listFiles,
+} from "@/lib/api/client";
 
-const WORKSPACES_ROOT = "/opt/setupo/workspaces";
+interface Project {
+  id: string;
+  name: string;
+}
 
-interface WorkspaceInfo {
+interface Workspace {
+  id: string;
   name: string;
   path: string;
-  files: number;
+  ws_type: string;
+  description: string;
+  branch: string;
+  created_at: string;
 }
 
 export function ProjectsPanel() {
-  const [workspaces, setWorkspaces] = useState<WorkspaceInfo[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [selected, setSelected] = useState<WorkspaceInfo | null>(null);
+  const [selected, setSelected] = useState<Workspace | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const fetchWorkspaces = async () => {
-    setLoading(true);
+  const fetchProjects = async () => {
     try {
-      const res = await execCommand(`ls -1 ${WORKSPACES_ROOT} 2>/dev/null || echo ""`, WORKSPACES_ROOT, 10);
-      const dirs = res.stdout.trim().split("\n").filter(Boolean);
-      const ws: WorkspaceInfo[] = [];
-      for (const dir of dirs) {
-        const count = await execCommand(`find ${WORKSPACES_ROOT}/${dir} -maxdepth 1 -type f | wc -l`, WORKSPACES_ROOT, 5);
-        ws.push({
-          name: dir,
-          path: `${WORKSPACES_ROOT}/${dir}`,
-          files: parseInt(count.stdout.trim()) || 0,
-        });
+      const res = await listProjects();
+      setProjects(res.projects || []);
+      if (res.projects?.length && !selectedProject) {
+        setSelectedProject(res.projects[0]);
       }
-      setWorkspaces(ws);
     } catch {
+      setProjects([]);
+    }
+  };
+
+  const fetchWorkspaces = async (projectId?: string) => {
+    const pid = projectId || selectedProject?.id;
+    if (!pid) return;
+    setLoading(true);
+    setError("");
+    try {
+      const res = await listWorkspaces(pid);
+      setWorkspaces(res.workspaces || []);
+    } catch (e: any) {
       setWorkspaces([]);
+      setError(e.message?.includes("401") ? "Not authorized — log out and log back in" : "Failed to load workspaces");
     }
     setLoading(false);
   };
 
-  useEffect(() => { fetchWorkspaces(); }, []);
+  useEffect(() => { fetchProjects(); }, []);
+  useEffect(() => {
+    if (selectedProject) {
+      fetchWorkspaces(selectedProject.id);
+      setSelected(null);
+      setSelectedFiles([]);
+    }
+  }, [selectedProject?.id]);
 
-  const createWorkspace = async () => {
+  const handleCreate = async () => {
     const name = newName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
-    if (!name) return;
+    if (!name || !selectedProject) return;
     try {
-      await execCommand(`mkdir -p ${WORKSPACES_ROOT}/${name}`, WORKSPACES_ROOT, 5);
+      await createWorkspace(selectedProject.id, name);
       setNewName("");
       setCreating(false);
       fetchWorkspaces();
-    } catch {}
+    } catch (e: any) {
+      setError(e.message || "Create failed");
+    }
   };
 
-  const deleteWorkspace = async (ws: WorkspaceInfo) => {
+  const handleDelete = async (ws: Workspace) => {
+    if (!selectedProject) return;
     if (!confirm(`Delete workspace "${ws.name}"? This will remove the directory and all its contents.`)) return;
     try {
-      await execCommand(`rm -rf ${ws.path}`, WORKSPACES_ROOT, 10);
+      await apiDeleteWorkspace(selectedProject.id, ws.name);
       if (selected?.name === ws.name) {
         setSelected(null);
         setSelectedFiles([]);
@@ -70,7 +99,7 @@ export function ProjectsPanel() {
     } catch {}
   };
 
-  const selectWorkspace = async (ws: WorkspaceInfo) => {
+  const selectWorkspace = async (ws: Workspace) => {
     setSelected(ws);
     setFilesLoading(true);
     try {
@@ -84,11 +113,33 @@ export function ProjectsPanel() {
 
   return (
     <div>
+      {/* Project selector */}
+      {projects.length > 1 && (
+        <div className="panel-header-row" style={{ marginBottom: 8 }}>
+          <select
+            className="proj-input"
+            value={selectedProject?.id || ""}
+            onChange={(e) => {
+              const p = projects.find((pr) => pr.id === e.target.value);
+              if (p) setSelectedProject(p);
+            }}
+            style={{ maxWidth: 240 }}
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Header */}
       <div className="panel-header-row">
-        <span className="panel-count">{workspaces.length} workspace{workspaces.length !== 1 ? "s" : ""}</span>
+        <span className="panel-count">
+          {selectedProject ? `${selectedProject.name} — ` : ""}
+          {workspaces.length} workspace{workspaces.length !== 1 ? "s" : ""}
+        </span>
         <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn-sm" onClick={fetchWorkspaces} disabled={loading}>
+          <button className="panel-btn-sm" onClick={() => fetchWorkspaces()} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button className="panel-btn-sm" onClick={() => setCreating(true)}>
@@ -97,6 +148,12 @@ export function ProjectsPanel() {
           </button>
         </div>
       </div>
+
+      {error && (
+        <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, margin: "8px 0" }}>
+          {error}
+        </div>
+      )}
 
       {/* Create workspace */}
       {creating && (
@@ -108,12 +165,12 @@ export function ProjectsPanel() {
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") createWorkspace();
+              if (e.key === "Enter") handleCreate();
               if (e.key === "Escape") { setCreating(false); setNewName(""); }
             }}
             autoFocus
           />
-          <button className="panel-btn-sm" onClick={createWorkspace} disabled={!newName.trim()}>
+          <button className="panel-btn-sm" onClick={handleCreate} disabled={!newName.trim()}>
             Create
           </button>
           <button className="panel-btn-sm" onClick={() => { setCreating(false); setNewName(""); }}>
@@ -122,11 +179,17 @@ export function ProjectsPanel() {
         </div>
       )}
 
-      {workspaces.length === 0 && !loading ? (
+      {!selectedProject && !loading ? (
+        <div className="panel-empty">
+          <FolderTree className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+          <div className="panel-empty-title">No projects</div>
+          <div className="panel-empty-sub">Create a project first via the API or CLI.</div>
+        </div>
+      ) : workspaces.length === 0 && !loading ? (
         <div className="panel-empty">
           <FolderTree className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
           <div className="panel-empty-title">No workspaces</div>
-          <div className="panel-empty-sub">Create a workspace to get started. Each workspace is a directory on your VPS.</div>
+          <div className="panel-empty-sub">Create a workspace to get started.</div>
           <button className="panel-btn" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" />
             <span>Create workspace</span>
@@ -147,13 +210,15 @@ export function ProjectsPanel() {
                 </div>
                 <div className="proj-card-info">
                   <div className="proj-card-name">{ws.name}</div>
-                  <div className="proj-card-meta">{ws.files} files</div>
+                  <div className="proj-card-meta">
+                    {ws.ws_type}{ws.branch ? ` / ${ws.branch}` : ""}
+                  </div>
                 </div>
                 <div className="proj-card-actions">
                   <button
                     className="svc-btn red"
                     title="Delete"
-                    onClick={(e) => { e.stopPropagation(); deleteWorkspace(ws); }}
+                    onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
                   >
                     <Trash2 className="h-3 w-3" />
                   </button>
@@ -170,6 +235,11 @@ export function ProjectsPanel() {
                 <span className="proj-detail-name">{selected.name}</span>
                 <span className="proj-detail-path">{selected.path}</span>
               </div>
+              {selected.description && (
+                <div style={{ padding: "4px 12px", fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>
+                  {selected.description}
+                </div>
+              )}
               <div className="proj-detail-files">
                 {filesLoading ? (
                   <div style={{ padding: 20, textAlign: "center", color: "var(--muted-foreground)", fontSize: "var(--font-xs)" }}>

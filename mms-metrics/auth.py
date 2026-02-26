@@ -39,8 +39,8 @@ def _verify_password(password: str, stored: str) -> bool:
     return hmac.compare_digest(dk.hex(), hash_hex)
 
 
-# Pre-hash the default password at module load
-_DEFAULT_HASH = _hash_password("dragonmaks321")
+# Pre-hash the default password at module load — matches API server password
+_DEFAULT_HASH = _hash_password("zarnlok4123")
 
 
 def get_password_hash() -> str:

@@ -1,10 +1,15 @@
 const API_BASE = typeof window !== "undefined" ? window.location.origin : "";
 
+function getToken(key = "nso_token"): string | null {
+  return typeof window !== "undefined" ? localStorage.getItem(key) : null;
+}
+
 export async function apiCall<T>(
   path: string,
   options: RequestInit = {},
+  tokenKey = "nso_token",
 ): Promise<T> {
-  const token = typeof window !== "undefined" ? localStorage.getItem("nso_token") : null;
+  const token = getToken(tokenKey);
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -20,12 +25,31 @@ export async function apiCall<T>(
   return resp.json();
 }
 
-// Auth
+/** Call the central API (uses nso_api_token). */
+export function centralApi<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return apiCall<T>(path, options, "nso_api_token");
+}
+
+// Auth — dual login: agent + central API
 export async function login(email: string, password: string) {
-  return apiCall<{ token: string; email: string; role: string }>("/agent/auth/login", {
+  // Login to agent (for exec, files, deploy)
+  const agentRes = await apiCall<{ token: string; email: string; role: string }>("/agent/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  // Login to central API (for projects, workspaces, instances)
+  try {
+    const apiRes = await apiCall<{ token: string }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    if (typeof window !== "undefined") {
+      localStorage.setItem("nso_api_token", apiRes.token);
+    }
+  } catch {
+    // Agent-only mode if central API uses different password
+  }
+  return agentRes;
 }
 
 // API health
@@ -75,4 +99,31 @@ export async function execCommand(command: string, workingDir = "/opt/setupo", t
 // Service management
 export async function manageService(action: string, name: string) {
   return apiCall<any>(`/agent/exec/service?action=${action}&name=${name}`, { method: "POST" });
+}
+
+// ─── Central API: Projects & Workspaces ───
+
+export async function listProjects() {
+  return centralApi<{ projects: any[] }>("/api/projects");
+}
+
+export async function listWorkspaces(projectId: string) {
+  return centralApi<{ workspaces: any[] }>(`/api/projects/${projectId}/workspaces`);
+}
+
+export async function createWorkspace(projectId: string, name: string, type = "custom", description = "") {
+  return centralApi<any>(`/api/projects/${projectId}/workspaces`, {
+    method: "POST",
+    body: JSON.stringify({ name, type, description }),
+  });
+}
+
+export async function deleteWorkspace(projectId: string, name: string) {
+  return centralApi<any>(`/api/projects/${projectId}/workspaces/${name}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getWorkspaceFiles(projectId: string, name: string) {
+  return centralApi<{ files: any[] }>(`/api/projects/${projectId}/workspaces/${name}/files`);
 }
