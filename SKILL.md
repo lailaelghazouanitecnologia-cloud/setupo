@@ -4,13 +4,17 @@ This document teaches AI agents how to use the NSO platform to manage infrastruc
 
 ## What is NSO?
 
-NSO is an infrastructure platform. You can:
-- Create VPS instances on Vultr
+NSO (Network Service Orchestration) is an infrastructure platform. Live at `https://zarnetti.com`.
+
+You can:
+- Create VPS instances on Vultr (Debian 12, 4vCPU minimum)
 - Deploy code to instances via .zar packages (no SSH to our servers)
 - Execute commands on instances via HTTP agent
 - From instances, SSH or curl to external systems
 - Manage DNS via Cloudflare
 - Rollback deployments instantly
+- Browse/edit files on instances via HTTP
+- Self-update agent/API/dashboard without recreating VPS
 
 ## Core Concepts
 
@@ -45,7 +49,7 @@ nso login -e admin@example.com
 # Login with project API key
 nso login -k sk_live_abc123
 
-# Set API host
+# Set API host (live instance)
 nso config host https://zarnetti.com
 
 # Check status

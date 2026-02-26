@@ -1,6 +1,51 @@
-# Setupo API Reference
+# NSO API Reference
 
-Base URL: `https://your-server.com` (port 8000)
+Base URL: `https://zarnetti.com`
+
+**Live instance**: Madrid (mad), Debian 12, 4vCPU/8GB — `65.20.102.242`
+
+## Routes Overview (34 endpoints)
+
+| Method | Path | Auth |
+|--------|------|------|
+| POST | `/api/auth/login` | Public |
+| GET | `/api/health` | Public |
+| GET | `/api/capabilities` | Public |
+| GET/POST | `/api/projects` | Admin |
+| GET/DELETE | `/api/projects/{pid}` | Admin |
+| POST | `/api/projects/{pid}/rotate-key` | Admin |
+| PUT | `/api/projects/{pid}/settings` | Admin |
+| GET/POST | `/api/projects/{pid}/instances` | API key |
+| GET/DELETE | `/api/projects/{pid}/instances/{iid}` | API key |
+| POST | `/api/projects/{pid}/instances/{iid}/start` | API key |
+| POST | `/api/projects/{pid}/instances/{iid}/stop` | API key |
+| POST | `/api/projects/{pid}/instances/{iid}/exec` | API key |
+| POST | `/api/projects/{pid}/instances/{iid}/deploy` | API key |
+| GET | `/api/projects/{pid}/instances/{iid}/logs` | API key |
+| GET/POST | `/api/projects/{pid}/workspaces` | API key |
+| GET/DELETE | `/api/projects/{pid}/workspaces/{name}` | API key |
+| GET/PUT | `/api/projects/{pid}/workspaces/{name}/config` | API key |
+| GET | `/api/projects/{pid}/workspaces/{name}/files` | API key |
+| GET | `/api/projects/{pid}/workspaces/{name}/files/read` | API key |
+| POST | `/api/projects/{pid}/workspaces/{name}/files/write` | API key |
+| POST | `/api/projects/{pid}/workspaces/{name}/files/delete` | API key |
+| POST | `/api/projects/{pid}/workspaces/{name}/deploy` | API key |
+| POST | `/api/projects/{pid}/workspaces/{name}/pull` | API key |
+| GET/POST | `/api/projects/{pid}/domains` | API key |
+| DELETE | `/api/projects/{pid}/domains/{did}` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/pack` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/push` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/deploy` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/ship` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/rollback` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/branch` | API key |
+| POST | `/api/projects/{pid}/zar/{name}/merge` | API key |
+| GET | `/api/projects/{pid}/zar/{name}/versions` | API key |
+| POST | `/api/projects/{pid}/zar/self-update` | API key |
+
+**Interactive docs**: `https://zarnetti.com/docs` (Swagger UI)
+
+---
 
 ## Authentication
 
@@ -391,30 +436,71 @@ Updates the component on the instance without recreating the VPS.
 
 ---
 
-## Agent Endpoints (port 8081)
+## Agent Endpoints (NSO Agent)
 
-These run on each VPS instance. Not called directly by users — the central API calls them. Documented here for debugging.
+The agent runs on each VPS instance on port 8081. Accessible via:
+- Direct: `http://{ip}:8081/...`
+- Via nginx proxy: `https://zarnetti.com/agent/...`
+
+### Agent Health (no auth)
+
+```
+GET /health
+```
+
+Response:
+```json
+{
+  "service": "nso-agent",
+  "status": "ok",
+  "version": "0.2.0",
+  "tracked_instances": 0,
+  "features": ["auth","metrics","files","exec","services","deploy","snapshots","rollback","self-update"]
+}
+```
 
 ### Agent Login
 
 ```
-POST http://{instance-ip}:8081/auth/login
+POST /auth/login
 ```
+
+```json
+{
+  "email": "ayman_gha@hotmail.com",
+  "password": "dragonmaks321"
+}
+```
+
+Response: `{ "token": "eyJ...", "email": "...", "role": "admin" }`
+
+All subsequent agent endpoints require: `Authorization: Bearer <token>`
 
 ### File Operations
 
 ```
-GET    /files/list?path=/opt/app
-GET    /files/read?path=/opt/app/config.toml
-POST   /files/write   { "path": "...", "content": "..." }
-DELETE /files/delete?path=/opt/app/old-file
+GET    /files/list?path=/opt/setupo       # List directory
+GET    /files/read?path=/opt/setupo/.env   # Read file (max 5MB)
+POST   /files/write                        # Write file
+POST   /files/mkdir                        # Create directory
+DELETE /files/?path=/opt/app/old-file      # Delete file/dir
+GET    /files/tree?path=/opt/setupo&depth=2  # Directory tree
 ```
+
+Allowed paths: `/opt/setupo`, `/opt/app`, `/var/log/setupo`, `/tmp`
 
 ### Command Execution
 
 ```
 POST /exec/
-{ "command": "systemctl status myapp" }
+```
+
+```json
+{
+  "command": "systemctl status setupo",
+  "working_dir": "/opt/setupo",
+  "timeout": 60
+}
 ```
 
 Response:
@@ -422,9 +508,18 @@ Response:
 {
   "stdout": "...",
   "stderr": "...",
-  "returncode": 0
+  "exit_code": 0,
+  "timed_out": false
 }
 ```
+
+### Service Management
+
+```
+POST /exec/service?action=restart&name=setupo
+```
+
+Actions: `start`, `stop`, `restart`, `status`
 
 ### Deploy (Agent-side)
 

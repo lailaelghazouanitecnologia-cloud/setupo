@@ -2,36 +2,46 @@
 
 ## What is NSO?
 
-NSO is an infrastructure platform that lets you provision VPS instances, deploy code, and manage everything via API or CLI. No SSH between you and your servers — an agent on each VPS handles everything over HTTP.
+NSO (Network Service Orchestration) is an infrastructure platform that provisions VPS instances, deploys code, and manages everything via API or CLI. No SSH between you and your servers — an agent on each VPS handles everything over HTTP.
 
-Once your VPS is running, you can use it to SSH into **external** systems if needed.
+**Live**: `https://zarnetti.com` — Madrid, Debian 12, 4vCPU/8GB
 
-## Quick Start (5 minutes)
+## Architecture
 
-### 1. Install
+```
+You (CLI/API) ──HTTPS──► NSO API (:8000) ──HTTP──► Agent (:8081) on VPS
+                          │                         │
+                          ├── Dashboard (/)          ├── /files (browse/edit)
+                          ├── /api/health            ├── /exec (run commands)
+                          ├── /api/projects          ├── /deploy (zar/rollback)
+                          └── /api/zar/*             └── /auth (JWT login)
+                                │
+                                └── R2 (Cloudflare) ← .zar packages
+```
+
+## Quick Start
+
+### 1. Install (local development)
 
 ```bash
 git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git
 cd setupo
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env
-# Edit .env with your Vultr API key
+cp .env.example .env  # Edit with your keys
 ```
 
 ### 2. Start the server
 
 ```bash
-python -m server.main
+uvicorn server.main:app --host 0.0.0.0 --port 8000
 # → Running on http://localhost:8000
 ```
 
 ### 3. Login with the CLI
 
 ```bash
-./nso config host http://localhost:8000
+./nso config host https://zarnetti.com  # or localhost:8000
 ./nso login -e ayman_gha@hotmail.com
 ./nso status
 ```
@@ -97,9 +107,36 @@ export NSO_PROJECT=proj_a1b2c3
 | `NSO_ADMIN_EMAIL` | Agent admin email |
 | `AGENT_ADMIN_PASSWORD` | Agent password (for exec) |
 
+## Live URLs
+
+| URL | What |
+|-----|------|
+| `https://zarnetti.com/` | Dashboard (login required) |
+| `https://zarnetti.com/api/health` | API health check |
+| `https://zarnetti.com/agent/health` | Agent health check |
+| `https://zarnetti.com/docs` | Swagger UI (interactive API docs) |
+| `https://zarnetti.com/openapi.json` | OpenAPI spec |
+
+## Services on VPS
+
+| Service | Port | Systemd unit | Purpose |
+|---------|------|-------------|---------|
+| NSO API | 8000 | `setupo.service` | Central API (FastAPI + uvicorn) |
+| NSO Agent | 8081 | `setupo-agent.service` | VPS management (files, exec, deploy) |
+| Nginx | 80 | `nginx.service` | Reverse proxy + static dashboard |
+
+## Tech Stack
+
+- **Backend**: Python 3.11, FastAPI, aiosqlite, httpx
+- **Dashboard**: Next.js 15, React 19, Tailwind 4, static export
+- **Storage**: Cloudflare R2 (S3v4 signing, no boto3)
+- **Providers**: Vultr (VPS), Cloudflare (DNS + R2)
+- **OS**: Debian 12 (bookworm), 4vCPU minimum
+- **Deploy**: cloud-init bootstrap, .zar packages, snapshot rollback
+
 ## Next Steps
 
 - [CLI Reference](cli.md)
+- [API Reference](api-reference.md) — All 34 endpoints
 - [Failure Recovery](failure-recovery.md) — What can go wrong and how to fix it
-- [API Reference](api-reference.md)
 - [SKILL.md](../SKILL.md) — AI agent skill documentation
