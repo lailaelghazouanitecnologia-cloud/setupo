@@ -22,8 +22,7 @@
 
 ### Known Issues
 - `core/instances/manager.py` still has SSH exec path — should use agent HTTP relay
-- Hardcoded admin credentials in `server/auth/middleware.py` (ADMIN_USERS dict)
-- ADMIN_USERS password hash uses simple SHA-256, agent uses PBKDF2 — should unify
+- Central server uses SHA-256 for password hashing, agent uses PBKDF2 — should unify
 - `mms-metrics` name is legacy — conceptually this is the NSO Agent
 - Dashboard instance terminal uses central API exec relay (latency), not direct agent connection
 
@@ -64,10 +63,10 @@
 - [x] Fix admin auth on project-scoped endpoints
 - [x] Dashboard auto-load instances + terminal + files
 - [x] Instance labels
-- [ ] Move admin credentials to env vars (remove hardcoded ADMIN_USERS)
+- [x] Move admin credentials to env vars (remove hardcoded ADMIN_USERS)
 - [ ] Unify password hashing (PBKDF2 everywhere)
-- [ ] Update .env.example with all agent vars
-- [ ] Clean obsolete docs and naming
+- [x] Update .env.example with all agent vars
+- [x] Clean obsolete docs (PLAN.md rewritten)
 
 ### Phase 2 — Rename & Reorganize
 - [ ] Rename `mms-metrics/` → `nso-agent/`
