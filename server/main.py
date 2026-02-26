@@ -92,7 +92,7 @@ app.include_router(
 )
 app.include_router(
     zar.router,
-    prefix="/api/projects/{project_id}/workspaces",
+    prefix="/api/projects/{project_id}/zar",
     tags=["zar"],
 )
 

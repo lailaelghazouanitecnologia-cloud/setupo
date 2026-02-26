@@ -248,22 +248,28 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
     manifest = {}
     with tarfile.open(fileobj=BytesIO(zar_bytes), mode="r:gz") as tar:
         for member in tar.getmembers():
+            # Block absolute paths and traversal
+            if member.name.startswith("/") or ".." in member.name:
+                logger.warning("Skipping unsafe path: %s", member.name)
+                continue
+
             if member.name == ".zar-manifest.json":
                 f = tar.extractfile(member)
                 if f:
                     manifest = json.loads(f.read())
-                tar.extract(member, target)
+                tar.extract(member, target, filter="data")
                 continue
             if member.name == "config.toml":
-                tar.extract(member, target)
+                tar.extract(member, target, filter="data")
                 continue
             if member.name.startswith("files/"):
                 member.name = member.name[6:]
                 if member.name:
                     resolved = (target / member.name).resolve()
                     if not str(resolved).startswith(str(target.resolve())):
+                        logger.warning("Skipping path traversal: %s", member.name)
                         continue
-                    tar.extract(member, target)
+                    tar.extract(member, target, filter="data")
 
     # Restore .env
     if env_backup:
