@@ -467,8 +467,8 @@ POST /auth/login
 
 ```json
 {
-  "email": "ayman_gha@hotmail.com",
-  "password": "dragonmaks321"
+  "email": "admin@example.com",
+  "password": "<AGENT_ADMIN_PASSWORD>"
 }
 ```
 
