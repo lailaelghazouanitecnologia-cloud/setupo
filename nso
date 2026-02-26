@@ -1,0 +1,11 @@
+#!/usr/bin/env python3
+"""NSO CLI entry point."""
+import sys
+import os
+
+# Allow running from the repo root
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from cli.main import main
+
+sys.exit(main() or 0)
