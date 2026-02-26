@@ -5,6 +5,7 @@
 #   {{VULTR_API_KEY}}  → Vultr API key from server config
 #   {{CF_API_TOKEN}}   → Cloudflare API token
 #   {{ADMIN_EMAIL}}    → admin email for certbot
+#   {{ADMIN_PASSWORD}} → admin password for dashboard + agent
 #   {{GIT_BRANCH}}     → branch to checkout (default: main)
 
 bootcmd:
@@ -55,6 +56,8 @@ write_files:
       R2_ACCESS_KEY_ID={{R2_ACCESS_KEY_ID}}
       R2_SECRET_ACCESS_KEY={{R2_SECRET_ACCESS_KEY}}
       R2_BUCKET={{R2_BUCKET}}
+      SETUPO_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
+      AGENT_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
       NSO_AGENT_URL=http://127.0.0.1:8081
       NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
 
@@ -87,7 +90,7 @@ write_files:
       [Service]
       Type=simple
       User=root
-      WorkingDirectory=/opt/setupo/mms-metrics
+      WorkingDirectory=/opt/setupo/nso-agent
       EnvironmentFile=/opt/setupo/.env
       Environment=NSO_AGENT_HOST=0.0.0.0
       Environment=NSO_AGENT_PORT=8081
@@ -176,7 +179,7 @@ runcmd:
   - python3 -m venv /opt/setupo/venv
   - /opt/setupo/venv/bin/pip install --upgrade pip
   - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/mms-metrics/requirements.txt
+  - /opt/setupo/venv/bin/pip install -r /opt/setupo/nso-agent/requirements.txt
 
   # ── Node.js (for dashboard build) ─────────────────────────
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -

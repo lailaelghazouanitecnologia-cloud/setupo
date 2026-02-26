@@ -491,13 +491,13 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
     4. Brief restart of the affected service
 
     Components:
-    - "agent"    → /opt/setupo/mms-metrics/ → restart setupo-agent
+    - "agent"    → /opt/setupo/nso-agent/ → restart setupo-agent
     - "frontend" → /opt/setupo/dashboard/static/ → no restart needed
     - "core"     → /opt/setupo/server/ + /opt/setupo/core/ → restart setupo
     """
     component_map = {
         "agent": {
-            "target": "/opt/setupo/mms-metrics",
+            "target": "/opt/setupo/nso-agent",
             "service": "setupo-agent",
         },
         "frontend": {

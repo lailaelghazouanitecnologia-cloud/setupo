@@ -53,7 +53,7 @@ log "[4/8] Setting up Python virtual environment..."
 python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install --upgrade pip --quiet
 "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt" --quiet
-"$APP_DIR/venv/bin/pip" install -r "$APP_DIR/mms-metrics/requirements.txt" --quiet
+"$APP_DIR/venv/bin/pip" install -r "$APP_DIR/nso-agent/requirements.txt" --quiet
 
 # ── 5. Build dashboard ──────────────────────────
 log "[5/8] Building dashboard..."

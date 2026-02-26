@@ -1,5 +1,6 @@
 """Auth middleware — resolves Bearer token to project context."""
 import hashlib
+import hmac
 import logging
 import os
 import secrets
@@ -18,6 +19,15 @@ security = HTTPBearer(auto_error=False)
 _cached_admin_token: str | None = None
 
 
+def _pbkdf2_verify(password: str, stored: str) -> bool:
+    """Verify password against PBKDF2-SHA256 hash (same format as agent)."""
+    if ":" not in stored:
+        return False
+    salt, hash_hex = stored.split(":", 1)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    return hmac.compare_digest(dk.hex(), hash_hex)
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -30,7 +40,7 @@ class LoginResponse(BaseModel):
 
 
 def verify_password(email: str, password: str) -> dict | None:
-    """Verify admin login using env-configured credentials."""
+    """Verify admin login. Supports PBKDF2 hash or plaintext from env."""
     admin_email = settings.ADMIN_EMAIL
     admin_password = settings.ADMIN_PASSWORD
     if not admin_email or not admin_password:
@@ -38,10 +48,14 @@ def verify_password(email: str, password: str) -> dict | None:
         return None
     if email != admin_email:
         return None
-    pw_hash = hashlib.sha256(password.encode()).hexdigest()
-    stored_hash = hashlib.sha256(admin_password.encode()).hexdigest()
-    if not secrets.compare_digest(pw_hash, stored_hash):
-        return None
+    # PBKDF2 hash format: "salt_hex:derived_key_hex" (always 97+ chars)
+    if ":" in admin_password and len(admin_password) > 80:
+        if not _pbkdf2_verify(password, admin_password):
+            return None
+    else:
+        # Plaintext password — constant-time comparison
+        if not hmac.compare_digest(password, admin_password):
+            return None
     return {"email": admin_email, "role": "admin"}
 
 

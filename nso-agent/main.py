@@ -35,8 +35,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger("nso-agent")
 
-HOST = os.environ.get("NSO_AGENT_HOST", os.environ.get("MMS_METRICS_HOST", "0.0.0.0"))
-PORT = int(os.environ.get("NSO_AGENT_PORT", os.environ.get("MMS_METRICS_PORT", "8081")))
+HOST = os.environ.get("NSO_AGENT_HOST", "0.0.0.0")
+PORT = int(os.environ.get("NSO_AGENT_PORT", "8081"))
 
 
 @asynccontextmanager

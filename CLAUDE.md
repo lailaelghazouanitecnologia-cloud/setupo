@@ -37,7 +37,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │                     VPS (per instance)                           │
 │                                                                 │
-│  mms-metrics/ (FastAPI :8081) ← "the agent"                    │
+│  nso-agent/ (FastAPI :8081) ← "the agent"                    │
 │  ├── main.py (entry)                                            │
 │  ├── auth.py (JWT login)                                        │
 │  ├── files.py (browse/read/write/delete)                        │
@@ -61,7 +61,7 @@
 ```
 pack workspace → push .zar to R2 → agent pulls from R2 → snapshot → extract → restart
 ```
-No SSH. No instance recreation. The mms-metrics agent handles everything.
+No SSH. No instance recreation. The nso-agent agent handles everything.
 
 ### .zar Format
 A tar.gz with this structure:
@@ -152,7 +152,7 @@ setupo/
 │   ├── deps.py             # Shared FastAPI dependencies
 │   ├── auth/               # JWT + API key middleware
 │   └── routes/             # All API route handlers
-├── mms-metrics/             # VPS agent (runs on each instance)
+├── nso-agent/             # VPS agent (runs on each instance)
 │   ├── main.py             # Agent entry
 │   ├── auth.py             # Agent-local JWT auth
 │   ├── files.py            # File operations
@@ -182,7 +182,7 @@ setupo/
 cd /opt/setupo && venv/bin/uvicorn server.main:app --reload --port 8000
 
 # Run agent (dev)
-cd /opt/setupo/mms-metrics && ../venv/bin/uvicorn main:app --port 8081
+cd /opt/setupo/nso-agent && ../venv/bin/uvicorn main:app --port 8081
 
 # Build dashboard
 cd dashboard && npm run build

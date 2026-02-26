@@ -60,6 +60,7 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
     content = content.replace("{{R2_ACCESS_KEY_ID}}", settings.R2_ACCESS_KEY_ID)
     content = content.replace("{{R2_SECRET_ACCESS_KEY}}", settings.R2_SECRET_ACCESS_KEY)
     content = content.replace("{{R2_BUCKET}}", settings.R2_BUCKET)
+    content = content.replace("{{ADMIN_PASSWORD}}", settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD)
 
     return base64.b64encode(content.encode()).decode()
 

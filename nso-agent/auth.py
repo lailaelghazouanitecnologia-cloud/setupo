@@ -15,11 +15,11 @@ from pydantic import BaseModel
 logger = logging.getLogger("nso-agent.auth")
 
 # Admin credentials — loaded from env or defaults
-ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", os.environ.get("MMS_ADMIN_EMAIL", "ayman_gha@hotmail.com"))
-ADMIN_PASSWORD_HASH = os.environ.get("NSO_ADMIN_PASSWORD_HASH", os.environ.get("MMS_ADMIN_PASSWORD_HASH", ""))
+ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@setupo.dev")
+ADMIN_PASSWORD_HASH = os.environ.get("NSO_ADMIN_PASSWORD_HASH", "")
 
 # JWT secret — generated per-boot if not set
-JWT_SECRET = os.environ.get("NSO_JWT_SECRET", os.environ.get("MMS_JWT_SECRET", secrets.token_hex(32)))
+JWT_SECRET = os.environ.get("NSO_JWT_SECRET", secrets.token_hex(32))
 JWT_EXPIRY = 86400 * 7  # 7 days
 
 

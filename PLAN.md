@@ -16,14 +16,11 @@
 - .zar packaging: pack → push to R2 → agent pulls → snapshot → extract → restart
 - Branch/version system for .zar packages
 - Dashboard: login, project management, instance panel with terminal + files
-- Agent (mms-metrics): file ops, exec, deploy/snapshot/rollback, self-update
+- Agent (nso-agent): file ops, exec, deploy/snapshot/rollback, self-update
 - cloud-init provisioning for new VPS instances
 - Exec commands on instances via HTTP relay (no SSH from central)
 
 ### Known Issues
-- `core/instances/manager.py` still has SSH exec path — should use agent HTTP relay
-- Central server uses SHA-256 for password hashing, agent uses PBKDF2 — should unify
-- `mms-metrics` name is legacy — conceptually this is the NSO Agent
 - Dashboard instance terminal uses central API exec relay (latency), not direct agent connection
 
 ---
@@ -41,7 +38,7 @@
                ▼
 ┌──────────────────────────────────────────────────────┐
 │  NSO Agent (per VPS instance)                        │
-│  FastAPI :8081 (mms-metrics)                         │
+│  FastAPI :8081 (nso-agent/)                           │
 │  Handles: file ops, exec, deploy, snapshots,         │
 │           rollback, self-update                      │
 │  Auth: JWT (PBKDF2 password)                         │
@@ -64,13 +61,13 @@
 - [x] Dashboard auto-load instances + terminal + files
 - [x] Instance labels
 - [x] Move admin credentials to env vars (remove hardcoded ADMIN_USERS)
-- [ ] Unify password hashing (PBKDF2 everywhere)
+- [x] Unify password hashing (PBKDF2 everywhere)
 - [x] Update .env.example with all agent vars
 - [x] Clean obsolete docs (PLAN.md rewritten)
 
 ### Phase 2 — Rename & Reorganize
-- [ ] Rename `mms-metrics/` → `nso-agent/`
-- [ ] Update all references (systemd, nginx, deploy scripts, cloud-init)
+- [x] Rename `mms-metrics/` → `nso-agent/`
+- [x] Update all references (systemd, nginx, deploy scripts, cloud-init)
 - [ ] Consolidate deploy configs
 - [ ] Add proper error handling for agent HTTP relay
 

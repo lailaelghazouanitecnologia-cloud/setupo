@@ -154,7 +154,7 @@ nso deploy backend inst_xxx
 ssh root@149.28.xx.xx
 cd /opt/setupo/snapshots
 # Restore the latest agent snapshot manually
-tar xzf mms-metrics_*.tar.gz -C /opt/setupo/mms-metrics/
+tar xzf nso-agent_*.tar.gz -C /opt/setupo/nso-agent/
 systemctl restart setupo-agent
 
 # Option B: Create a new instance and migrate

@@ -229,16 +229,51 @@ async def start_instance(project_id: str, instance_id: str):
             await vultr.close()
 
 
+async def _agent_login(ip: str) -> str:
+    """Login to the NSO agent on an instance, return JWT token."""
+    import httpx
+
+    email = settings.ADMIN_EMAIL
+    password = settings.AGENT_ADMIN_PASSWORD or settings.ADMIN_PASSWORD
+    if not password:
+        raise ProviderError("agent", "AGENT_ADMIN_PASSWORD not configured")
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"http://{ip}:8081/auth/login",
+            json={"email": email, "password": password},
+        )
+        if resp.status_code != 200:
+            raise ProviderError("agent", f"Agent login failed ({resp.status_code}): {resp.text}")
+        return resp.json()["token"]
+
+
 async def exec_on_instance(project_id: str, instance_id: str, command: str, timeout: int = 60) -> tuple[str, int]:
-    """Execute a command on the instance via SSH."""
-    from core.instances.provisioner import run_ssh_command
+    """Execute a command on the instance via the NSO agent HTTP API."""
+    import httpx
 
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
         raise ProviderError("vultr", "Instance has no IP address")
 
-    keys_dir = settings.keys_dir(project_id)
-    priv_key = str(keys_dir / "id_ed25519")
-
-    return await run_ssh_command(ip, command, priv_key, timeout=timeout)
+    try:
+        token = await _agent_login(ip)
+        async with httpx.AsyncClient(timeout=timeout + 10) as client:
+            resp = await client.post(
+                f"http://{ip}:8081/exec",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"command": command, "timeout": timeout},
+            )
+            if resp.status_code != 200:
+                return f"Agent exec error ({resp.status_code}): {resp.text}", 1
+            data = resp.json()
+            output = data.get("stdout", "") + data.get("stderr", "")
+            return output, data.get("exit_code", 0)
+    except httpx.ConnectError:
+        return f"Cannot connect to agent at {ip}:8081", 1
+    except httpx.TimeoutException:
+        return "Agent exec timed out", 1
+    except Exception as e:
+        logger.error("Agent exec error on %s: %s", ip, e)
+        return str(e), 1
