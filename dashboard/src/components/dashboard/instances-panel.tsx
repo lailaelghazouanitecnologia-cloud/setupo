@@ -17,6 +17,7 @@ type Tab = "instances" | "services";
 
 interface Instance {
   id: string;
+  label: string;
   type: string;
   state: string;
   region: string;
@@ -179,11 +180,10 @@ function InstancesTab() {
             </div>
             <div className="proj-card-info" style={{ flex: 1 }}>
               <div className="proj-card-name">
-                {inst.domain || inst.ip || inst.id}
+                {inst.label || inst.domain || inst.id}
               </div>
               <div className="proj-card-meta">
-                {inst.type} / {inst.plan} / {inst.region}
-                {inst.ip ? ` — ${inst.ip}` : ""}
+                {inst.ip || "no ip"} — {inst.type} / {inst.plan} / {inst.region}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -202,8 +202,13 @@ function InstancesTab() {
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Server className="h-4 w-4" style={{ color: stateColor(selected.state) }} />
               <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>
-                {selected.domain || selected.ip || selected.id}
+                {selected.label || selected.domain || selected.id}
               </span>
+              {selected.ip && (
+                <span style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", fontFamily: "monospace" }}>
+                  {selected.ip}
+                </span>
+              )}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
               <button
@@ -238,7 +243,7 @@ function InstancesTab() {
           {/* Info grid */}
           <div className="sys-grid" style={{ marginBottom: 12 }}>
             {[
-              { label: "ID", value: selected.id },
+              { label: "Name", value: selected.label || "—" },
               { label: "IP", value: selected.ip || "—" },
               { label: "Type", value: selected.type },
               { label: "Plan", value: selected.plan },
@@ -295,8 +300,13 @@ function TerminalPanel({ projectId, instance }: { projectId: string; instance: I
       <div style={{ padding: "6px 12px", background: "var(--sidebar-bg)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
         <Terminal className="h-3 w-3" style={{ color: "var(--color-green)" }} />
         <span style={{ fontSize: "var(--font-xs)", fontWeight: 600 }}>
-          {instance.ip || instance.id}
+          {instance.label || instance.ip || instance.id}
         </span>
+        {instance.ip && instance.label && (
+          <span style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", fontFamily: "monospace" }}>
+            {instance.ip}
+          </span>
+        )}
       </div>
       <div
         ref={scrollRef}
