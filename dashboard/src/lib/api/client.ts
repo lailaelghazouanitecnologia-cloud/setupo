@@ -127,3 +127,38 @@ export async function deleteWorkspace(projectId: string, name: string) {
 export async function getWorkspaceFiles(projectId: string, name: string) {
   return centralApi<{ files: any[] }>(`/api/projects/${projectId}/workspaces/${name}/files`);
 }
+
+// ─── Central API: Instances ───
+
+export async function listInstances(projectId: string) {
+  return centralApi<{ instances: any[] }>(`/api/projects/${projectId}/instances`);
+}
+
+export async function getInstance(projectId: string, instanceId: string) {
+  return centralApi<{ instance: any }>(`/api/projects/${projectId}/instances/${instanceId}`);
+}
+
+export async function deleteInstance(projectId: string, instanceId: string) {
+  return centralApi<{ deleted: boolean }>(`/api/projects/${projectId}/instances/${instanceId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function stopInstance(projectId: string, instanceId: string) {
+  return centralApi<{ stopped: boolean }>(`/api/projects/${projectId}/instances/${instanceId}/stop`, {
+    method: "POST",
+  });
+}
+
+export async function startInstance(projectId: string, instanceId: string) {
+  return centralApi<{ started: boolean }>(`/api/projects/${projectId}/instances/${instanceId}/start`, {
+    method: "POST",
+  });
+}
+
+export async function execOnInstance(projectId: string, instanceId: string, command: string, timeout = 30) {
+  return centralApi<{ output: string; exit_code: number }>(`/api/projects/${projectId}/instances/${instanceId}/exec`, {
+    method: "POST",
+    body: JSON.stringify({ command, timeout }),
+  });
+}
