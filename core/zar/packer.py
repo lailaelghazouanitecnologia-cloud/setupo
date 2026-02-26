@@ -150,11 +150,11 @@ def extract(zar_bytes: bytes, target_dir: str) -> ZarManifest:
                 continue
 
             if member.name == ".zar-manifest.json":
-                tar.extract(member, target, filter="data")
+                tar.extract(member, target)
                 continue
 
             if member.name == "config.toml":
-                tar.extract(member, target, filter="data")
+                tar.extract(member, target)
                 continue
 
             if member.name.startswith("files/"):
@@ -164,7 +164,7 @@ def extract(zar_bytes: bytes, target_dir: str) -> ZarManifest:
                     if not str(resolved).startswith(str(target.resolve())):
                         logger.warning("Skipping path traversal: %s", member.name)
                         continue
-                    tar.extract(member, target, filter="data")
+                    tar.extract(member, target)
 
     if not manifest:
         manifest = ZarManifest(name="unknown", version="0.0.0")

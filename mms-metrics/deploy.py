@@ -256,10 +256,10 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
                 f = tar.extractfile(member)
                 if f:
                     manifest = json.loads(f.read())
-                tar.extract(member, target, filter="data")
+                tar.extract(member, target)
                 continue
             if member.name == "config.toml":
-                tar.extract(member, target, filter="data")
+                tar.extract(member, target)
                 continue
             if member.name.startswith("files/"):
                 member.name = member.name[6:]
@@ -268,7 +268,7 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
                     if not str(resolved).startswith(str(target.resolve())):
                         logger.warning("Skipping path traversal: %s", member.name)
                         continue
-                    tar.extract(member, target, filter="data")
+                    tar.extract(member, target)
 
     # Restore .env
     if env_backup:
@@ -294,7 +294,9 @@ async def _install_deps(target_dir: str, stack: str) -> tuple[str, int]:
 
 
 async def _restart_service(name: str) -> tuple[str, int]:
-    """Restart a systemd service."""
+    """Restart a systemd service. No-op if name is empty."""
+    if not name:
+        return "", 0
     proc = await asyncio.create_subprocess_shell(
         f"systemctl restart {name}",
         stdout=asyncio.subprocess.PIPE,
