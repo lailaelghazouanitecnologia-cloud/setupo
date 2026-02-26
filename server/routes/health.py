@@ -61,8 +61,12 @@ async def capabilities():
         actions=[
             "projects.create", "projects.delete", "projects.rotate_key",
             "workspaces.create", "workspaces.delete", "workspaces.pull", "workspaces.files",
+            "workspaces.pack", "workspaces.push", "workspaces.deploy",
+            "workspaces.ship", "workspaces.rollback",
+            "workspaces.branch", "workspaces.merge", "workspaces.versions",
             "instances.create", "instances.delete", "instances.stop", "instances.start",
             "instances.exec", "instances.deploy", "instances.logs",
+            "instances.self_update",
             "domains.create", "domains.delete",
         ],
     ).model_dump()

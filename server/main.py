@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.errors import SetupoError
 from server.config import settings
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -89,6 +89,11 @@ app.include_router(
     deploy.router,
     prefix="/api/projects/{project_id}/instances",
     tags=["deploy"],
+)
+app.include_router(
+    zar.router,
+    prefix="/api/projects/{project_id}/workspaces",
+    tags=["zar"],
 )
 
 

@@ -206,6 +206,78 @@ class DeployStatus(BaseModel):
     url: Optional[str] = None
 
 
+# ── Zar Packages ────────────────────────────────────────────────
+
+class ZarDependency(BaseModel):
+    """A dependency on another workspace's .zar package."""
+    name: str                                       # Workspace name
+    branch: str = "main"
+    version: str = ""                               # Semver constraint, e.g. ">=1.0.0"
+    path: str = ""                                  # Where to extract inside the workspace
+
+
+class ZarManifest(BaseModel):
+    """Metadata inside a .zar package (.zar-manifest.json)."""
+    name: str
+    version: str = "0.1.0"
+    branch: str = "main"
+    hash: str = ""                                  # sha256 of the .zar file
+    stack: str = ""                                 # node | python | static | etc.
+    created_at: str = ""
+    dependencies: list[ZarDependency] = Field(default_factory=list)
+    parent: str = ""                                # Hash of previous version
+    project_id: str = ""
+    description: str = ""
+
+
+class PackageConfig(BaseModel):
+    """[package] section in config.toml."""
+    version: str = "0.1.0"
+    branch: str = "main"
+    dependencies: dict[str, ZarDependency] = Field(default_factory=dict)
+
+
+class R2Config(BaseModel):
+    """[package.r2] section in config.toml."""
+    bucket: str = "setupo-packages"
+    endpoint: str = ""                              # R2 S3-compatible endpoint
+    access_key_id: str = ""
+    secret_access_key: str = ""
+    public_url: str = ""                            # Optional public bucket URL
+
+
+class ZarUploadResult(BaseModel):
+    name: str
+    version: str
+    branch: str
+    hash: str
+    r2_key: str
+    size: int
+
+
+class ZarDeployRequest(BaseModel):
+    """What the API sends to the agent to deploy a .zar."""
+    r2_key: str                                     # Key in R2 bucket
+    r2_endpoint: str
+    r2_bucket: str
+    r2_access_key_id: str
+    r2_secret_access_key: str
+    target_dir: str = "/opt/app"                    # Where to extract
+    restart_service: str = "setupo-app"             # Service to restart after
+    manifest: ZarManifest | None = None
+
+
+class ZarDeployStatus(BaseModel):
+    """Current deployment state on the agent."""
+    current_version: str = ""
+    current_hash: str = ""
+    workspace: str = ""
+    branch: str = ""
+    deployed_at: str = ""
+    manifest: ZarManifest | None = None
+    snapshots: list[str] = Field(default_factory=list)  # Available rollback versions
+
+
 # ── Capabilities (agent-friendly) ───────────────────────────────
 
 class Capabilities(BaseModel):

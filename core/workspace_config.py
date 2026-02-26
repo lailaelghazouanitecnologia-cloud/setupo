@@ -13,6 +13,9 @@ from core.models import (
     WorkspaceGitConfig,
     WorkspaceDeployConfig,
     WorkspaceServiceConfig,
+    PackageConfig,
+    ZarDependency,
+    R2Config,
 )
 
 logger = logging.getLogger("setupo.workspace_config")
@@ -222,6 +225,70 @@ def read_config(workspace_path: str) -> Optional[WorkspaceConfig]:
         return config
     except Exception as e:
         logger.warning("Failed to read config.toml at %s: %s", config_path, e)
+        return None
+
+
+def read_package_config(workspace_path: str) -> PackageConfig | None:
+    """Read [package] section from config.toml. Returns None if not found."""
+    config_path = os.path.join(workspace_path, CONFIG_FILENAME)
+    if not os.path.isfile(config_path):
+        return None
+
+    try:
+        with open(config_path, "r") as f:
+            raw = _parse_toml(f.read())
+
+        pkg_data = raw.get("package", {})
+        if not pkg_data:
+            return None
+
+        deps_raw = pkg_data.get("dependencies", {})
+        deps = {}
+        for name, cfg in deps_raw.items():
+            if isinstance(cfg, dict):
+                deps[name] = ZarDependency(
+                    name=name,
+                    branch=cfg.get("branch", "main"),
+                    version=cfg.get("version", ""),
+                    path=cfg.get("path", f"deps/{name}"),
+                )
+            elif isinstance(cfg, str):
+                deps[name] = ZarDependency(name=name, branch=cfg)
+
+        return PackageConfig(
+            version=str(pkg_data.get("version", "0.1.0")),
+            branch=pkg_data.get("branch", "main"),
+            dependencies=deps,
+        )
+    except Exception as e:
+        logger.warning("Failed to read [package] from %s: %s", config_path, e)
+        return None
+
+
+def read_r2_config(workspace_path: str) -> R2Config | None:
+    """Read [package.r2] section from config.toml."""
+    config_path = os.path.join(workspace_path, CONFIG_FILENAME)
+    if not os.path.isfile(config_path):
+        return None
+
+    try:
+        with open(config_path, "r") as f:
+            raw = _parse_toml(f.read())
+
+        pkg = raw.get("package", {})
+        r2_data = pkg.get("r2", {})
+        if not r2_data:
+            return None
+
+        return R2Config(
+            bucket=r2_data.get("bucket", "setupo-packages"),
+            endpoint=r2_data.get("endpoint", ""),
+            access_key_id=r2_data.get("access_key_id", ""),
+            secret_access_key=r2_data.get("secret_access_key", ""),
+            public_url=r2_data.get("public_url", ""),
+        )
+    except Exception as e:
+        logger.warning("Failed to read [package.r2] from %s: %s", config_path, e)
         return None
 
 

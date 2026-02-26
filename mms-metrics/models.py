@@ -90,4 +90,8 @@ class HealthResponse(BaseModel):
         "files",
         "exec",
         "services",
+        "deploy",
+        "snapshots",
+        "rollback",
+        "self-update",
     ])

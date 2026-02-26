@@ -31,6 +31,13 @@ class Settings:
     # Cloudflare (optional — user provides per-project or global)
     CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 
+    # Cloudflare R2 (for .zar package storage)
+    R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "")
+    R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
+    R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+    R2_BUCKET = os.environ.get("R2_BUCKET", "setupo-packages")
+    R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "")
+
     # Server
     HOST = os.environ.get("SETUPO_HOST", "0.0.0.0")
     PORT = int(os.environ.get("SETUPO_PORT", "8000"))
@@ -74,6 +81,19 @@ class Settings:
         p = base / "keys" / project_id
         p.mkdir(parents=True, exist_ok=True)
         return p
+
+
+    @classmethod
+    def r2_config(cls):
+        """Build R2Config from environment."""
+        from core.models import R2Config
+        return R2Config(
+            bucket=cls.R2_BUCKET,
+            endpoint=cls.R2_ENDPOINT,
+            access_key_id=cls.R2_ACCESS_KEY_ID,
+            secret_access_key=cls.R2_SECRET_ACCESS_KEY,
+            public_url=cls.R2_PUBLIC_URL,
+        )
 
 
 settings = Settings()
