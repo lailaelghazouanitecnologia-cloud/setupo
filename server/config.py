@@ -26,7 +26,7 @@ class Settings:
     VULTR_BASE_URL = "https://api.vultr.com/v2"
     VULTR_DEFAULT_REGION = os.environ.get("VULTR_DEFAULT_REGION", "ewr")
     VULTR_DEFAULT_PLAN = os.environ.get("VULTR_DEFAULT_PLAN", "vc2-1c-1gb")
-    VULTR_DEFAULT_OS = int(os.environ.get("VULTR_DEFAULT_OS", "2284"))  # Ubuntu 24.04
+    VULTR_DEFAULT_OS = int(os.environ.get("VULTR_DEFAULT_OS", "2136"))  # Debian 12
 
     # Cloudflare (optional — user provides per-project or global)
     CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
