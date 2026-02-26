@@ -192,28 +192,6 @@ export function DashboardLayout() {
           ))}
         </nav>
 
-        <div className="fsidebar-sep" />
-
-        {/* Services status */}
-        <div className="fsidebar-section">
-          <div className="fsidebar-section-title">Services</div>
-          {[
-            { name: "NSO API", status: apiUp },
-            { name: "NSO Agent", status: agentUp },
-            { name: "nginx", status: true },
-          ].map((svc, i) => (
-            <div
-              key={i}
-              className="fsidebar-service"
-              onClick={() => setActiveView("instances")}
-            >
-              <div className="status-dot" style={{ background: svc.status ? "var(--color-green)" : "var(--color-red)" }} />
-              <span>{svc.name}</span>
-              <span className="fsidebar-service-status">{svc.status ? "running" : "down"}</span>
-            </div>
-          ))}
-        </div>
-
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
