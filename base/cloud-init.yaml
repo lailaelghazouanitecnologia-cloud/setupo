@@ -178,8 +178,17 @@ runcmd:
   - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
   - /opt/setupo/venv/bin/pip install -r /opt/setupo/mms-metrics/requirements.txt
 
+  # ── Node.js (for dashboard build) ─────────────────────────
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+
   # ── Data dirs ─────────────────────────────────────────────
   - mkdir -p /opt/setupo/data /opt/setupo/config /opt/setupo/workspaces /var/log/setupo /opt/app
+
+  # ── Build dashboard (Next.js static export) ──────────────
+  - cd /opt/setupo/dashboard && npm install && npm run build
+  - mkdir -p /opt/setupo/dashboard/static
+  - cp -r /opt/setupo/dashboard/out/* /opt/setupo/dashboard/static/
 
   # ── Activate nginx config ───────────────────────────────────
   - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
@@ -197,14 +206,10 @@ runcmd:
   - systemctl start setupo
 
   # ── Diagnostics ──────────────────────────────────────────
-  - sleep 5
-  - 'echo "=== Agent Status ===" > /opt/setupo/dashboard/static/debug.txt'
-  - 'systemctl status setupo-agent >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
-  - 'echo "=== Journal ===" >> /opt/setupo/dashboard/static/debug.txt'
-  - 'journalctl -u setupo-agent --no-pager -n 50 >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
-  - 'echo "=== Python Imports ===" >> /opt/setupo/dashboard/static/debug.txt'
-  - '/opt/setupo/venv/bin/python3 -c "import fastapi; import aiosqlite; print(\"OK\")" >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
-  - 'echo "=== Files ===" >> /opt/setupo/dashboard/static/debug.txt'
-  - 'ls -la /opt/setupo/mms-metrics/ >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
-  - 'echo "=== App Load ===" >> /opt/setupo/dashboard/static/debug.txt'
-  - 'cd /opt/setupo/mms-metrics && timeout 5 /opt/setupo/venv/bin/python3 -c "from main import app; print(\"app OK\")" >> /opt/setupo/dashboard/static/debug.txt 2>&1 || true'
+  - sleep 3
+  - 'echo "=== Agent ===" > /var/log/setupo/boot-diag.txt'
+  - 'systemctl status setupo-agent --no-pager >> /var/log/setupo/boot-diag.txt 2>&1 || true'
+  - 'echo "=== API ===" >> /var/log/setupo/boot-diag.txt'
+  - 'systemctl status setupo --no-pager >> /var/log/setupo/boot-diag.txt 2>&1 || true'
+  - 'echo "=== Nginx ===" >> /var/log/setupo/boot-diag.txt'
+  - 'nginx -t >> /var/log/setupo/boot-diag.txt 2>&1 || true'
