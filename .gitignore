@@ -1,5 +1,10 @@
 __pycache__/
 *.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
 node_modules/
 dist/
 .next/
@@ -7,9 +12,27 @@ out/
 dashboard/static/
 package-lock.json
 bun.lockb
+
 .env
 *.db
+*.db-journal
+*.sqlite
+
+# Admin token
+/data/
+/config/
+
 # Workspace data (don't track generated workspace content, only config.toml)
 workspaces/*/node_modules/
 workspaces/*/.venv/
 workspaces/*/__pycache__/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

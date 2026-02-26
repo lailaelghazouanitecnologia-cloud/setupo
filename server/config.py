@@ -47,7 +47,11 @@ class Settings:
     ).split(",")
 
     # Admin
-    ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "ayman_gha@hotmail.com")
+    ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "admin@setupo.dev")
+    ADMIN_PASSWORD = os.environ.get("SETUPO_ADMIN_PASSWORD", "")
+
+    # Agent auth (used by central to talk to VPS agents)
+    AGENT_ADMIN_PASSWORD = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
     @classmethod
     def db_path(cls) -> Path:

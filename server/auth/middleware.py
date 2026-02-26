@@ -17,14 +17,6 @@ security = HTTPBearer(auto_error=False)
 
 _cached_admin_token: str | None = None
 
-# Admin user for dashboard login
-ADMIN_USERS = {
-    "ayman_gha@hotmail.com": {
-        "password_hash": hashlib.sha256("zarnlok4123".encode()).hexdigest(),
-        "role": "admin",
-    }
-}
-
 
 class LoginRequest(BaseModel):
     email: str
@@ -38,13 +30,19 @@ class LoginResponse(BaseModel):
 
 
 def verify_password(email: str, password: str) -> dict | None:
-    user = ADMIN_USERS.get(email)
-    if not user:
+    """Verify admin login using env-configured credentials."""
+    admin_email = settings.ADMIN_EMAIL
+    admin_password = settings.ADMIN_PASSWORD
+    if not admin_email or not admin_password:
+        logger.warning("Admin credentials not configured (SETUPO_ADMIN_EMAIL / SETUPO_ADMIN_PASSWORD)")
+        return None
+    if email != admin_email:
         return None
     pw_hash = hashlib.sha256(password.encode()).hexdigest()
-    if not secrets.compare_digest(pw_hash, user["password_hash"]):
+    stored_hash = hashlib.sha256(admin_password.encode()).hexdigest()
+    if not secrets.compare_digest(pw_hash, stored_hash):
         return None
-    return user
+    return {"email": admin_email, "role": "admin"}
 
 
 def load_admin_token() -> str:
