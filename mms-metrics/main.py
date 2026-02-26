@@ -1,35 +1,13 @@
-"""MMS Agent — Standalone VPS management service.
+"""NSO Agent — Standalone VPS management service.
 
 Runs on port 8081 on each provisioned VPS. Provides:
   - Admin authentication (JWT)
-  - Installation metrics tracking
+  - .zar deploy/snapshot/rollback
   - File system operations (browse, read, write, delete)
   - Command execution
-  - Service management
+  - Installation metrics tracking
 
-Everything via curl. No SSH needed.
-
-Usage:
-    # Login
-    curl -X POST https://server:8081/auth/login \\
-      -H "Content-Type: application/json" \\
-      -d '{"email":"admin@example.com","password":"xxx"}'
-
-    # List files (with token)
-    curl -H "Authorization: Bearer <token>" \\
-      https://server:8081/files/list?path=/opt/setupo
-
-    # Execute command
-    curl -X POST -H "Authorization: Bearer <token>" \\
-      -H "Content-Type: application/json" \\
-      -d '{"command":"systemctl status mms"}' \\
-      https://server:8081/exec/
-
-    # Check installation metrics (no auth needed)
-    curl https://server:8081/status/inst_abc123
-
-    # Health check
-    curl https://server:8081/health
+Everything via HTTP. No SSH needed.
 """
 import logging
 import os
@@ -55,27 +33,27 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("mms-agent")
+logger = logging.getLogger("nso-agent")
 
-HOST = os.environ.get("MMS_METRICS_HOST", "0.0.0.0")
-PORT = int(os.environ.get("MMS_METRICS_PORT", "8081"))
+HOST = os.environ.get("NSO_AGENT_HOST", os.environ.get("MMS_METRICS_HOST", "0.0.0.0"))
+PORT = int(os.environ.get("NSO_AGENT_PORT", os.environ.get("MMS_METRICS_PORT", "8081")))
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("MMS Agent starting on %s:%d", HOST, PORT)
+    logger.info("NSO Agent starting on %s:%d", HOST, PORT)
     await store.init()
     yield
-    logger.info("MMS Agent shutting down")
+    logger.info("NSO Agent shutting down")
     await store.close()
 
 
 app = FastAPI(
-    title="MMS Agent",
+    title="NSO Agent",
     description=(
-        "VPS management agent for MMS. "
+        "VPS management agent for NSO. "
         "Provides admin auth, file operations, command execution, "
-        "and installation metrics. Everything via curl."
+        "deploy/rollback, and metrics. Everything via HTTP."
     ),
     version="0.2.0",
     lifespan=lifespan,
@@ -132,8 +110,7 @@ async def whoami(admin: AdminUser = Depends(require_admin)):
 async def report_metric(data: MetricReport):
     """Receive a progress report during cloud-init.
 
-    Called by the mms-report script at each installation stage.
-    No admin auth needed — uses provision_token.
+    Called at each installation stage. No admin auth — uses provision_token.
     """
     existing = await store.get_metrics(data.instance_id)
     if existing:
@@ -149,13 +126,13 @@ async def report_metric(data: MetricReport):
     return {"ok": True, "progress": metrics.progress, "stage": metrics.current_stage}
 
 
-# ── Metrics: Register (MMS API → agent) ─────────────────────────
+# ── Metrics: Register (API → agent) ──────────────────────────────
 
 @app.post("/register")
 async def register_instance(data: dict):
     """Register a new instance for metrics tracking.
 
-    Called by MMS API when instance is created.
+    Called by NSO API when instance is created.
     """
     instance_id = data.get("instance_id")
     token = data.get("token")

@@ -56,6 +56,10 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
     content = content.replace("{{CF_API_TOKEN}}", settings.CF_API_TOKEN)
     content = content.replace("{{ADMIN_EMAIL}}", settings.ADMIN_EMAIL)
     content = content.replace("{{GIT_BRANCH}}", "master")
+    content = content.replace("{{R2_ENDPOINT}}", settings.R2_ENDPOINT)
+    content = content.replace("{{R2_ACCESS_KEY_ID}}", settings.R2_ACCESS_KEY_ID)
+    content = content.replace("{{R2_SECRET_ACCESS_KEY}}", settings.R2_SECRET_ACCESS_KEY)
+    content = content.replace("{{R2_BUCKET}}", settings.R2_BUCKET)
 
     return base64.b64encode(content.encode()).decode()
 

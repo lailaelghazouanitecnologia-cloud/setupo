@@ -1,4 +1,4 @@
-"""MMS Agent — Data models."""
+"""NSO Agent — Data models."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -80,7 +80,7 @@ class InstanceMetrics(BaseModel):
 # ── Health ───────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
-    service: str = "mms-agent"
+    service: str = "nso-agent"
     status: str = "ok"
     version: str = "0.2.0"
     tracked_instances: int = 0

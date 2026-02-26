@@ -281,7 +281,7 @@ def read_r2_config(workspace_path: str) -> R2Config | None:
             return None
 
         return R2Config(
-            bucket=r2_data.get("bucket", "setupo-packages"),
+            bucket=r2_data.get("bucket", "nso"),
             endpoint=r2_data.get("endpoint", ""),
             access_key_id=r2_data.get("access_key_id", ""),
             secret_access_key=r2_data.get("secret_access_key", ""),

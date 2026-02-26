@@ -1,9 +1,8 @@
-"""MMS Agent — Deploy endpoints.
+"""NSO Agent — Deploy endpoints.
 
 Receives .zar packages (from R2 or direct upload), extracts them,
 snapshots the previous version for rollback, installs deps, and
-restarts services. Handles both app deploys and self-updates
-(mms-metrics, frontend, setupo itself).
+restarts services. Handles both app deploys and self-updates.
 
 Endpoints:
     POST /deploy/pull      — Download .zar from R2 and deploy
@@ -34,7 +33,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, AdminUser
 
-logger = logging.getLogger("mms-agent.deploy")
+logger = logging.getLogger("nso-agent.deploy")
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 
 # ── Paths ────────────────────────────────────────────────────────

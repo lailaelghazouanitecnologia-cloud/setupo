@@ -1,4 +1,4 @@
-"""MMS Agent — Command execution on the VPS.
+"""NSO Agent — Command execution on the VPS.
 
 Run commands, get output. Like SSH but via HTTP.
 """
@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, AdminUser
 
-logger = logging.getLogger("mms-agent.exec")
+logger = logging.getLogger("nso-agent.exec")
 router = APIRouter(prefix="/exec", tags=["exec"])
 
 MAX_TIMEOUT = 300  # 5 minutes max

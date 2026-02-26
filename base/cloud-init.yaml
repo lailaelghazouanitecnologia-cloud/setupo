@@ -51,8 +51,12 @@ write_files:
       SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
       SETUPO_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
       SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
-      MMS_METRICS_URL=http://127.0.0.1:8081
-      MMS_ADMIN_EMAIL={{ADMIN_EMAIL}}
+      R2_ENDPOINT={{R2_ENDPOINT}}
+      R2_ACCESS_KEY_ID={{R2_ACCESS_KEY_ID}}
+      R2_SECRET_ACCESS_KEY={{R2_SECRET_ACCESS_KEY}}
+      R2_BUCKET={{R2_BUCKET}}
+      NSO_AGENT_URL=http://127.0.0.1:8081
+      NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
 
   - path: /etc/systemd/system/setupo.service
     permissions: "0644"
@@ -77,7 +81,7 @@ write_files:
     permissions: "0644"
     content: |
       [Unit]
-      Description=Setupo Agent — VPS management service (metrics + files + exec)
+      Description=NSO Agent — VPS management service
       After=network.target
 
       [Service]
@@ -85,8 +89,8 @@ write_files:
       User=root
       WorkingDirectory=/opt/setupo/mms-metrics
       EnvironmentFile=/opt/setupo/.env
-      Environment=MMS_METRICS_HOST=0.0.0.0
-      Environment=MMS_METRICS_PORT=8081
+      Environment=NSO_AGENT_HOST=0.0.0.0
+      Environment=NSO_AGENT_PORT=8081
       ExecStart=/opt/setupo/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8081
       Restart=always
       RestartSec=3

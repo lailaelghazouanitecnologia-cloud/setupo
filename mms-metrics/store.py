@@ -1,7 +1,6 @@
-"""MMS Metrics — Lightweight storage for installation metrics.
+"""NSO Agent — Lightweight storage for installation metrics.
 
 Uses SQLite for persistence. Each instance gets a row with JSON stages + logs.
-Designed to be fast and minimal — no ORM, no migrations complexity.
 """
 import json
 import logging
@@ -20,7 +19,7 @@ from models import (
     STAGE_PROGRESS,
 )
 
-logger = logging.getLogger("mms-metrics.store")
+logger = logging.getLogger("nso-agent.store")
 
 DB_PATH = Path("/opt/setupo/data/metrics.db")
 DEV_DB_PATH = Path("/tmp/setupo/metrics.db")

@@ -239,7 +239,7 @@ class PackageConfig(BaseModel):
 
 class R2Config(BaseModel):
     """[package.r2] section in config.toml."""
-    bucket: str = "setupo-packages"
+    bucket: str = "nso"
     endpoint: str = ""                              # R2 S3-compatible endpoint
     access_key_id: str = ""
     secret_access_key: str = ""

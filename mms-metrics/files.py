@@ -1,7 +1,6 @@
-"""MMS Agent — File system operations.
+"""NSO Agent — File system operations.
 
 Browse directories, read/write files, create dirs, delete — all via HTTP.
-No SSH needed. The agent on the VPS handles it.
 """
 import logging
 import os
@@ -15,7 +14,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, AdminUser
 
-logger = logging.getLogger("mms-agent.files")
+logger = logging.getLogger("nso-agent.files")
 router = APIRouter(prefix="/files", tags=["files"])
 
 # Allowed root paths — prevent escaping
