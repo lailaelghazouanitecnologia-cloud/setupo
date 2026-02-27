@@ -1,10 +1,3 @@
-"""Zar routes — Pack, push, deploy, branch, merge workspace .zar packages.
-
-Mounted at /api/projects/{project_id}/zar/...
-
-The hot-update flow: pack → push to R2 → tell the agent on the VPS to pull.
-No SSH. No instance recreation. The agent handles everything.
-"""
 import logging
 import os
 
@@ -23,11 +16,12 @@ from server.deps import require_project
 logger = logging.getLogger("setupo.routes.zar")
 router = APIRouter()
 
+DEPLOY_TIMEOUT = 300.0
+AGENT_AUTH_TIMEOUT = 15.0
+ROLLBACK_TIMEOUT = 60.0
 
-# ── Helpers ──────────────────────────────────────────────────────
 
 def _get_r2() -> R2Client:
-    """Get R2 client from server settings."""
     cfg = settings.r2_config()
     if not cfg.endpoint:
         raise HTTPException(503, "R2 not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY.")
@@ -35,44 +29,45 @@ def _get_r2() -> R2Client:
 
 
 async def _get_agent_url(instance_id: str, project_id: str) -> str:
-    """Get the agent HTTP URL for an instance. Validates state."""
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst:
         raise HTTPException(404, f"Instance {instance_id} not found")
     if inst.get("project_id") != project_id:
         raise HTTPException(403, "Instance does not belong to this project")
+
     state = inst.get("state", "")
     if state in ("creating", "provisioning"):
-        raise HTTPException(409, f"Instance is still {state} — wait until it's ready before deploying")
+        raise HTTPException(409, f"Instance is still {state} — wait until it's ready")
     if state == "destroying":
         raise HTTPException(409, "Instance is being destroyed")
     if state == "error":
-        raise HTTPException(409, f"Instance is in error state: {inst.get('error', 'unknown')}. Fix or recreate it first.")
+        raise HTTPException(409, f"Instance in error state: {inst.get('error', 'unknown')}")
+
     ip = inst.get("ip")
     if not ip:
-        raise HTTPException(400, "Instance has no IP address yet — it may still be provisioning")
+        raise HTTPException(400, "Instance has no IP address yet")
     return f"http://{ip}:8081"
 
 
 async def _get_agent_token(agent_url: str) -> str:
-    """Login to the agent and get a JWT token."""
     agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
     if not agent_password:
         raise HTTPException(503, "AGENT_ADMIN_PASSWORD not configured")
     try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=AGENT_AUTH_TIMEOUT) as client:
             resp = await client.post(f"{agent_url}/auth/login", json={
                 "email": settings.ADMIN_EMAIL,
                 "password": agent_password,
             })
     except httpx.ConnectError:
-        raise HTTPException(502, f"Cannot connect to agent at {agent_url} — instance may be starting up or unreachable")
+        raise HTTPException(502, f"Cannot connect to agent at {agent_url}")
     except httpx.TimeoutException:
         raise HTTPException(504, f"Agent at {agent_url} did not respond in time")
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"Agent connection error: {exc}")
+
     if resp.status_code != 200:
-        raise HTTPException(502, f"Agent auth failed (HTTP {resp.status_code}). Check AGENT_ADMIN_PASSWORD.")
+        raise HTTPException(502, f"Agent auth failed (HTTP {resp.status_code})")
     try:
         return resp.json()["token"]
     except (KeyError, ValueError):
@@ -80,7 +75,6 @@ async def _get_agent_token(agent_url: str) -> str:
 
 
 async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -> str:
-    """Resolve instance_id from request, workspace DB, or config.toml."""
     if instance_id:
         return instance_id
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
@@ -93,13 +87,10 @@ async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -
     raise HTTPException(400, "No instance_id specified and none in config.toml")
 
 
-async def _deploy_via_agent(
-    agent_url: str, token: str, r2_key: str,
-) -> dict:
-    """Send deploy/pull request to the agent."""
+async def _deploy_via_agent(agent_url: str, token: str, r2_key: str) -> dict:
     r2_cfg = settings.r2_config()
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/pull",
                 headers={"Authorization": f"Bearer {token}"},
@@ -115,26 +106,25 @@ async def _deploy_via_agent(
                 },
             )
     except httpx.ConnectError:
-        raise HTTPException(502, f"Cannot connect to agent at {agent_url} — instance may be down")
+        raise HTTPException(502, f"Cannot connect to agent at {agent_url}")
     except httpx.TimeoutException:
-        raise HTTPException(504, "Deploy timed out after 5 minutes — the agent did not respond. Check instance health.")
+        raise HTTPException(504, "Deploy timed out — agent did not respond")
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"Agent connection error during deploy: {exc}")
+
     if resp.status_code != 200:
-        # Try to extract a useful error message from the response
         try:
             body = resp.json()
             detail = body.get("detail", body.get("error", resp.text[:500]))
         except Exception:
             detail = resp.text[:500]
         raise HTTPException(502, f"Agent deploy failed (HTTP {resp.status_code}): {detail}")
+
     try:
         return resp.json()
     except ValueError:
         raise HTTPException(502, "Agent returned invalid JSON after deploy")
 
-
-# ── Request models ───────────────────────────────────────────────
 
 class DeployZarRequest(BaseModel):
     branch: str = "main"
@@ -168,11 +158,8 @@ class SelfUpdateRequest(BaseModel):
     r2_key: str = ""
 
 
-# ── Pack ─────────────────────────────────────────────────────────
-
 @router.post("/{name}/pack")
 async def pack_workspace(name: str, project_id: str = Depends(require_project)):
-    """Pack a workspace into a .zar and return metadata. Does NOT upload to R2."""
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -180,8 +167,8 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project)):
     ws_path = ws.get("path", "")
     if not ws_path:
         raise HTTPException(400, f"Workspace '{name}' has no path configured")
-    pkg_config = read_package_config(ws_path)
 
+    pkg_config = read_package_config(ws_path)
     try:
         zar_bytes, manifest = pack(
             workspace_path=ws_path,
@@ -195,11 +182,8 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project)):
     return {"ok": True, "manifest": manifest.model_dump(), "size": len(zar_bytes)}
 
 
-# ── Push ─────────────────────────────────────────────────────────
-
 @router.post("/{name}/push")
 async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project)):
-    """Pack workspace and upload .zar to R2."""
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -207,8 +191,8 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
     ws_path = ws.get("path", "")
     if not ws_path:
         raise HTTPException(400, f"Workspace '{name}' has no path configured")
-    pkg_config = read_package_config(ws_path)
 
+    pkg_config = read_package_config(ws_path)
     try:
         zar_bytes, manifest = pack(
             workspace_path=ws_path,
@@ -233,18 +217,14 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
     ).model_dump()
 
 
-# ── Deploy ───────────────────────────────────────────────────────
-
 @router.post("/{name}/deploy")
 async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project)):
-    """Deploy a .zar from R2 to an instance via the agent. No SSH. No rebuild."""
     instance_id = await _resolve_instance(name, project_id, req.instance_id)
 
-    r2_key = (
-        f"{project_id}/{name}/{req.branch}/v{req.version}.zar"
-        if req.version
-        else f"{project_id}/{name}/{req.branch}/latest.zar"
-    )
+    if req.version:
+        r2_key = f"{project_id}/{name}/{req.branch}/v{req.version}.zar"
+    else:
+        r2_key = f"{project_id}/{name}/{req.branch}/latest.zar"
 
     r2 = _get_r2()
     try:
@@ -264,7 +244,6 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
         raise
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
-
     return {
         "ok": True, "workspace": name, "branch": req.branch,
         "version": result.get("version", ""), "snapshot": result.get("snapshot", ""),
@@ -272,11 +251,8 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     }
 
 
-# ── Ship (pack + push + deploy) ─────────────────────────────────
-
 @router.post("/{name}/ship")
 async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project)):
-    """Pack + push to R2 + deploy to instance. One command."""
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -284,8 +260,8 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     ws_path = ws.get("path", "")
     if not ws_path:
         raise HTTPException(400, f"Workspace '{name}' has no path configured")
-    pkg_config = read_package_config(ws_path)
 
+    pkg_config = read_package_config(ws_path)
     try:
         zar_bytes, manifest = pack(
             workspace_path=ws_path,
@@ -316,7 +292,6 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         raise
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
-
     return {
         "ok": True, "action": "ship", "workspace": name,
         "version": manifest.version, "branch": req.branch,
@@ -325,16 +300,13 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     }
 
 
-# ── Rollback ─────────────────────────────────────────────────────
-
 @router.post("/{name}/rollback")
 async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project)):
-    """Rollback to a previous snapshot on the instance."""
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=ROLLBACK_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
@@ -342,24 +314,22 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
                 json={"snapshot": req.snapshot},
             )
     except httpx.ConnectError:
-        raise HTTPException(502, "Cannot connect to agent — instance may be down")
+        raise HTTPException(502, "Cannot connect to agent")
     except httpx.TimeoutException:
-        raise HTTPException(504, "Rollback timed out — agent did not respond")
+        raise HTTPException(504, "Rollback timed out")
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"Agent connection error: {exc}")
+
     if resp.status_code != 200:
         raise HTTPException(502, f"Agent rollback failed: {resp.text[:500]}")
     try:
         return resp.json()
     except ValueError:
-        raise HTTPException(502, "Agent returned invalid response after rollback")
+        raise HTTPException(502, "Agent returned invalid response")
 
-
-# ── Branch ───────────────────────────────────────────────────────
 
 @router.post("/{name}/branch")
 async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project)):
-    """Create a new branch by copying latest .zar from another branch."""
     r2 = _get_r2()
     try:
         key = await r2.copy_branch(project_id, name, req.from_branch, req.name)
@@ -370,11 +340,8 @@ async def create_branch(name: str, req: BranchRequest, project_id: str = Depends
     return {"ok": True, "branch": req.name, "from": req.from_branch, "r2_key": key}
 
 
-# ── Merge ────────────────────────────────────────────────────────
-
 @router.post("/{name}/merge")
 async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project)):
-    """Merge: copy latest .zar from one branch to another."""
     r2 = _get_r2()
     try:
         zar_bytes = await r2.download_zar(project_id, name, req.from_branch)
@@ -388,11 +355,8 @@ async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(r
     return {"ok": True, "merged": f"{req.from_branch} → {req.to_branch}", "version": version, "r2_key": key}
 
 
-# ── Versions ─────────────────────────────────────────────────────
-
 @router.get("/{name}/versions")
 async def list_versions(name: str, branch: str = "main", project_id: str = Depends(require_project)):
-    """List all .zar versions on a branch in R2."""
     r2 = _get_r2()
     try:
         versions = await r2.list_versions(project_id, name, branch)
@@ -402,11 +366,8 @@ async def list_versions(name: str, branch: str = "main", project_id: str = Depen
     return {"workspace": name, "branch": branch, "versions": versions, "branches": branches}
 
 
-# ── Self-update ──────────────────────────────────────────────────
-
 @router.post("/self-update")
 async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project)):
-    """Push a component update (agent/frontend/core) to an instance."""
     r2_cfg = settings.r2_config()
     if not req.r2_key:
         default_keys = {
@@ -420,7 +381,7 @@ async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends
     token = await _get_agent_token(agent_url)
 
     try:
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/self-update",
                 headers={"Authorization": f"Bearer {token}"},
@@ -434,14 +395,15 @@ async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends
                 },
             )
     except httpx.ConnectError:
-        raise HTTPException(502, "Cannot connect to agent — instance may be down")
+        raise HTTPException(502, "Cannot connect to agent")
     except httpx.TimeoutException:
-        raise HTTPException(504, "Self-update timed out — agent did not respond")
+        raise HTTPException(504, "Self-update timed out")
     except httpx.HTTPError as exc:
         raise HTTPException(502, f"Agent connection error: {exc}")
+
     if resp.status_code != 200:
         raise HTTPException(502, f"Self-update failed: {resp.text[:500]}")
     try:
         return resp.json()
     except ValueError:
-        raise HTTPException(502, "Agent returned invalid response after self-update")
+        raise HTTPException(502, "Agent returned invalid response")

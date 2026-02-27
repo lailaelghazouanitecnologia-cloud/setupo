@@ -17,12 +17,14 @@ export async function apiCall<T>(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
+
   let resp: Response;
   try {
     resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
   } catch (err: any) {
     throw new Error(`Network error: ${err.message || "Could not reach the server"}`);
   }
+
   if (!resp.ok) {
     const text = await resp.text();
     throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
@@ -30,32 +32,28 @@ export async function apiCall<T>(
   return resp.json();
 }
 
-/** Extract a human-readable message from error response text. */
 function parseErrorText(status: number, text: string): string {
-  // Try JSON first (FastAPI returns {"detail": "..."})
   try {
     const json = JSON.parse(text);
     if (json.detail) return json.detail;
     if (json.error) return json.error;
     if (json.message) return json.message;
   } catch {}
-  // Strip HTML (e.g. Cloudflare 502 pages)
+
   if (text.includes("<html") || text.includes("<!DOCTYPE")) {
     if (status === 502) return "Bad Gateway — the server is unreachable or restarting";
     if (status === 503) return "Service unavailable — the server may be starting up";
     if (status === 504) return "Gateway timeout — the server did not respond in time";
     return `HTTP ${status} — server returned an error page`;
   }
-  // Truncate long plain-text errors
+
   return text.length > 300 ? text.slice(0, 300) + "..." : text;
 }
 
-/** Call the central API (uses nso_api_token). */
 export function centralApi<T>(path: string, options: RequestInit = {}): Promise<T> {
   return apiCall<T>(path, options, "nso_api_token");
 }
 
-// Auth — login (tries central API first, then agent for admin)
 export async function login(email: string, password: string) {
   const apiRes = await apiCall<{ token: string; email: string; role: string }>("/api/auth/login", {
     method: "POST",
@@ -66,7 +64,6 @@ export async function login(email: string, password: string) {
     localStorage.setItem("nso_api_token", apiRes.token);
   }
 
-  // Admin also logs into agent for exec/files/deploy
   if (apiRes.role === "admin") {
     try {
       const agentRes = await apiCall<{ token: string }>("/agent/auth/login", {
@@ -76,15 +73,12 @@ export async function login(email: string, password: string) {
       if (typeof window !== "undefined") {
         localStorage.setItem("nso_token", agentRes.token);
       }
-    } catch {
-      // Agent may not be available
-    }
+    } catch {}
   }
 
   return apiRes;
 }
 
-// Auth — register
 export async function register(email: string, password: string, name = "") {
   const res = await apiCall<{ token: string; email: string; role: string; user_id: string }>("/api/auth/register", {
     method: "POST",
@@ -98,7 +92,6 @@ export async function register(email: string, password: string, name = "") {
   return res;
 }
 
-// Auth — get current user profile
 export async function getMe() {
   return centralApi<{
     id: string; email: string; name: string;
@@ -107,17 +100,14 @@ export async function getMe() {
   }>("/api/auth/me");
 }
 
-// API health
 export async function getApiHealth() {
   return apiCall<{ status: string; version: string; uptime_seconds: number }>("/api/health");
 }
 
-// Agent health
 export async function getAgentHealth() {
   return apiCall<{ service: string; status: string; version: string; features: string[] }>("/agent/health");
 }
 
-// Files
 export async function listFiles(path: string) {
   return apiCall<{ path: string; items: any[]; count: number }>(`/agent/files/list?path=${encodeURIComponent(path)}`);
 }
@@ -143,7 +133,6 @@ export async function getFileTree(path: string, depth = 3) {
   return apiCall<any>(`/agent/files/tree?path=${encodeURIComponent(path)}&depth=${depth}`);
 }
 
-// Exec
 export async function execCommand(command: string, workingDir = "/opt/setupo", timeout = 60) {
   return apiCall<{ stdout: string; stderr: string; exit_code: number; timed_out: boolean }>("/agent/exec/", {
     method: "POST",
@@ -151,12 +140,9 @@ export async function execCommand(command: string, workingDir = "/opt/setupo", t
   });
 }
 
-// Service management
 export async function manageService(action: string, name: string) {
   return apiCall<any>(`/agent/exec/service?action=${action}&name=${name}`, { method: "POST" });
 }
-
-// ─── Agent: Secrets management ───
 
 export interface AgentSecret {
   key: string;
@@ -187,8 +173,6 @@ export async function deleteSecret(key: string) {
     method: "DELETE",
   });
 }
-
-// ─── Central API: Projects & Workspaces ───
 
 export async function listProjects() {
   return centralApi<{ projects: any[] }>("/api/projects");
@@ -225,8 +209,6 @@ export async function writeWorkspaceFile(projectId: string, name: string, path: 
     body: JSON.stringify({ path, content }),
   });
 }
-
-// ─── Central API: Instances ───
 
 export async function listInstances(projectId: string) {
   return centralApi<{ instances: any[] }>(`/api/projects/${projectId}/instances`);
@@ -269,8 +251,6 @@ export async function execOnInstance(projectId: string, instanceId: string, comm
     body: JSON.stringify({ command, timeout }),
   });
 }
-
-// ─── Central API: Zar (deploy) ───
 
 export async function zarPack(projectId: string, name: string) {
   return centralApi<{ ok: boolean; manifest: any; size: number }>(
@@ -320,8 +300,6 @@ export async function zarSelfUpdate(projectId: string, instanceId: string, compo
   );
 }
 
-// ─── Central API: Plugins ───
-
 export interface PluginInfo {
   plugin_id: string;
   name: string;
@@ -359,7 +337,6 @@ export async function uninstallPlugin(projectId: string, pluginId: string) {
   });
 }
 
-// Admin: Plugin catalog management
 export interface CatalogEntry {
   id: string;
   plugin_id: string;
@@ -399,7 +376,6 @@ export async function removeCatalogEntry(projectId: string, pluginId: string) {
   });
 }
 
-// Agent deploy endpoints (direct agent calls, routed via /agent/ prefix by nginx)
 export async function getDeployStatus() {
   return apiCall<any>("/agent/deploy/current");
 }
@@ -407,8 +383,6 @@ export async function getDeployStatus() {
 export async function getDeploySnapshots() {
   return apiCall<{ target: string; snapshots: string[] }>("/agent/deploy/snapshots");
 }
-
-// ─── Billing ───
 
 export interface Transaction {
   id: string;
@@ -434,8 +408,6 @@ export async function topUp(amount: number, reference = "") {
   });
 }
 
-// ─── Modules (.zar marketplace) ───
-
 export interface ModuleInfo {
   id: string;
   name: string;
@@ -459,7 +431,6 @@ export async function getModule(name: string) {
   return apiCall<{ module: ModuleInfo }>(`/api/modules/catalog/${name}`);
 }
 
-// Admin: module management
 export async function listAllModules() {
   return centralApi<{ modules: ModuleInfo[]; count: number }>("/api/modules");
 }
@@ -469,6 +440,37 @@ export async function publishModule(data: Partial<ModuleInfo> & { name: string }
     method: "POST",
     body: JSON.stringify(data),
   });
+}
+
+export async function uploadModuleZar(name: string, file: File, version = "") {
+  const formData = new FormData();
+  formData.append("file", file);
+  if (version) formData.append("version", version);
+
+  const token = getToken("nso_api_token");
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const resp = await fetch(`${API_BASE}/api/modules/${name}/upload`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
+  }
+  return resp.json() as Promise<{ ok: boolean; name: string; version: string; r2_key: string; size: number; hash: string }>;
+}
+
+export async function listModuleVersions(name: string) {
+  return apiCall<{ name: string; versions: string[]; current: string; r2_key: string }>(`/api/modules/${name}/versions`);
+}
+
+export async function getModuleDownloadInfo(name: string, version = "") {
+  const query = version ? `?version=${encodeURIComponent(version)}` : "";
+  return apiCall<{ name: string; version: string; r2_key: string; size: number; hash: string }>(`/api/modules/${name}/download${query}`);
 }
 
 export async function updateModule(name: string, updates: Partial<ModuleInfo>) {

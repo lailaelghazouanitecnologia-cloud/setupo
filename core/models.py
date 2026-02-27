@@ -1,4 +1,3 @@
-"""Setupo Models - All Pydantic models for the platform."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -8,19 +7,17 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
-# ── Enums ────────────────────────────────────────────────────────
-
 class WorkspaceType(str, Enum):
-    CUSTOM = "custom"      # Empty workspace, user writes code
-    GIT = "git"            # Cloned from a git repo
-    TEMPLATE = "template"  # Created from a built-in template
+    CUSTOM = "custom"
+    GIT = "git"
+    TEMPLATE = "template"
 
 
 class InstanceType(str, Enum):
-    SETUP = "setup"        # VPS + domain + SSL + nginx — ready for deploy
-    DEV = "dev"            # Full dev environment, tooling
-    GPU = "gpu"            # GPU instance (Runpod)
-    CUSTOM = "custom"      # User-defined specs
+    SETUP = "setup"
+    DEV = "dev"
+    GPU = "gpu"
+    CUSTOM = "custom"
 
 
 class InstanceState(str, Enum):
@@ -39,13 +36,11 @@ class Provider(str, Enum):
     RUNPOD = "runpod"
 
 
-# ── Project ──────────────────────────────────────────────────────
-
 class Project(BaseModel):
-    id: str                                         # proj_xxxx
+    id: str
     name: str
-    api_key_hash: str                               # SHA256 of sk_live_xxxx
-    owner: str = ""                                 # email or agent id
+    api_key_hash: str
+    owner: str = ""
     settings: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -57,26 +52,24 @@ class CreateProjectRequest(BaseModel):
 
 class CreateProjectResponse(BaseModel):
     project: Project
-    api_key: str                                    # Only returned once
+    api_key: str
 
-
-# ── Instance ─────────────────────────────────────────────────────
 
 class Instance(BaseModel):
-    id: str                                         # inst_xxxx
+    id: str
     project_id: str
     type: InstanceType = InstanceType.SETUP
     provider: Provider = Provider.VULTR
-    provider_id: str = ""                           # Vultr VPS ID / Runpod Pod ID
+    provider_id: str = ""
     label: str = ""
-    region: str = "ewr"                             # Vultr region slug
-    plan: str = "vc2-1c-1gb"                        # Vultr plan slug
-    os_id: int = 2284                               # Ubuntu 24.04
+    region: str = "ewr"
+    plan: str = "vc2-1c-1gb"
+    os_id: int = 2284
     ip: Optional[str] = None
-    domain: Optional[str] = None                    # User's custom domain
+    domain: Optional[str] = None
     state: InstanceState = InstanceState.CREATING
-    ssh_key_id: Optional[str] = None                # Vultr SSH key ID
-    workspace: Optional[str] = None                 # Linked workspace name
+    ssh_key_id: Optional[str] = None
+    workspace: Optional[str] = None
     error: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -88,8 +81,8 @@ class CreateInstanceRequest(BaseModel):
     label: str = ""
     region: str = "ewr"
     plan: str = "vc2-1c-1gb"
-    domain: Optional[str] = None                    # User provides their domain
-    workspace: Optional[str] = None                 # Auto-deploy from this workspace
+    domain: Optional[str] = None
+    workspace: Optional[str] = None
 
 
 class InstanceExecRequest(BaseModel):
@@ -102,8 +95,6 @@ class InstanceExecResponse(BaseModel):
     exit_code: int
 
 
-# ── Workspace ────────────────────────────────────────────────────
-
 class WorkspaceGitConfig(BaseModel):
     url: Optional[str] = None
     branch: str = "main"
@@ -111,8 +102,8 @@ class WorkspaceGitConfig(BaseModel):
 
 
 class WorkspaceDeployConfig(BaseModel):
-    instance_id: Optional[str] = None              # Linked instance
-    command: Optional[str] = None                  # Start command override
+    instance_id: Optional[str] = None
+    command: Optional[str] = None
     port: int = 3000
     env: dict[str, str] = Field(default_factory=dict)
 
@@ -124,9 +115,8 @@ class WorkspaceServiceConfig(BaseModel):
 
 
 class WorkspaceConfig(BaseModel):
-    """Represents the config.toml for a workspace."""
     name: str
-    type: str = "custom"                           # python | node | static | docker | go | rust
+    type: str = "custom"
     description: str = ""
     git: WorkspaceGitConfig = Field(default_factory=WorkspaceGitConfig)
     deploy: WorkspaceDeployConfig = Field(default_factory=WorkspaceDeployConfig)
@@ -134,14 +124,14 @@ class WorkspaceConfig(BaseModel):
 
 
 class Workspace(BaseModel):
-    id: str                                         # ws_xxxx
+    id: str
     project_id: str
     name: str
-    path: str                                       # workspaces/{name}
+    path: str
     ws_type: WorkspaceType = WorkspaceType.CUSTOM
-    stack: str = ""                                 # python | node | static | etc.
+    stack: str = ""
     description: str = ""
-    instance_id: Optional[str] = None               # Linked instance
+    instance_id: Optional[str] = None
     git_url: Optional[str] = None
     branch: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -151,43 +141,39 @@ class Workspace(BaseModel):
 class CreateWorkspaceRequest(BaseModel):
     name: str
     ws_type: WorkspaceType = WorkspaceType.CUSTOM
-    stack: str = ""                                 # python | node | static
+    stack: str = ""
     description: str = ""
     git_url: Optional[str] = None
     branch: str = "main"
-    instance_id: Optional[str] = None               # Link to instance on creation
+    instance_id: Optional[str] = None
 
-
-# ── Domain ───────────────────────────────────────────────────────
 
 class DomainRecord(BaseModel):
-    id: str                                         # dom_xxxx
+    id: str
     project_id: str
     instance_id: str
-    domain: str                                     # Full domain: app.example.com
-    record_type: str = "A"                          # A or CNAME
-    value: str = ""                                 # IP address
-    cf_zone_id: Optional[str] = None                # If managed via Cloudflare
+    domain: str
+    record_type: str = "A"
+    value: str = ""
+    cf_zone_id: Optional[str] = None
     cf_record_id: Optional[str] = None
     proxied: bool = False
-    managed: bool = False                           # True if we manage DNS via CF
+    managed: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class CreateDomainRequest(BaseModel):
     instance_id: str
     domain: str
-    cf_api_token: Optional[str] = None              # If user wants auto DNS
+    cf_api_token: Optional[str] = None
     cf_zone_id: Optional[str] = None
     proxied: bool = False
 
 
-# ── Deploy ───────────────────────────────────────────────────────
-
 class DeployRequest(BaseModel):
     workspace: str
     branch: str = "main"
-    command: Optional[str] = None                   # Override start command
+    command: Optional[str] = None
 
 
 class DeployState(str, Enum):
@@ -206,44 +192,38 @@ class DeployStatus(BaseModel):
     url: Optional[str] = None
 
 
-# ── Zar Packages ────────────────────────────────────────────────
-
 class ZarDependency(BaseModel):
-    """A dependency on another workspace's .zar package."""
-    name: str                                       # Workspace name
+    name: str
     branch: str = "main"
-    version: str = ""                               # Semver constraint, e.g. ">=1.0.0"
-    path: str = ""                                  # Where to extract inside the workspace
+    version: str = ""
+    path: str = ""
 
 
 class ZarManifest(BaseModel):
-    """Metadata inside a .zar package (.zar-manifest.json)."""
     name: str
     version: str = "0.1.0"
     branch: str = "main"
-    hash: str = ""                                  # sha256 of the .zar file
-    stack: str = ""                                 # node | python | static | etc.
+    hash: str = ""
+    stack: str = ""
     created_at: str = ""
     dependencies: list[ZarDependency] = Field(default_factory=list)
-    parent: str = ""                                # Hash of previous version
+    parent: str = ""
     project_id: str = ""
     description: str = ""
 
 
 class PackageConfig(BaseModel):
-    """[package] section in config.toml."""
     version: str = "0.1.0"
     branch: str = "main"
     dependencies: dict[str, ZarDependency] = Field(default_factory=dict)
 
 
 class R2Config(BaseModel):
-    """[package.r2] section in config.toml."""
     bucket: str = "nso"
-    endpoint: str = ""                              # R2 S3-compatible endpoint
+    endpoint: str = ""
     access_key_id: str = ""
     secret_access_key: str = ""
-    public_url: str = ""                            # Optional public bucket URL
+    public_url: str = ""
 
 
 class ZarUploadResult(BaseModel):
@@ -256,35 +236,30 @@ class ZarUploadResult(BaseModel):
 
 
 class ZarDeployRequest(BaseModel):
-    """What the API sends to the agent to deploy a .zar."""
-    r2_key: str                                     # Key in R2 bucket
+    r2_key: str
     r2_endpoint: str
     r2_bucket: str
     r2_access_key_id: str
     r2_secret_access_key: str
-    target_dir: str = "/opt/app"                    # Where to extract
-    restart_service: str = "setupo-app"             # Service to restart after
+    target_dir: str = "/opt/app"
+    restart_service: str = "setupo-app"
     manifest: ZarManifest | None = None
 
 
 class ZarDeployStatus(BaseModel):
-    """Current deployment state on the agent."""
     current_version: str = ""
     current_hash: str = ""
     workspace: str = ""
     branch: str = ""
     deployed_at: str = ""
     manifest: ZarManifest | None = None
-    snapshots: list[str] = Field(default_factory=list)  # Available rollback versions
+    snapshots: list[str] = Field(default_factory=list)
 
-
-# ── Plugins ─────────────────────────────────────────────────────
 
 class PluginInstallation(BaseModel):
-    """A plugin installed on a project."""
-    id: str                                         # plg_xxxx
+    id: str
     project_id: str
-    plugin_id: str                                  # e.g. "monitoring", "backups"
+    plugin_id: str
     name: str
     description: str = ""
     version: str = "1.0.0"
@@ -295,7 +270,7 @@ class PluginInstallation(BaseModel):
 
 
 class InstallPluginRequest(BaseModel):
-    plugin_id: str                                  # Which plugin to install
+    plugin_id: str
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -303,8 +278,6 @@ class UpdatePluginRequest(BaseModel):
     enabled: Optional[bool] = None
     config: Optional[dict[str, Any]] = None
 
-
-# ── Capabilities (agent-friendly) ───────────────────────────────
 
 class Capabilities(BaseModel):
     version: str = "0.1.0"

@@ -1,32 +1,22 @@
-"""Modules routes — .zar marketplace for platform modules.
-
-Admin (ayman_gha@hotmail.com) controls the marketplace:
-  POST   /               — Publish/update a module
-  DELETE /{name}          — Remove a module
-  GET    /                — List all modules (admin sees unpublished too)
-
-Users can browse:
-  GET    /catalog         — List published modules
-  GET    /{name}          — Get module details + download info
-
-Modules are the platform's own components (server, core, dashboard, nso-agent)
-packaged as .zar files and stored in R2. Admin publishes updates, instances pull them.
-
-Mounted at /api/modules
-"""
+import hashlib
 import logging
 import secrets as stdlib_secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel
 
 from core import db
+from core.zar.storage import R2Client
+from server.config import settings
 from server.deps import require_admin, get_auth
 from server.auth.middleware import AuthContext
 
 logger = logging.getLogger("setupo.routes.modules")
 router = APIRouter()
+
+MODULE_R2_PREFIX = "_modules"
+MAX_UPLOAD_SIZE = 100 * 1024 * 1024
 
 
 class PublishModuleRequest(BaseModel):
@@ -35,9 +25,6 @@ class PublishModuleRequest(BaseModel):
     description: str = ""
     version: str = "1.0.0"
     category: str = "core"
-    r2_key: str = ""
-    size: int = 0
-    hash: str = ""
 
 
 class ModuleOut(BaseModel):
@@ -54,8 +41,6 @@ class ModuleOut(BaseModel):
     created_at: str
     updated_at: str
 
-
-# ── Default modules (seeded on first list) ─────────────────
 
 _DEFAULT_MODULES = [
     {
@@ -85,12 +70,26 @@ _DEFAULT_MODULES = [
 ]
 
 
+def _get_r2() -> R2Client:
+    cfg = settings.r2_config()
+    if not cfg.endpoint:
+        raise HTTPException(503, "R2 not configured")
+    return R2Client(cfg)
+
+
+def _module_r2_key(name: str, version: str) -> str:
+    return f"{MODULE_R2_PREFIX}/{name}/v{version}.zar"
+
+
+def _module_latest_key(name: str) -> str:
+    return f"{MODULE_R2_PREFIX}/{name}/latest.zar"
+
+
 async def _ensure_modules_seeded():
-    """Seed modules table with defaults if empty."""
     existing = await db.fetch_all("modules")
     if existing:
         return
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     for mod in _DEFAULT_MODULES:
         await db.insert("modules", {
             "id": f"mod_{stdlib_secrets.token_hex(8)}",
@@ -106,14 +105,11 @@ async def _ensure_modules_seeded():
             "created_at": now,
             "updated_at": now,
         })
-    logger.info("Seeded modules with %d defaults", len(_DEFAULT_MODULES))
+    logger.info("Seeded %d default modules", len(_DEFAULT_MODULES))
 
-
-# ── Public: browse catalog ──────────────────────────────────
 
 @router.get("/catalog")
 async def list_catalog():
-    """List published modules (public)."""
     await _ensure_modules_seeded()
     modules = await db.fetch_all("modules", order_by="name ASC", published=True)
     return {"modules": modules, "count": len(modules)}
@@ -121,18 +117,14 @@ async def list_catalog():
 
 @router.get("/catalog/{name}")
 async def get_module(name: str):
-    """Get module details."""
     mod = await db.fetch_one("modules", name=name)
     if not mod or not mod.get("published"):
         raise HTTPException(404, f"Module '{name}' not found")
     return {"module": mod}
 
 
-# ── Admin: manage modules ───────────────────────────────────
-
 @router.get("")
 async def list_all_modules(auth: AuthContext = Depends(require_admin)):
-    """List all modules including unpublished (admin only)."""
     await _ensure_modules_seeded()
     modules = await db.fetch_all("modules", order_by="name ASC")
     return {"modules": modules, "count": len(modules)}
@@ -140,71 +132,172 @@ async def list_all_modules(auth: AuthContext = Depends(require_admin)):
 
 @router.post("")
 async def publish_module(req: PublishModuleRequest, auth: AuthContext = Depends(require_admin)):
-    """Publish or update a module in the marketplace."""
     name = req.name.strip().lower()
     if not name:
         raise HTTPException(400, "Module name is required")
 
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     existing = await db.fetch_one("modules", name=name)
 
     if existing:
-        # Update existing module
         updates = {
             "version": req.version,
             "description": req.description or existing["description"],
             "display_name": req.display_name or existing["display_name"],
             "category": req.category or existing["category"],
-            "r2_key": req.r2_key or existing["r2_key"],
-            "size": req.size or existing["size"],
-            "hash": req.hash or existing["hash"],
             "published": True,
             "updated_at": now,
         }
         await db.update("modules", existing["id"], updates)
         logger.info("Updated module %s to v%s", name, req.version)
         return {"ok": True, "action": "updated", "name": name, "version": req.version}
+
+    mod_id = f"mod_{stdlib_secrets.token_hex(8)}"
+    await db.insert("modules", {
+        "id": mod_id,
+        "name": name,
+        "display_name": req.display_name or name,
+        "description": req.description,
+        "version": req.version,
+        "category": req.category,
+        "r2_key": "",
+        "size": 0,
+        "hash": "",
+        "published": True,
+        "created_at": now,
+        "updated_at": now,
+    })
+    logger.info("Published new module %s v%s", name, req.version)
+    return {"ok": True, "action": "created", "name": name, "version": req.version}
+
+
+@router.post("/{name}/upload")
+async def upload_module_zar(
+    name: str,
+    version: str = Form(""),
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(require_admin),
+):
+    mod = await db.fetch_one("modules", name=name)
+    if not mod:
+        raise HTTPException(404, f"Module '{name}' not found")
+
+    zar_bytes = await file.read()
+    if len(zar_bytes) > MAX_UPLOAD_SIZE:
+        raise HTTPException(400, f"File too large (max {MAX_UPLOAD_SIZE // (1024 * 1024)}MB)")
+    if len(zar_bytes) == 0:
+        raise HTTPException(400, "Empty file")
+
+    upload_version = version or mod["version"]
+    content_hash = hashlib.sha256(zar_bytes).hexdigest()
+    versioned_key = _module_r2_key(name, upload_version)
+    latest_key = _module_latest_key(name)
+
+    r2 = _get_r2()
+    try:
+        ok = await r2.upload(versioned_key, zar_bytes)
+        if not ok:
+            raise HTTPException(502, f"R2 upload failed for {versioned_key}")
+        await r2.upload(latest_key, zar_bytes)
+    finally:
+        await r2.close()
+
+    now = datetime.now(timezone.utc).isoformat()
+    await db.update("modules", mod["id"], {
+        "r2_key": versioned_key,
+        "size": len(zar_bytes),
+        "hash": f"sha256:{content_hash}",
+        "version": upload_version,
+        "updated_at": now,
+    })
+
+    logger.info("Uploaded module %s v%s (%d bytes) to R2", name, upload_version, len(zar_bytes))
+    return {
+        "ok": True,
+        "name": name,
+        "version": upload_version,
+        "r2_key": versioned_key,
+        "size": len(zar_bytes),
+        "hash": f"sha256:{content_hash}",
+    }
+
+
+@router.get("/{name}/versions")
+async def list_module_versions(name: str):
+    mod = await db.fetch_one("modules", name=name)
+    if not mod:
+        raise HTTPException(404, f"Module '{name}' not found")
+
+    r2 = _get_r2()
+    try:
+        prefix = f"{MODULE_R2_PREFIX}/{name}/v"
+        keys = await r2.list_keys(prefix)
+    finally:
+        await r2.close()
+
+    versions = []
+    for k in keys:
+        filename = k.rsplit("/", 1)[-1]
+        if filename.startswith("v") and filename.endswith(".zar"):
+            versions.append(filename[1:-4])
+
+    return {
+        "name": name,
+        "versions": sorted(versions),
+        "current": mod["version"],
+        "r2_key": mod.get("r2_key", ""),
+    }
+
+
+@router.get("/{name}/download")
+async def download_module_info(name: str, version: str = ""):
+    mod = await db.fetch_one("modules", name=name)
+    if not mod or not mod.get("published"):
+        raise HTTPException(404, f"Module '{name}' not found")
+
+    if version:
+        r2_key = _module_r2_key(name, version)
+    elif mod.get("r2_key"):
+        r2_key = mod["r2_key"]
     else:
-        # Create new module
-        mod_id = f"mod_{stdlib_secrets.token_hex(8)}"
-        await db.insert("modules", {
-            "id": mod_id,
-            "name": name,
-            "display_name": req.display_name or name,
-            "description": req.description,
-            "version": req.version,
-            "category": req.category,
-            "r2_key": req.r2_key,
-            "size": req.size,
-            "hash": req.hash,
-            "published": True,
-            "created_at": now,
-            "updated_at": now,
-        })
-        logger.info("Published new module %s v%s", name, req.version)
-        return {"ok": True, "action": "created", "name": name, "version": req.version}
+        r2_key = _module_latest_key(name)
+
+    r2 = _get_r2()
+    try:
+        exists = await r2.exists(r2_key)
+    finally:
+        await r2.close()
+
+    if not exists:
+        raise HTTPException(404, f"No .zar package found for {name} (key: {r2_key})")
+
+    return {
+        "name": name,
+        "version": version or mod["version"],
+        "r2_key": r2_key,
+        "size": mod.get("size", 0),
+        "hash": mod.get("hash", ""),
+    }
 
 
 @router.patch("/{name}")
 async def update_module(name: str, updates: dict, auth: AuthContext = Depends(require_admin)):
-    """Update module metadata."""
     existing = await db.fetch_one("modules", name=name)
     if not existing:
         raise HTTPException(404, f"Module '{name}' not found")
 
-    allowed = {"display_name", "description", "version", "category", "r2_key", "size", "hash", "published"}
+    allowed = {"display_name", "description", "version", "category", "published"}
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:
-        raise HTTPException(400, f"No valid fields. Allowed: {', '.join(allowed)}")
+        raise HTTPException(400, f"No valid fields. Allowed: {', '.join(sorted(allowed))}")
 
-    filtered["updated_at"] = datetime.utcnow().isoformat()
+    filtered["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.update("modules", existing["id"], filtered)
     return {"ok": True, "name": name, "updated": list(filtered.keys())}
 
 
 @router.delete("/{name}")
 async def remove_module(name: str, auth: AuthContext = Depends(require_admin)):
-    """Remove a module from the marketplace."""
     existing = await db.fetch_one("modules", name=name)
     if not existing:
         raise HTTPException(404, f"Module '{name}' not found")

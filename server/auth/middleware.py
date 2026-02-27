@@ -1,4 +1,3 @@
-"""Auth middleware — resolves Bearer token to auth context."""
 import hashlib
 import hmac
 import logging
@@ -19,13 +18,15 @@ security = HTTPBearer(auto_error=False)
 
 _cached_admin_token: str | None = None
 
+PBKDF2_ITERATIONS = 100_000
+PBKDF2_MIN_LENGTH = 80
+
 
 def _pbkdf2_verify(password: str, stored: str) -> bool:
-    """Verify password against PBKDF2-SHA256 hash (same format as agent)."""
     if ":" not in stored:
         return False
     salt, hash_hex = stored.split(":", 1)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
     return hmac.compare_digest(dk.hex(), hash_hex)
 
 
@@ -41,22 +42,21 @@ class LoginResponse(BaseModel):
 
 
 def verify_password(email: str, password: str) -> dict | None:
-    """Verify admin login. Supports PBKDF2 hash or plaintext from env."""
     admin_email = settings.ADMIN_EMAIL
     admin_password = settings.ADMIN_PASSWORD
+
     if not admin_email or not admin_password:
-        logger.warning("Admin credentials not configured (SETUPO_ADMIN_EMAIL / SETUPO_ADMIN_PASSWORD)")
         return None
     if email != admin_email:
         return None
-    # PBKDF2 hash format: "salt_hex:derived_key_hex" (always 97+ chars)
-    if ":" in admin_password and len(admin_password) > 80:
+
+    is_hashed = ":" in admin_password and len(admin_password) > PBKDF2_MIN_LENGTH
+    if is_hashed:
         if not _pbkdf2_verify(password, admin_password):
             return None
-    else:
-        # Plaintext password — constant-time comparison
-        if not hmac.compare_digest(password, admin_password):
-            return None
+    elif not hmac.compare_digest(password, admin_password):
+        return None
+
     return {"email": admin_email, "role": "admin"}
 
 
@@ -64,17 +64,19 @@ def load_admin_token() -> str:
     global _cached_admin_token
     if _cached_admin_token:
         return _cached_admin_token
+
     token_path = str(settings.TOKEN_PATH)
     if os.path.exists(token_path):
         with open(token_path) as f:
             _cached_admin_token = f.read().strip()
-    else:
-        _cached_admin_token = secrets.token_urlsafe(64)
-        os.makedirs(os.path.dirname(token_path), exist_ok=True)
-        with open(token_path, "w") as f:
-            f.write(_cached_admin_token)
-        os.chmod(token_path, 0o600)
-        logger.warning("Generated new admin token: %s...", _cached_admin_token[:16])
+        return _cached_admin_token
+
+    _cached_admin_token = secrets.token_urlsafe(64)
+    os.makedirs(os.path.dirname(token_path), exist_ok=True)
+    with open(token_path, "w") as f:
+        f.write(_cached_admin_token)
+    os.chmod(token_path, 0o600)
+    logger.warning("Generated new admin token: %s...", _cached_admin_token[:16])
     return _cached_admin_token
 
 
@@ -94,8 +96,6 @@ PUBLIC_PREFIXES = (
 
 
 class AuthContext:
-    """Resolved auth context — admin, user, or project-scoped."""
-
     def __init__(
         self,
         is_admin: bool = False,
@@ -120,13 +120,6 @@ async def resolve_auth(
     request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> AuthContext | None:
-    """Resolve Bearer token to auth context.
-
-    Supports:
-    - User JWT (usr_xxxx)
-    - Admin token (from /etc/setupo/token or generated)
-    - Project API key (sk_live_xxxx)
-    """
     path = request.url.path
     if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
         return None
@@ -136,24 +129,21 @@ async def resolve_auth(
 
     token = credentials.credentials
 
-    # Check user JWT first (prefixed with usr_)
     if token.startswith("usr_"):
         payload = decode_user_token(token)
-        if payload:
-            return AuthContext(
-                user_id=payload["sub"],
-                user_email=payload.get("email"),
-                user_role=payload.get("role", "user"),
-                is_admin=payload.get("role") == "admin",
-            )
-        raise HTTPException(401, "Invalid or expired user token")
+        if not payload:
+            raise HTTPException(401, "Invalid or expired user token")
+        return AuthContext(
+            user_id=payload["sub"],
+            user_email=payload.get("email"),
+            user_role=payload.get("role", "user"),
+            is_admin=payload.get("role") == "admin",
+        )
 
-    # Check admin token
     admin_token = load_admin_token()
     if secrets.compare_digest(token, admin_token):
         return AuthContext(is_admin=True)
 
-    # Check project API key
     if token.startswith("sk_live_"):
         key_hash = hashlib.sha256(token.encode()).hexdigest()
         project = await db.fetch_one("projects", api_key_hash=key_hash)

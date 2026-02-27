@@ -1,13 +1,3 @@
-"""Zar Storage — Cloudflare R2 client (S3-compatible).
-
-Handles upload, download, list, and delete of .zar packages.
-Uses AWS S3v4 signature with httpx — no boto3 dependency.
-
-Bucket structure:
-    {project_id}/{workspace}/{branch}/v{version}.zar
-    {project_id}/{workspace}/{branch}/latest.zar
-    {project_id}/{workspace}/branches.json
-"""
 import hashlib
 import hmac
 import json
@@ -17,14 +7,16 @@ from urllib.parse import quote
 
 import httpx
 
-from core.models import R2Config, ZarManifest
+from core.models import R2Config
 
 logger = logging.getLogger("setupo.zar.storage")
 
+REGION = "auto"
+SERVICE = "s3"
+HTTP_TIMEOUT = 120.0
+
 
 class R2Client:
-    """Cloudflare R2 storage client using S3v4 signatures."""
-
     def __init__(self, config: R2Config):
         self.config = config
         self.bucket = config.bucket
@@ -36,24 +28,17 @@ class R2Client:
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
-            self._client = httpx.AsyncClient(timeout=120.0)
+            self._client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
         return self._client
 
     async def close(self):
         if self._client and not self._client.is_closed:
             await self._client.aclose()
 
-    # ── S3v4 Signing ─────────────────────────────────────────────
-
     def _sign(self, method: str, path: str, headers: dict, payload_hash: str) -> dict:
-        """Generate AWS S3v4 signature headers."""
         now = datetime.now(timezone.utc)
         date_stamp = now.strftime("%Y%m%d")
         amz_date = now.strftime("%Y%m%dT%H%M%SZ")
-        region = "auto"  # R2 uses "auto"
-        service = "s3"
-
-        # Host from endpoint
         host = self.endpoint.replace("https://", "").replace("http://", "")
 
         headers_to_sign = {
@@ -78,7 +63,7 @@ class R2Client:
             f"{payload_hash}"
         )
 
-        credential_scope = f"{date_stamp}/{region}/{service}/aws4_request"
+        credential_scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
         string_to_sign = (
             f"AWS4-HMAC-SHA256\n"
             f"{amz_date}\n"
@@ -93,9 +78,9 @@ class R2Client:
             _hmac_sha256(
                 _hmac_sha256(
                     _hmac_sha256(f"AWS4{self.secret_key}".encode(), date_stamp),
-                    region,
+                    REGION,
                 ),
-                service,
+                SERVICE,
             ),
             "aws4_request",
         )
@@ -117,10 +102,7 @@ class R2Client:
             "x-amz-date": amz_date,
         }
 
-    # ── Operations ───────────────────────────────────────────────
-
     async def upload(self, key: str, data: bytes, content_type: str = "application/gzip") -> bool:
-        """Upload bytes to R2."""
         payload_hash = hashlib.sha256(data).hexdigest()
         headers = {"Content-Type": content_type}
         sign_headers = self._sign("PUT", key, headers, payload_hash)
@@ -136,7 +118,6 @@ class R2Client:
         return False
 
     async def download(self, key: str) -> bytes | None:
-        """Download bytes from R2."""
         payload_hash = hashlib.sha256(b"").hexdigest()
         sign_headers = self._sign("GET", key, {}, payload_hash)
 
@@ -152,7 +133,6 @@ class R2Client:
         return None
 
     async def delete(self, key: str) -> bool:
-        """Delete an object from R2."""
         payload_hash = hashlib.sha256(b"").hexdigest()
         sign_headers = self._sign("DELETE", key, {}, payload_hash)
 
@@ -161,7 +141,6 @@ class R2Client:
         return resp.status_code in (200, 204)
 
     async def exists(self, key: str) -> bool:
-        """Check if an object exists in R2."""
         payload_hash = hashlib.sha256(b"").hexdigest()
         sign_headers = self._sign("HEAD", key, {}, payload_hash)
 
@@ -170,7 +149,6 @@ class R2Client:
         return resp.status_code == 200
 
     async def list_keys(self, prefix: str) -> list[str]:
-        """List object keys with a prefix."""
         payload_hash = hashlib.sha256(b"").hexdigest()
         sign_headers = self._sign("GET", "", {}, payload_hash)
 
@@ -180,7 +158,6 @@ class R2Client:
         if resp.status_code != 200:
             return []
 
-        # Parse XML response (minimal — just extract <Key> tags)
         keys = []
         text = resp.text
         while "<Key>" in text:
@@ -190,10 +167,7 @@ class R2Client:
             text = text[end:]
         return keys
 
-    # ── Zar-specific operations ──────────────────────────────────
-
     def _zar_key(self, project_id: str, workspace: str, branch: str, version: str) -> str:
-        """Build the R2 key for a .zar package."""
         return f"{project_id}/{workspace}/{branch}/v{version}.zar"
 
     def _latest_key(self, project_id: str, workspace: str, branch: str) -> str:
@@ -210,19 +184,15 @@ class R2Client:
         version: str,
         zar_bytes: bytes,
     ) -> str:
-        """Upload a .zar and update latest + branches.json. Returns the R2 key."""
         key = self._zar_key(project_id, workspace, branch, version)
         latest_key = self._latest_key(project_id, workspace, branch)
 
-        # Upload versioned
         ok = await self.upload(key, zar_bytes)
         if not ok:
             raise RuntimeError(f"Failed to upload {key}")
 
-        # Upload as latest
         await self.upload(latest_key, zar_bytes)
 
-        # Update branches.json
         branches_key = self._branches_key(project_id, workspace)
         branches_data = await self.download(branches_key)
         branches = json.loads(branches_data) if branches_data else {}
@@ -243,7 +213,6 @@ class R2Client:
         branch: str,
         version: str | None = None,
     ) -> bytes | None:
-        """Download a .zar — specific version or latest."""
         if version:
             key = self._zar_key(project_id, workspace, branch, version)
         else:
@@ -251,19 +220,16 @@ class R2Client:
         return await self.download(key)
 
     async def list_versions(self, project_id: str, workspace: str, branch: str) -> list[str]:
-        """List all versions of a workspace on a branch."""
         prefix = f"{project_id}/{workspace}/{branch}/v"
         keys = await self.list_keys(prefix)
         versions = []
         for k in keys:
-            # Extract version from key like "proj/ws/main/v1.2.3.zar"
             filename = k.rsplit("/", 1)[-1]
             if filename.startswith("v") and filename.endswith(".zar"):
-                versions.append(filename[1:-4])  # Strip v and .zar
+                versions.append(filename[1:-4])
         return sorted(versions)
 
     async def list_branches(self, project_id: str, workspace: str) -> dict:
-        """Get branches.json for a workspace."""
         key = self._branches_key(project_id, workspace)
         data = await self.download(key)
         if data:
@@ -277,7 +243,6 @@ class R2Client:
         from_branch: str,
         to_branch: str,
     ) -> str | None:
-        """Copy latest .zar from one branch to another (for branching)."""
         zar_bytes = await self.download_zar(project_id, workspace, from_branch)
         if not zar_bytes:
             return None

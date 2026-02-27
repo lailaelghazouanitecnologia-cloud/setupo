@@ -1,4 +1,3 @@
-"""Auth Routes — Login + Register endpoints."""
 import logging
 import re
 import secrets as stdlib_secrets
@@ -15,6 +14,7 @@ logger = logging.getLogger("setupo.auth")
 router = APIRouter()
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
+MIN_PASSWORD_LENGTH = 6
 
 
 class RegisterRequest(BaseModel):
@@ -42,12 +42,11 @@ class UserProfile(BaseModel):
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(req: RegisterRequest):
-    """Register a new user account."""
     email = req.email.strip().lower()
     if not EMAIL_RE.match(email):
         raise HTTPException(400, "Invalid email format")
-    if len(req.password) < 6:
-        raise HTTPException(400, "Password must be at least 6 characters")
+    if len(req.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
 
     existing = await db.fetch_one("users", email=email)
     if existing:
@@ -55,12 +54,13 @@ async def register(req: RegisterRequest):
 
     user_id = f"user_{stdlib_secrets.token_hex(12)}"
     pw_hash = hash_password(req.password)
+    display_name = req.name.strip() or email.split("@")[0]
 
     await db.insert("users", {
         "id": user_id,
         "email": email,
         "password_hash": pw_hash,
-        "name": req.name.strip() or email.split("@")[0],
+        "name": display_name,
         "role": "user",
         "balance": 0.00,
         "verified": 0,
@@ -73,22 +73,15 @@ async def register(req: RegisterRequest):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(req: LoginRequest):
-    """Authenticate with email/password. Supports both admin and regular users."""
-    # Try admin login first
     admin = verify_password(req.email, req.password)
     if admin:
         token = load_admin_token()
         logger.info("Admin login: %s", req.email)
         return LoginResponse(token=token, email=req.email, role="admin")
 
-    # Try user login
     email = req.email.strip().lower()
     user = await db.fetch_one("users", email=email)
-    if not user:
-        logger.warning("Failed login attempt for %s", req.email)
-        raise HTTPException(401, "Invalid email or password")
-
-    if not verify_user_password(req.password, user["password_hash"]):
+    if not user or not verify_user_password(req.password, user["password_hash"]):
         logger.warning("Failed login attempt for %s", req.email)
         raise HTTPException(401, "Invalid email or password")
 
@@ -99,7 +92,6 @@ async def login(req: LoginRequest):
 
 @router.get("/me")
 async def get_me(auth: AuthContext = Depends(require_user)):
-    """Get current user profile."""
     user = await db.fetch_one("users", id=auth.user_id)
     if not user:
         raise HTTPException(404, "User not found")

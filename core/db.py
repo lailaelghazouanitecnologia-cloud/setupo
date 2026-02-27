@@ -1,4 +1,3 @@
-"""Setupo DB - Async SQLite persistence layer."""
 import json
 import logging
 from datetime import datetime
@@ -37,7 +36,6 @@ async def close_db():
 
 async def _migrate(db: aiosqlite.Connection):
     await db.executescript("""
-        -- Projects
         CREATE TABLE IF NOT EXISTS projects (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -47,7 +45,6 @@ async def _migrate(db: aiosqlite.Connection):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Instances
         CREATE TABLE IF NOT EXISTS instances (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -70,7 +67,6 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
-        -- Workspaces
         CREATE TABLE IF NOT EXISTS workspaces (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -87,7 +83,6 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
-        -- Domain records
         CREATE TABLE IF NOT EXISTS domains (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -104,7 +99,6 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
         );
 
-        -- Deploy logs
         CREATE TABLE IF NOT EXISTS deploy_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             instance_id TEXT NOT NULL,
@@ -113,7 +107,6 @@ async def _migrate(db: aiosqlite.Connection):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Plugin catalog (admin-published plugins that users can install)
         CREATE TABLE IF NOT EXISTS plugin_catalog (
             id TEXT PRIMARY KEY,
             plugin_id TEXT NOT NULL UNIQUE,
@@ -129,7 +122,6 @@ async def _migrate(db: aiosqlite.Connection):
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Plugin installations (per-project)
         CREATE TABLE IF NOT EXISTS plugins (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -144,7 +136,6 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
-        -- Users
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
@@ -156,7 +147,6 @@ async def _migrate(db: aiosqlite.Connection):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Transactions (billing)
         CREATE TABLE IF NOT EXISTS transactions (
             id TEXT PRIMARY KEY,
             user_id TEXT NOT NULL,
@@ -168,7 +158,6 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
-        -- Modules (.zar marketplace — admin publishes, users install)
         CREATE TABLE IF NOT EXISTS modules (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -184,7 +173,6 @@ async def _migrate(db: aiosqlite.Connection):
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Indexes
         CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
         CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
         CREATE INDEX IF NOT EXISTS idx_workspaces_project ON workspaces(project_id);
@@ -200,10 +188,8 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
         CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);
         CREATE INDEX IF NOT EXISTS idx_modules_published ON modules(published);
-
     """)
 
-    # Add new workspace columns if upgrading from old schema
     try:
         await db.execute("SELECT ws_type FROM workspaces LIMIT 1")
     except Exception:
@@ -223,40 +209,29 @@ async def _migrate(db: aiosqlite.Connection):
     logger.info("Database migrations complete")
 
 
-# ── Generic helpers ──────────────────────────────────────────────
+def _serialize_value(v):
+    if isinstance(v, (dict, list)):
+        return json.dumps(v)
+    if isinstance(v, datetime):
+        return v.isoformat()
+    if isinstance(v, bool):
+        return int(v)
+    return v
+
 
 async def insert(table: str, data: dict):
     db = await get_db()
     cols = ", ".join(data.keys())
     placeholders = ", ".join(["?"] * len(data))
-    vals = []
-    for v in data.values():
-        if isinstance(v, dict) or isinstance(v, list):
-            vals.append(json.dumps(v))
-        elif isinstance(v, datetime):
-            vals.append(v.isoformat())
-        elif isinstance(v, bool):
-            vals.append(int(v))
-        else:
-            vals.append(v)
+    vals = [_serialize_value(v) for v in data.values()]
     await db.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", vals)
     await db.commit()
 
 
 async def update(table: str, id_val: str, data: dict):
     db = await get_db()
-    sets = []
-    vals = []
-    for k, v in data.items():
-        sets.append(f"{k} = ?")
-        if isinstance(v, dict) or isinstance(v, list):
-            vals.append(json.dumps(v))
-        elif isinstance(v, datetime):
-            vals.append(v.isoformat())
-        elif isinstance(v, bool):
-            vals.append(int(v))
-        else:
-            vals.append(v)
+    sets = [f"{k} = ?" for k in data]
+    vals = [_serialize_value(v) for v in data.values()]
     vals.append(id_val)
     await db.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id = ?", vals)
     await db.commit()
@@ -299,15 +274,19 @@ async def delete_where(table: str, **where):
     await db.commit()
 
 
+JSON_FIELDS = frozenset({"settings", "metadata", "config", "config_schema"})
+BOOL_FIELDS = frozenset({"proxied", "managed", "enabled", "published", "verified"})
+
+
 def _row_to_dict(row: aiosqlite.Row) -> dict:
     d = dict(row)
-    for key in ("settings", "metadata", "config", "config_schema"):
+    for key in JSON_FIELDS:
         if key in d and isinstance(d[key], str):
             try:
                 d[key] = json.loads(d[key])
             except (json.JSONDecodeError, TypeError):
                 pass
-    for key in ("proxied", "managed", "enabled", "published", "verified"):
+    for key in BOOL_FIELDS:
         if key in d and isinstance(d[key], int):
             d[key] = bool(d[key])
     return d

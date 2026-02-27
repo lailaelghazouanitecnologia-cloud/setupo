@@ -1,4 +1,3 @@
-"""Billing Routes — Balance, transactions, top-up, charges."""
 import logging
 import secrets as stdlib_secrets
 
@@ -10,6 +9,8 @@ from core import db
 
 logger = logging.getLogger("setupo.billing")
 router = APIRouter()
+
+MAX_TOPUP_AMOUNT = 1000.0
 
 
 class TopUpRequest(BaseModel):
@@ -38,11 +39,8 @@ class BalanceOut(BaseModel):
     currency: str = "USD"
 
 
-# ── User endpoints ─────────────────────────────────────────
-
 @router.get("/balance", response_model=BalanceOut)
 async def get_balance(auth: AuthContext = Depends(require_user)):
-    """Get current user balance."""
     user = await db.fetch_one("users", id=auth.user_id)
     if not user:
         raise HTTPException(404, "User not found")
@@ -51,7 +49,6 @@ async def get_balance(auth: AuthContext = Depends(require_user)):
 
 @router.get("/transactions")
 async def list_transactions(auth: AuthContext = Depends(require_user)):
-    """List user transactions."""
     txns = await db.fetch_all("transactions", user_id=auth.user_id)
     return {
         "transactions": [
@@ -71,11 +68,10 @@ async def list_transactions(auth: AuthContext = Depends(require_user)):
 
 @router.post("/topup")
 async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_user)):
-    """Simulate adding balance (in production, integrate payment gateway)."""
     if req.amount <= 0:
         raise HTTPException(400, "Amount must be positive")
-    if req.amount > 1000:
-        raise HTTPException(400, "Maximum top-up is $1000")
+    if req.amount > MAX_TOPUP_AMOUNT:
+        raise HTTPException(400, f"Maximum top-up is ${MAX_TOPUP_AMOUNT:.0f}")
 
     user = await db.fetch_one("users", id=auth.user_id)
     if not user:
@@ -98,18 +94,14 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_user)):
     return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
 
 
-# ── Admin endpoints ────────────────────────────────────────
-
 @router.post("/charge")
 async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_admin)):
-    """Admin: charge a user's balance."""
     if req.amount <= 0:
         raise HTTPException(400, "Amount must be positive")
 
     user = await db.fetch_one("users", id=req.user_id)
     if not user:
         raise HTTPException(404, "User not found")
-
     if user["balance"] < req.amount:
         raise HTTPException(400, f"Insufficient balance: ${user['balance']:.2f}")
 
@@ -132,7 +124,6 @@ async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_ad
 
 @router.get("/users")
 async def list_users(auth: AuthContext = Depends(require_admin)):
-    """Admin: list all users with balances."""
     users = await db.fetch_all("users")
     return {
         "users": [
