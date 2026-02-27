@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, Component, type ErrorInfo, type ReactNode } from "react";
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
@@ -34,6 +34,67 @@ const IC_Menu = () => (
     <rect y="12" width="16" height="2" rx="1" />
   </svg>
 );
+
+/* ═══════════════════════════════════════════
+   ERROR BOUNDARY
+   ═══════════════════════════════════════════ */
+class PanelErrorBoundary extends Component<
+  { name: string; children: ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[${this.props.name}] Panel crashed:`, error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 24, color: "var(--foreground)" }}>
+          <div style={{ color: "var(--color-red)", fontWeight: 600, marginBottom: 8 }}>
+            {this.props.name} crashed
+          </div>
+          <pre style={{
+            background: "rgba(239,68,68,0.08)",
+            padding: 12,
+            borderRadius: 8,
+            fontSize: 12,
+            fontFamily: "monospace",
+            overflow: "auto",
+            maxHeight: 200,
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+          }}>
+            {this.state.error.message}
+            {"\n\n"}
+            {this.state.error.stack}
+          </pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{
+              marginTop: 12,
+              padding: "6px 14px",
+              background: "var(--sidebar-bg)",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              color: "var(--foreground)",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ═══════════════════════════════════════════
    NAV CONFIG
@@ -205,12 +266,12 @@ export function DashboardLayout() {
       {/* ════ MAIN CONTENT ════ */}
       <div className={cn("fmain", sidebarOpen && "shifted")}>
         <div className="fmain-content">
-          {activeView === "inbox" && <InboxPanel />}
-          {activeView === "instances" && <InstancesPanel />}
-          {activeView === "projects" && <ProjectsPanel />}
-          {activeView === "deploy" && <DeployPanel />}
-          {activeView === "secrets" && <SecretsPanel />}
-          {activeView === "plugins" && <PluginsPanel />}
+          {activeView === "inbox" && <PanelErrorBoundary name="Inbox"><InboxPanel /></PanelErrorBoundary>}
+          {activeView === "instances" && <PanelErrorBoundary name="Instances"><InstancesPanel /></PanelErrorBoundary>}
+          {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
+          {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
+          {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
+          {activeView === "plugins" && <PanelErrorBoundary name="Plugins"><PluginsPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>
