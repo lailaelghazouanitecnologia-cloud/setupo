@@ -37,10 +37,11 @@ ufw --force enable
 # ── 3. Clone repo ────────────────────────────────
 log "[3/8] Cloning repository..."
 mkdir -p "$APP_DIR"
+GIT_BRANCH="${GIT_BRANCH:-claude/zarnight-3YWf0}"
 if [ -d "$APP_DIR/.git" ]; then
-  cd "$APP_DIR" && git pull origin main
+  cd "$APP_DIR" && git fetch origin "$GIT_BRANCH" && git checkout "$GIT_BRANCH" && git pull origin "$GIT_BRANCH"
 else
-  git clone "$REPO" "$APP_DIR"
+  git clone -b "$GIT_BRANCH" "$REPO" "$APP_DIR"
 fi
 
 # Create data dirs
