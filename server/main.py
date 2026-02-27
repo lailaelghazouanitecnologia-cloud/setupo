@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.errors import SetupoError
 from server.config import settings
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api
 
 logging.basicConfig(
     level=logging.INFO,
@@ -63,6 +63,7 @@ app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 app.include_router(modules.router, prefix="/api/modules", tags=["modules"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(subdomain.router, prefix="/api/subdomain", tags=["subdomain"])
+app.include_router(plugin_api.router, prefix="/api/projects/{project_id}/p", tags=["plugin-api"])
 
 
 if os.environ.get("SETUPO_SERVE_STATIC"):

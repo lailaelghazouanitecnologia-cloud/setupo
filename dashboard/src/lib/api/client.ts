@@ -463,3 +463,69 @@ export async function claimSubdomain(subdomain: string) {
 export async function getSubdomain() {
   return centralApi<{ subdomain: string | null; domain: string | null }>("/api/subdomain");
 }
+
+// ═══════════════════════════════════════════
+//  PLUGIN APIs
+// ═══════════════════════════════════════════
+
+export async function pluginStorageList(projectId: string, prefix = "") {
+  return centralApi<{ files: { key: string; full_key: string }[]; count: number }>(
+    `/api/projects/${projectId}/p/storage/files?prefix=${encodeURIComponent(prefix)}`,
+  );
+}
+
+export async function pluginStorageUpload(projectId: string, path: string, content: string, contentType = "application/octet-stream") {
+  return centralApi<{ ok: boolean; path: string; size: number; hash: string }>(
+    `/api/projects/${projectId}/p/storage/upload`,
+    { method: "POST", body: JSON.stringify({ path, content, content_type: contentType }) },
+  );
+}
+
+export async function pluginStorageDelete(projectId: string, path: string) {
+  return centralApi<{ ok: boolean }>(
+    `/api/projects/${projectId}/p/storage/files?path=${encodeURIComponent(path)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function pluginLogsList(projectId: string, instanceId = "", level = "", limit = 100) {
+  const params = new URLSearchParams();
+  if (instanceId) params.set("instance_id", instanceId);
+  if (level) params.set("level", level);
+  params.set("limit", String(limit));
+  return centralApi<{ logs: any[]; count: number }>(
+    `/api/projects/${projectId}/p/logs?${params}`,
+  );
+}
+
+export async function pluginDnsList(projectId: string) {
+  return centralApi<{ records: any[]; count: number }>(
+    `/api/projects/${projectId}/p/dns/records`,
+  );
+}
+
+export async function pluginDnsCreate(projectId: string, instanceId: string, domain: string, proxied = false) {
+  return centralApi<{ ok: boolean; record: any }>(
+    `/api/projects/${projectId}/p/dns/records`,
+    { method: "POST", body: JSON.stringify({ instance_id: instanceId, domain, proxied }) },
+  );
+}
+
+export async function pluginDnsDelete(projectId: string, domainId: string) {
+  return centralApi<{ ok: boolean }>(
+    `/api/projects/${projectId}/p/dns/records/${domainId}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function pluginMonitoring(projectId: string) {
+  return centralApi<{ instances: any[]; count: number }>(
+    `/api/projects/${projectId}/p/monitoring/instances`,
+  );
+}
+
+export async function pluginBackupsList(projectId: string) {
+  return centralApi<{ backups: any[]; count: number }>(
+    `/api/projects/${projectId}/p/backups/list`,
+  );
+}

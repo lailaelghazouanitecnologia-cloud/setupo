@@ -778,6 +778,114 @@
   }
   .plugin-action svg { width: 12px; height: 12px; }
 
+  /* ── Plugin detail (expanded view) ── */
+  .plugin-card.installed { flex-direction: column; }
+  .plugin-detail {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+  .plugin-detail-loading {
+    display: flex; align-items: center; gap: 6px;
+    padding: 12px 0; font-size: var(--font-xs);
+    color: var(--muted-foreground);
+  }
+  .plugin-detail-error {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; font-size: var(--font-xs);
+    color: var(--color-red); background: rgba(239,68,68,0.06);
+    border-radius: 6px;
+  }
+  .plugin-detail-retry {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 4px;
+    border: 1px solid var(--border); background: none;
+    cursor: pointer; font-size: var(--font-xxs);
+    color: var(--muted-foreground);
+    transition: all 0.1s;
+  }
+  .plugin-detail-retry:hover { color: var(--foreground); background: var(--accent); }
+  .plugin-detail-retry svg { width: 10px; height: 10px; }
+  .plugin-detail-header {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: var(--font-xs); color: var(--muted-foreground);
+    margin-bottom: 8px;
+  }
+  .plugin-detail-empty {
+    padding: 14px 0; text-align: center;
+    font-size: var(--font-xs); color: var(--muted-foreground);
+  }
+  .plugin-detail-empty code {
+    background: var(--color-code-bg); color: var(--color-code-text);
+    padding: 1px 5px; border-radius: 4px;
+    font-size: var(--font-xs); font-family: var(--font-mono);
+  }
+  .plugin-detail-list {
+    display: flex; flex-direction: column; gap: 2px;
+    max-height: 200px; overflow-y: auto;
+  }
+  .plugin-detail-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 8px; border-radius: 4px;
+    font-size: var(--font-xs);
+    transition: background 0.08s;
+  }
+  .plugin-detail-row:hover { background: var(--accent); }
+  .plugin-detail-row-name {
+    font-weight: 500; font-size: var(--font-xs);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0;
+  }
+  .plugin-detail-row-meta {
+    font-size: var(--font-xxs); color: var(--muted-foreground);
+    white-space: nowrap; margin-left: 8px;
+  }
+  .plugin-detail-row-action {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 22px; height: 22px; border-radius: 4px;
+    border: none; background: none; cursor: pointer;
+    color: var(--muted-foreground); flex-shrink: 0;
+    transition: all 0.1s;
+  }
+  .plugin-detail-row-action:hover { color: var(--color-red); background: rgba(239,68,68,0.08); }
+  .plugin-detail-row-action svg { width: 12px; height: 12px; }
+
+  /* ── Plugin logs ── */
+  .plugin-detail-logs {
+    display: flex; flex-direction: column; gap: 1px;
+    max-height: 200px; overflow-y: auto;
+    font-family: var(--font-mono);
+  }
+  .plugin-log-entry {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 4px 8px; border-radius: 3px;
+    font-size: var(--font-xxs); line-height: 1.4;
+  }
+  .plugin-log-entry:hover { background: var(--accent); }
+  .plugin-log-entry.error { color: var(--color-red); }
+  .plugin-log-entry.warning { color: var(--color-yellow); }
+  .plugin-log-level {
+    display: inline-block; min-width: 36px;
+    font-weight: 600; text-transform: uppercase;
+    flex-shrink: 0;
+  }
+  .plugin-log-msg {
+    flex: 1; min-width: 0;
+    word-break: break-word;
+  }
+  .plugin-log-time {
+    font-size: 9px; color: var(--muted-foreground);
+    white-space: nowrap; flex-shrink: 0;
+  }
+
+  /* ── Plugin status dot ── */
+  .plugin-status-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    flex-shrink: 0; display: inline-block;
+  }
+  .plugin-status-dot.green { background: var(--color-green); }
+  .plugin-status-dot.yellow { background: var(--color-yellow); }
+  .plugin-status-dot.red { background: var(--color-red); }
+
   /* ═══════════════════════════════════════
      DEPLOY
      ═══════════════════════════════════════ */
