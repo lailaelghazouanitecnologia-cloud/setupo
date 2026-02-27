@@ -122,7 +122,9 @@ export function DeployPanel() {
     zarVersions(projectId, selectedWs, branch)
       .then((r) => {
         setVersions(r.versions || []);
-        setBranches(r.branches || []);
+        // branches can be an object {name: latestVersion} or an array
+        const br = r.branches;
+        setBranches(Array.isArray(br) ? br : typeof br === "object" && br ? Object.keys(br) : []);
       })
       .catch(() => { setVersions([]); setBranches([]); });
   }, [projectId, selectedWs, branch]);

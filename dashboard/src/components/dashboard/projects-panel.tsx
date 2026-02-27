@@ -138,7 +138,11 @@ export function ProjectsPanel() {
     setFilesLoading(false);
     // Fetch versions info
     zarVersions(selectedProject.id, ws.name, ws.branch || "main")
-      .then((r) => { setWsVersions(r.versions || []); setWsBranches(r.branches || []); })
+      .then((r) => {
+        setWsVersions(r.versions || []);
+        const br = r.branches;
+        setWsBranches(Array.isArray(br) ? br : typeof br === "object" && br ? Object.keys(br) : []);
+      })
       .catch(() => { setWsVersions([]); setWsBranches([]); });
   };
 
