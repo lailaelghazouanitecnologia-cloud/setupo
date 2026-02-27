@@ -1,6 +1,6 @@
 # NSO API Reference
 
-Base URL: `https://zarnetti.com`
+Base URL: `https://nso.dev`
 
 **Live instance**: Madrid (mad), Debian 12, 4vCPU/8GB — `65.20.102.242`
 
@@ -43,7 +43,7 @@ Base URL: `https://zarnetti.com`
 | GET | `/api/projects/{pid}/zar/{name}/versions` | API key |
 | POST | `/api/projects/{pid}/zar/self-update` | API key |
 
-**Interactive docs**: `https://zarnetti.com/docs` (Swagger UI)
+**Interactive docs**: `https://nso.dev/docs` (Swagger UI)
 
 ---
 
@@ -440,7 +440,7 @@ Updates the component on the instance without recreating the VPS.
 
 The agent runs on each VPS instance on port 8081. Accessible via:
 - Direct: `http://{ip}:8081/...`
-- Via nginx proxy: `https://zarnetti.com/agent/...`
+- Via nginx proxy: `https://nso.dev/agent/...`
 
 ### Agent Health (no auth)
 

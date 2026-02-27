@@ -4,7 +4,7 @@
 
 | Detail | Value |
 |--------|-------|
-| Main VPS | 65.20.102.242 (zarnetti.com) |
+| Main VPS | 65.20.102.242 (nso.dev) |
 | Test VPS | 65.20.103.88 (Rust HTTP on :3000) |
 | Provider | Vultr (VPS) + Cloudflare (DNS + R2) |
 | Repo | github.com/lailaelghazouanitecnologia-cloud/setupo |
@@ -97,7 +97,7 @@ require_admin    → Admin token only
 ## Nginx Routing
 
 ```
-Client (HTTPS :443 → zarnetti.com)
+Client (HTTPS :443 → nso.dev)
     ├── /api/*      → proxy_pass 127.0.0.1:8000  (FastAPI central)
     ├── /agent/*    → proxy_pass 127.0.0.1:8081/ (nso-agent)
     ├── /ws/*       → WebSocket proxy :8000
@@ -395,7 +395,7 @@ cd dashboard && npm run build
 curl -X POST -H "Authorization: Bearer sk_live_xxx" \
   -H "Content-Type: application/json" \
   -d '{"instance_id":"inst_xxx"}' \
-  https://zarnetti.com/api/projects/{pid}/zar/{name}/ship
+  https://nso.dev/api/projects/{pid}/zar/{name}/ship
 
 # Restart services
 systemctl restart setupo setupo-agent

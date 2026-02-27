@@ -24,10 +24,10 @@ ln -s /opt/setupo/nso /usr/local/bin/nso
 ```bash
 nso login -e admin@example.com           # Email/password
 nso login -k sk_live_abc123              # API key
-nso login --host https://zarnetti.com    # Set host + login
+nso login --host https://nso.dev    # Set host + login
 nso logout                               # Clear token
 nso config                               # Show config
-nso config host https://zarnetti.com     # Set host
+nso config host https://nso.dev     # Set host
 ```
 
 ### Deploy Operations
@@ -126,7 +126,7 @@ nso doctor    # Full diagnostic
 ```bash
 #!/bin/bash
 set -euo pipefail
-export NSO_HOST=https://zarnetti.com
+export NSO_HOST=https://nso.dev
 export NSO_TOKEN=sk_live_abc123
 export NSO_PROJECT=proj_xxx
 

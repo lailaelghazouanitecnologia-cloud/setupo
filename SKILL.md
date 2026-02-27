@@ -4,7 +4,7 @@ This document teaches AI agents how to use the NSO platform to manage infrastruc
 
 ## What is NSO?
 
-NSO (Network Service Orchestration) is an infrastructure platform. Live at `https://zarnetti.com`.
+NSO (Network Service Orchestration) is an infrastructure platform. Live at `https://nso.dev`.
 
 You can:
 - Create VPS instances on Vultr (Debian 12, 4vCPU minimum)
@@ -50,7 +50,7 @@ nso login -e admin@example.com
 nso login -k sk_live_abc123
 
 # Set API host (live instance)
-nso config host https://zarnetti.com
+nso config host https://nso.dev
 
 # Check status
 nso status

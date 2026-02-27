@@ -55,26 +55,56 @@ export function centralApi<T>(path: string, options: RequestInit = {}): Promise<
   return apiCall<T>(path, options, "nso_api_token");
 }
 
-// Auth — dual login: agent + central API
+// Auth — login (tries central API first, then agent for admin)
 export async function login(email: string, password: string) {
-  // Login to agent (for exec, files, deploy)
-  const agentRes = await apiCall<{ token: string; email: string; role: string }>("/agent/auth/login", {
+  const apiRes = await apiCall<{ token: string; email: string; role: string }>("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
-  // Login to central API (for projects, workspaces, instances)
-  try {
-    const apiRes = await apiCall<{ token: string }>("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-    if (typeof window !== "undefined") {
-      localStorage.setItem("nso_api_token", apiRes.token);
-    }
-  } catch {
-    // Agent-only mode if central API uses different password
+
+  if (typeof window !== "undefined") {
+    localStorage.setItem("nso_api_token", apiRes.token);
   }
-  return agentRes;
+
+  // Admin also logs into agent for exec/files/deploy
+  if (apiRes.role === "admin") {
+    try {
+      const agentRes = await apiCall<{ token: string }>("/agent/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      if (typeof window !== "undefined") {
+        localStorage.setItem("nso_token", agentRes.token);
+      }
+    } catch {
+      // Agent may not be available
+    }
+  }
+
+  return apiRes;
+}
+
+// Auth — register
+export async function register(email: string, password: string, name = "") {
+  const res = await apiCall<{ token: string; email: string; role: string; user_id: string }>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  });
+
+  if (typeof window !== "undefined") {
+    localStorage.setItem("nso_api_token", res.token);
+  }
+
+  return res;
+}
+
+// Auth — get current user profile
+export async function getMe() {
+  return centralApi<{
+    id: string; email: string; name: string;
+    role: string; balance: number; verified: boolean;
+    created_at: string;
+  }>("/api/auth/me");
 }
 
 // API health
@@ -376,4 +406,80 @@ export async function getDeployStatus() {
 
 export async function getDeploySnapshots() {
   return apiCall<{ target: string; snapshots: string[] }>("/agent/deploy/snapshots");
+}
+
+// ─── Billing ───
+
+export interface Transaction {
+  id: string;
+  type: string;
+  amount: number;
+  description: string;
+  reference: string;
+  created_at: string;
+}
+
+export async function getBalance() {
+  return centralApi<{ balance: number; currency: string }>("/api/billing/balance");
+}
+
+export async function getTransactions() {
+  return centralApi<{ transactions: Transaction[]; count: number }>("/api/billing/transactions");
+}
+
+export async function topUp(amount: number, reference = "") {
+  return centralApi<{ ok: boolean; balance: number; transaction_id: string }>("/api/billing/topup", {
+    method: "POST",
+    body: JSON.stringify({ amount, reference }),
+  });
+}
+
+// ─── Modules (.zar marketplace) ───
+
+export interface ModuleInfo {
+  id: string;
+  name: string;
+  display_name: string;
+  description: string;
+  version: string;
+  category: string;
+  r2_key: string;
+  size: number;
+  hash: string;
+  published: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listModules() {
+  return apiCall<{ modules: ModuleInfo[]; count: number }>("/api/modules/catalog");
+}
+
+export async function getModule(name: string) {
+  return apiCall<{ module: ModuleInfo }>(`/api/modules/catalog/${name}`);
+}
+
+// Admin: module management
+export async function listAllModules() {
+  return centralApi<{ modules: ModuleInfo[]; count: number }>("/api/modules");
+}
+
+export async function publishModule(data: Partial<ModuleInfo> & { name: string }) {
+  return centralApi<{ ok: boolean; action: string; name: string; version: string }>("/api/modules", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateModule(name: string, updates: Partial<ModuleInfo>) {
+  return centralApi<{ ok: boolean; name: string; updated: string[] }>(`/api/modules/${name}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function removeModule(name: string) {
+  return centralApi<{ ok: boolean; name: string }>(`/api/modules/${name}`, {
+    method: "DELETE",
+  });
 }

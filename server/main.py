@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.errors import SetupoError
 from server.config import settings
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules
 
 logging.basicConfig(
     level=logging.INFO,
@@ -100,6 +100,12 @@ app.include_router(
     prefix="/api/projects/{project_id}/plugins",
     tags=["plugins"],
 )
+
+# Billing (user-scoped)
+app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
+
+# Modules marketplace (.zar)
+app.include_router(modules.router, prefix="/api/modules", tags=["modules"])
 
 
 # ── Dashboard (static files — only for local dev) ───────────────

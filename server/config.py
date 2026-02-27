@@ -43,7 +43,7 @@ class Settings:
     PORT = int(os.environ.get("SETUPO_PORT", "8000"))
     CORS_ORIGINS = os.environ.get(
         "SETUPO_CORS_ORIGINS",
-        "https://zarnetti.com,http://localhost:3000,http://localhost:8000"
+        "https://nso.dev,http://localhost:3000,http://localhost:8000"
     ).split(",")
 
     # Admin

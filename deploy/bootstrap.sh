@@ -123,7 +123,7 @@ NGINX
   ln -sf /etc/nginx/sites-available/setupo-temp /etc/nginx/sites-enabled/setupo
   nginx -t && systemctl reload nginx
   log "  -> HTTP-only nginx running. Run certbot to enable HTTPS:"
-  log "     certbot --nginx -d zarnetti.com"
+  log "     certbot --nginx -d nso.dev"
 fi
 
 # ── Done ─────────────────────────────────────────
@@ -137,6 +137,6 @@ systemctl is-active nginx && log "  nginx: OK" || log "  nginx: FAILED"
 log ""
 log "Next steps:"
 log "  1. Edit /opt/setupo/.env with your API keys"
-log "  2. Run: certbot --nginx -d zarnetti.com"
+log "  2. Run: certbot --nginx -d nso.dev"
 log "  3. Restart: systemctl restart setupo setupo-agent"
-log "  4. Visit: https://zarnetti.com"
+log "  4. Visit: https://nso.dev"

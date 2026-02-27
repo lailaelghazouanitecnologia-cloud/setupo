@@ -4,7 +4,7 @@
 
 NSO (Network Service Orchestration) is an infrastructure platform that provisions VPS instances, deploys code, and manages everything via API or CLI. No SSH between you and your servers — an agent on each VPS handles everything over HTTP.
 
-**Live**: `https://zarnetti.com` — Madrid, Debian 12, 4vCPU/8GB
+**Live**: `https://nso.dev` — Madrid, Debian 12, 4vCPU/8GB
 
 ## Architecture
 
@@ -41,7 +41,7 @@ uvicorn server.main:app --host 0.0.0.0 --port 8000
 ### 3. Login with the CLI
 
 ```bash
-./nso config host https://zarnetti.com  # or localhost:8000
+./nso config host https://nso.dev  # or localhost:8000
 ./nso login -e ayman_gha@hotmail.com
 ./nso status
 ```
@@ -111,11 +111,11 @@ export NSO_PROJECT=proj_a1b2c3
 
 | URL | What |
 |-----|------|
-| `https://zarnetti.com/` | Dashboard (login required) |
-| `https://zarnetti.com/api/health` | API health check |
-| `https://zarnetti.com/agent/health` | Agent health check |
-| `https://zarnetti.com/docs` | Swagger UI (interactive API docs) |
-| `https://zarnetti.com/openapi.json` | OpenAPI spec |
+| `https://nso.dev/` | Dashboard (login required) |
+| `https://nso.dev/api/health` | API health check |
+| `https://nso.dev/agent/health` | Agent health check |
+| `https://nso.dev/docs` | Swagger UI (interactive API docs) |
+| `https://nso.dev/openapi.json` | OpenAPI spec |
 
 ## Services on VPS
 

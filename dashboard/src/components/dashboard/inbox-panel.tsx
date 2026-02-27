@@ -41,7 +41,7 @@ const MOCK_ITEMS: InboxItem[] = [
     id: "4",
     type: "alert",
     title: "SSL certificate expiring",
-    message: "Certificate for zarnetti.com expires in 14 days",
+    message: "Certificate for nso.dev expires in 14 days",
     time: "1d ago",
     read: true,
   },

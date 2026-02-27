@@ -1,4 +1,4 @@
-"""Auth middleware — resolves Bearer token to project context."""
+"""Auth middleware — resolves Bearer token to auth context."""
 import hashlib
 import hmac
 import logging
@@ -10,6 +10,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from server.config import settings
+from server.auth.jwt import decode_user_token
 from core import db
 
 logger = logging.getLogger("setupo.auth")
@@ -80,19 +81,34 @@ def load_admin_token() -> str:
 PUBLIC_PATHS = frozenset({
     "/api/health",
     "/api/auth/login",
+    "/api/auth/register",
     "/api/capabilities",
     "/docs",
     "/openapi.json",
     "/redoc",
 })
 
+PUBLIC_PREFIXES = (
+    "/api/modules/catalog",
+)
+
 
 class AuthContext:
-    """Resolved auth context — either admin or project-scoped."""
+    """Resolved auth context — admin, user, or project-scoped."""
 
-    def __init__(self, is_admin: bool = False, project_id: str | None = None):
+    def __init__(
+        self,
+        is_admin: bool = False,
+        project_id: str | None = None,
+        user_id: str | None = None,
+        user_email: str | None = None,
+        user_role: str | None = None,
+    ):
         self.is_admin = is_admin
         self.project_id = project_id
+        self.user_id = user_id
+        self.user_email = user_email
+        self.user_role = user_role or ("admin" if is_admin else None)
 
     def require_project(self) -> str:
         if self.project_id:
@@ -107,16 +123,30 @@ async def resolve_auth(
     """Resolve Bearer token to auth context.
 
     Supports:
+    - User JWT (usr_xxxx)
     - Admin token (from /etc/setupo/token or generated)
     - Project API key (sk_live_xxxx)
     """
-    if request.url.path in PUBLIC_PATHS:
+    path = request.url.path
+    if path in PUBLIC_PATHS or path.startswith(PUBLIC_PREFIXES):
         return None
 
     if not credentials:
         raise HTTPException(401, "Missing authorization token")
 
     token = credentials.credentials
+
+    # Check user JWT first (prefixed with usr_)
+    if token.startswith("usr_"):
+        payload = decode_user_token(token)
+        if payload:
+            return AuthContext(
+                user_id=payload["sub"],
+                user_email=payload.get("email"),
+                user_role=payload.get("role", "user"),
+                is_admin=payload.get("role") == "admin",
+            )
+        raise HTTPException(401, "Invalid or expired user token")
 
     # Check admin token
     admin_token = load_admin_token()

@@ -20,18 +20,27 @@ interface DashboardState {
   logout: () => void;
 }
 
+function getInitialToken(): string | null {
+  if (typeof window === "undefined") return null;
+  // Check for user JWT token first, then legacy agent token
+  return localStorage.getItem("nso_api_token") || localStorage.getItem("nso_token") || null;
+}
+
 export const useDashboardStore = create<DashboardState>((set) => ({
   activeView: "inbox",
   sidebarOpen: true,
-  token: typeof window !== "undefined" ? localStorage.getItem("nso_token") : null,
+  token: getInitialToken(),
   userEmail: typeof window !== "undefined" ? localStorage.getItem("nso_email") : null,
   userRole: typeof window !== "undefined" ? localStorage.getItem("nso_role") : null,
   setActiveView: (view) => set({ activeView: view }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setToken: (token) => {
     if (token) {
+      localStorage.setItem("nso_api_token", token);
+      // Also keep nso_token for backward compat with agent calls
       localStorage.setItem("nso_token", token);
     } else {
+      localStorage.removeItem("nso_api_token");
       localStorage.removeItem("nso_token");
     }
     set({ token });
@@ -43,6 +52,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   },
   logout: () => {
     localStorage.removeItem("nso_token");
+    localStorage.removeItem("nso_api_token");
     localStorage.removeItem("nso_email");
     localStorage.removeItem("nso_role");
     set({ token: null, userEmail: null, userRole: null });

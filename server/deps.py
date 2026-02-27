@@ -26,3 +26,10 @@ async def require_admin(auth: AuthContext = Depends(get_auth)) -> AuthContext:
     if not auth or not auth.is_admin:
         raise HTTPException(403, "Admin access required")
     return auth
+
+
+async def require_user(auth: AuthContext = Depends(get_auth)) -> AuthContext:
+    """Require authenticated user (any role)."""
+    if not auth or not auth.user_id:
+        raise HTTPException(401, "User authentication required")
+    return auth

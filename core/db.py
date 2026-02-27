@@ -144,6 +144,46 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
+        -- Users
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY,
+            email TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            name TEXT DEFAULT '',
+            role TEXT DEFAULT 'user',
+            balance REAL DEFAULT 0.00,
+            verified INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Transactions (billing)
+        CREATE TABLE IF NOT EXISTS transactions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            type TEXT NOT NULL,
+            amount REAL NOT NULL,
+            description TEXT DEFAULT '',
+            reference TEXT DEFAULT '',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        -- Modules (.zar marketplace — admin publishes, users install)
+        CREATE TABLE IF NOT EXISTS modules (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE,
+            display_name TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            version TEXT DEFAULT '1.0.0',
+            category TEXT DEFAULT 'core',
+            r2_key TEXT DEFAULT '',
+            size INTEGER DEFAULT 0,
+            hash TEXT DEFAULT '',
+            published INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
         CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
@@ -155,6 +195,11 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_plugins_project ON plugins(project_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_plugins_unique ON plugins(project_id, plugin_id);
         CREATE INDEX IF NOT EXISTS idx_plugin_catalog_published ON plugin_catalog(published);
+        CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+        CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+        CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);
+        CREATE INDEX IF NOT EXISTS idx_modules_published ON modules(published);
 
     """)
 
@@ -262,7 +307,7 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
                 d[key] = json.loads(d[key])
             except (json.JSONDecodeError, TypeError):
                 pass
-    for key in ("proxied", "managed", "enabled", "published"):
+    for key in ("proxied", "managed", "enabled", "published", "verified"):
         if key in d and isinstance(d[key], int):
             d[key] = bool(d[key])
     return d

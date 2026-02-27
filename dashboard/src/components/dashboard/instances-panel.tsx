@@ -466,7 +466,7 @@ function InstancesTab() {
                 {inst.label || inst.domain || inst.id}
               </div>
               <div className="proj-card-meta">
-                {inst.ip || "provisioning..."} — {inst.type} / {inst.plan} / {inst.region}
+                {inst.ip || "installing..."} — {inst.type} / {inst.plan} / {inst.region}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -474,7 +474,7 @@ function InstancesTab() {
                 <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--color-yellow)" }} />
               )}
               <span className={`inst-badge ${stateBadgeClass(inst.state)}`}>
-                {inst.state}
+                {inst.state === "provisioning" ? "installing" : inst.state}
               </span>
             </div>
           </div>
