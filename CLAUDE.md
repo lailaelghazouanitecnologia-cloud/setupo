@@ -162,7 +162,6 @@ setupo/
 │   └── models.py           # Agent models
 ├── dashboard/               # Next.js admin dashboard
 │   └── src/
-├── workspaces/default/      # Default Vite+React workspace
 ├── deploy/                  # Production deploy configs
 │   ├── bootstrap.sh        # Full Debian 12 VPS bootstrap
 │   ├── nginx.conf          # Nginx reverse proxy config

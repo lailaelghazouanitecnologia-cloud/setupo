@@ -3,12 +3,15 @@
 import { useState, useEffect } from "react";
 import {
   FolderOpen, Plus, RefreshCw, FileText,
-  Trash2, FolderTree,
+  Trash2, FolderTree, Rocket, GitBranch,
+  Package, Upload, RotateCcw,
 } from "lucide-react";
 import {
   listProjects, listWorkspaces, createWorkspace,
   deleteWorkspace as apiDeleteWorkspace, listFiles,
+  zarVersions, listInstances,
 } from "@/lib/api/client";
+import { useDashboardStore } from "@/stores/dashboard-store";
 
 interface Project {
   id: string;
@@ -36,6 +39,9 @@ export function ProjectsPanel() {
   const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [error, setError] = useState("");
+  const [wsVersions, setWsVersions] = useState<string[]>([]);
+  const [wsBranches, setWsBranches] = useState<string[]>([]);
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
 
   const fetchProjects = async () => {
     try {
@@ -109,6 +115,12 @@ export function ProjectsPanel() {
       setSelectedFiles([]);
     }
     setFilesLoading(false);
+    // Fetch versions info
+    if (selectedProject) {
+      zarVersions(selectedProject.id, ws.name, ws.branch || "main")
+        .then((r) => { setWsVersions(r.versions || []); setWsBranches(r.branches || []); })
+        .catch(() => { setWsVersions([]); setWsBranches([]); });
+    }
   };
 
   return (
@@ -234,6 +246,34 @@ export function ProjectsPanel() {
                 <FolderOpen className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
                 <span className="proj-detail-name">{selected.name}</span>
                 <span className="proj-detail-path">{selected.path}</span>
+              </div>
+              {/* Info bar: branch, versions, deploy button */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
+                <div className="pill">
+                  <GitBranch className="h-3 w-3" style={{ color: "var(--color-purple)" }} />
+                  <span>{selected.branch || "main"}</span>
+                </div>
+                {wsBranches.length > 0 && (
+                  <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)" }}>
+                    {wsBranches.length} branch{wsBranches.length !== 1 ? "es" : ""}
+                  </span>
+                )}
+                {wsVersions.length > 0 && (
+                  <div className="pill">
+                    <Package className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
+                    <span>{wsVersions.length} version{wsVersions.length !== 1 ? "s" : ""}</span>
+                  </div>
+                )}
+                <div style={{ marginLeft: "auto" }}>
+                  <button
+                    className="deploy-action-btn teal"
+                    style={{ padding: "3px 10px", fontSize: "var(--font-xs)" }}
+                    onClick={() => setActiveView("deploy")}
+                  >
+                    <Rocket className="h-3 w-3" />
+                    <span>Deploy</span>
+                  </button>
+                </div>
               </div>
               {selected.description && (
                 <div style={{ padding: "4px 12px", fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>

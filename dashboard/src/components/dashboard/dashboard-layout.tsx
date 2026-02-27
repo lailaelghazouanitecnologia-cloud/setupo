@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
-  X, LogOut, ChevronDown, Settings,
+  X, LogOut, ChevronDown, Settings, Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -13,6 +13,7 @@ import { InstancesPanel } from "./instances-panel";
 import { ProjectsPanel } from "./projects-panel";
 import { SecretsPanel } from "./secrets-panel";
 import { PluginsPanel } from "./plugins-panel";
+import { DeployPanel } from "./deploy-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -41,6 +42,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "inbox", label: "Inbox", icon: Mail },
   { id: "instances", label: "Instances", icon: Server },
   { id: "projects", label: "Projects", icon: FolderKanban },
+  { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "plugins", label: "Plugins", icon: Puzzle },
 ];
@@ -49,6 +51,7 @@ const viewTitles: Record<DashboardView, string> = {
   inbox: "Inbox",
   instances: "Instances",
   projects: "Projects",
+  deploy: "Deploy",
   secrets: "Secrets",
   plugins: "Plugins",
 };
@@ -205,6 +208,7 @@ export function DashboardLayout() {
           {activeView === "inbox" && <InboxPanel />}
           {activeView === "instances" && <InstancesPanel />}
           {activeView === "projects" && <ProjectsPanel />}
+          {activeView === "deploy" && <DeployPanel />}
           {activeView === "secrets" && <SecretsPanel />}
           {activeView === "plugins" && <PluginsPanel />}
         </div>

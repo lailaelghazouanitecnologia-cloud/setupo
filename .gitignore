@@ -22,10 +22,8 @@ bun.lockb
 /data/
 /config/
 
-# Workspace data (don't track generated workspace content, only config.toml)
-workspaces/*/node_modules/
-workspaces/*/.venv/
-workspaces/*/__pycache__/
+# Workspaces live on the VPS, not in the repo
+workspaces/
 
 # OS
 .DS_Store

@@ -162,3 +162,62 @@ export async function execOnInstance(projectId: string, instanceId: string, comm
     body: JSON.stringify({ command, timeout }),
   });
 }
+
+// ─── Central API: Zar (deploy) ───
+
+export async function zarPack(projectId: string, name: string) {
+  return centralApi<{ ok: boolean; manifest: any; size: number }>(
+    `/api/projects/${projectId}/zar/${name}/pack`,
+    { method: "POST" },
+  );
+}
+
+export async function zarPush(projectId: string, name: string, branch = "main") {
+  return centralApi<{ name: string; version: string; branch: string; hash: string; r2_key: string; size: number }>(
+    `/api/projects/${projectId}/zar/${name}/push?branch=${encodeURIComponent(branch)}`,
+    { method: "POST" },
+  );
+}
+
+export async function zarDeploy(projectId: string, name: string, opts: { branch?: string; version?: string; instance_id?: string } = {}) {
+  return centralApi<any>(
+    `/api/projects/${projectId}/zar/${name}/deploy`,
+    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", version: opts.version || "", instance_id: opts.instance_id || "" }) },
+  );
+}
+
+export async function zarShip(projectId: string, name: string, opts: { branch?: string; instance_id?: string } = {}) {
+  return centralApi<any>(
+    `/api/projects/${projectId}/zar/${name}/ship`,
+    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", instance_id: opts.instance_id || "" }) },
+  );
+}
+
+export async function zarRollback(projectId: string, name: string, instanceId: string, snapshot = "") {
+  return centralApi<any>(
+    `/api/projects/${projectId}/zar/${name}/rollback`,
+    { method: "POST", body: JSON.stringify({ instance_id: instanceId, snapshot }) },
+  );
+}
+
+export async function zarVersions(projectId: string, name: string, branch = "main") {
+  return centralApi<{ workspace: string; branch: string; versions: string[]; branches: string[] }>(
+    `/api/projects/${projectId}/zar/${name}/versions?branch=${encodeURIComponent(branch)}`,
+  );
+}
+
+export async function zarSelfUpdate(projectId: string, instanceId: string, component: string) {
+  return centralApi<any>(
+    `/api/projects/${projectId}/zar/self-update`,
+    { method: "POST", body: JSON.stringify({ instance_id: instanceId, component }) },
+  );
+}
+
+// Agent deploy endpoints (direct agent calls)
+export async function getDeployStatus() {
+  return apiCall<{ state: string; workspace: string; version: string; deployed_at: string; snapshot: string }>("/deploy/current");
+}
+
+export async function getDeploySnapshots() {
+  return apiCall<{ snapshots: any[] }>("/deploy/snapshots");
+}

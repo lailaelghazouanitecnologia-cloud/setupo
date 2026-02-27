@@ -656,6 +656,45 @@
   }
   .plugin-action svg { width: 12px; height: 12px; }
 
+  /* ═══════════════════════════════════════
+     DEPLOY
+     ═══════════════════════════════════════ */
+  .deploy-field {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 0 2px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--card);
+  }
+  .deploy-field svg { margin-left: 8px; flex-shrink: 0; }
+  .deploy-select {
+    padding: 5px 8px; font-size: var(--font-xs);
+    background: transparent; border: none; outline: none;
+    color: var(--foreground); cursor: pointer;
+    min-width: 100px;
+  }
+  .deploy-action-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 12px; border-radius: 6px;
+    font-size: var(--font-xs); font-weight: 500;
+    cursor: pointer; border: 1px solid var(--border);
+    background: var(--card); color: var(--foreground);
+    transition: all 0.1s;
+  }
+  .deploy-action-btn:hover { background: var(--accent); }
+  .deploy-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .deploy-action-btn svg { width: 14px; height: 14px; }
+  .deploy-action-btn.teal {
+    background: oklch(0.22 0.02 200 / 30%);
+    border-color: var(--color-teal);
+    color: var(--color-teal);
+  }
+  .deploy-action-btn.teal:hover { background: oklch(0.22 0.02 200 / 50%); }
+  .deploy-action-btn.yellow {
+    background: oklch(0.7 0.15 85 / 10%);
+    border-color: var(--color-yellow);
+    color: var(--color-yellow);
+  }
+  .deploy-action-btn.yellow:hover { background: oklch(0.7 0.15 85 / 20%); }
+
   /* ── Spinner (shared) ── */
   .term-spinner {
     width: 8px; height: 8px; border-radius: 50%;
