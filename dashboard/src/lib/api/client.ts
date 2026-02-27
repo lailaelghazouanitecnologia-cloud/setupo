@@ -145,6 +145,15 @@ export async function listInstances(projectId: string) {
   return centralApi<{ instances: any[] }>(`/api/projects/${projectId}/instances`);
 }
 
+export async function createInstance(projectId: string, opts: {
+  type?: string; label?: string; region?: string; plan?: string; domain?: string; workspace?: string;
+} = {}) {
+  return centralApi<{ instance: any; message: string }>(`/api/projects/${projectId}/instances`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
 export async function getInstance(projectId: string, instanceId: string) {
   return centralApi<{ instance: any }>(`/api/projects/${projectId}/instances/${instanceId}`);
 }

@@ -2,13 +2,12 @@
 
 import { useState, useEffect, useRef } from "react";
 import {
-  Server, RefreshCw, Play, Square, Trash2,
+  Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
-  ChevronDown, X, Send, RotateCcw, Power,
-  FileText,
+  Send, RotateCcw, Power, FileText, Loader, Globe,
 } from "lucide-react";
 import {
-  listProjects, listInstances, deleteInstance,
+  listProjects, listInstances, createInstance, deleteInstance,
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
 } from "@/lib/api/client";
@@ -28,11 +27,49 @@ interface Instance {
   created_at: string;
 }
 
+/* ═══════════════════════════════════════════
+   CONSTANTS — regions, plans, types
+   ═══════════════════════════════════════════ */
+
+const REGIONS = [
+  { id: "ewr", city: "New Jersey", country: "US" },
+  { id: "ord", city: "Chicago", country: "US" },
+  { id: "dfw", city: "Dallas", country: "US" },
+  { id: "lax", city: "Los Angeles", country: "US" },
+  { id: "atl", city: "Atlanta", country: "US" },
+  { id: "mia", city: "Miami", country: "US" },
+  { id: "ams", city: "Amsterdam", country: "NL" },
+  { id: "lhr", city: "London", country: "GB" },
+  { id: "fra", city: "Frankfurt", country: "DE" },
+  { id: "cdg", city: "Paris", country: "FR" },
+  { id: "mad", city: "Madrid", country: "ES" },
+  { id: "nrt", city: "Tokyo", country: "JP" },
+  { id: "sgp", city: "Singapore", country: "SG" },
+] as const;
+
+const PLANS = [
+  { id: "vc2-1c-1gb", cpu: 1, ram: "1 GB", disk: "25 GB", price: "$5/mo" },
+  { id: "vc2-1c-2gb", cpu: 1, ram: "2 GB", disk: "55 GB", price: "$10/mo" },
+  { id: "vc2-2c-4gb", cpu: 2, ram: "4 GB", disk: "80 GB", price: "$20/mo" },
+  { id: "vc2-4c-8gb", cpu: 4, ram: "8 GB", disk: "160 GB", price: "$40/mo" },
+  { id: "vc2-6c-16gb", cpu: 6, ram: "16 GB", disk: "320 GB", price: "$80/mo" },
+] as const;
+
+const INSTANCE_TYPES = [
+  { id: "setup", label: "Setup", desc: "Production server — nginx, SSL, deploy-ready" },
+  { id: "dev", label: "Dev", desc: "Development env — extended tooling" },
+  { id: "custom", label: "Custom", desc: "Bare server — user-defined config" },
+] as const;
+
 const SERVICES = [
   { name: "setupo", display: "NSO API", description: "Main REST API server" },
   { name: "setupo-agent", display: "NSO Agent", description: "Remote execution agent" },
   { name: "nginx", display: "nginx", description: "Reverse proxy & TLS" },
 ];
+
+/* ═══════════════════════════════════════════
+   MAIN PANEL
+   ═══════════════════════════════════════════ */
 
 export function InstancesPanel() {
   const [tab, setTab] = useState<Tab>("instances");
@@ -54,7 +91,225 @@ export function InstancesPanel() {
   );
 }
 
-/* ═══ INSTANCES TAB ═══ */
+/* ═══════════════════════════════════════════
+   CREATE INSTANCE FORM
+   ═══════════════════════════════════════════ */
+
+interface CreateFormProps {
+  projectId: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}
+
+function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps) {
+  const [label, setLabel] = useState("");
+  const [type, setType] = useState("setup");
+  const [region, setRegion] = useState("mad");
+  const [plan, setPlan] = useState("vc2-1c-1gb");
+  const [domain, setDomain] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const sanitizedLabel = label.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+
+  const validate = (): string | null => {
+    if (sanitizedLabel.length > 0 && sanitizedLabel.length < 2) {
+      return "Label must be at least 2 characters";
+    }
+    if (sanitizedLabel.length > 64) {
+      return "Label must be under 64 characters";
+    }
+    if (domain && !/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain.trim())) {
+      return "Invalid domain format (e.g. app.example.com)";
+    }
+    if (!REGIONS.some((r) => r.id === region)) {
+      return "Invalid region selected";
+    }
+    if (!PLANS.some((p) => p.id === plan)) {
+      return "Invalid plan selected";
+    }
+    if (!INSTANCE_TYPES.some((t) => t.id === type)) {
+      return "Invalid instance type";
+    }
+    return null;
+  };
+
+  const handleCreate = async () => {
+    const validationError = validate();
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setCreating(true);
+    setError("");
+
+    try {
+      await createInstance(projectId, {
+        type,
+        label: sanitizedLabel || undefined,
+        region,
+        plan,
+        domain: domain.trim() || undefined,
+      });
+      onCreated();
+    } catch (e: any) {
+      const msg = e.message || "Failed to create instance";
+      setError(msg.includes("401") ? "Not authorized — check your credentials" : msg);
+    }
+
+    setCreating(false);
+  };
+
+  const selectedPlan = PLANS.find((p) => p.id === plan);
+  const selectedRegion = REGIONS.find((r) => r.id === region);
+
+  return (
+    <div style={{
+      border: "1px solid var(--border)",
+      borderRadius: 8,
+      padding: 16,
+      marginBottom: 16,
+      background: "var(--sidebar-bg)",
+    }}>
+      <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", marginBottom: 12 }}>
+        New Instance
+      </div>
+
+      {error && (
+        <div style={{
+          padding: "8px 12px",
+          fontSize: "var(--font-xs)",
+          color: "var(--color-red)",
+          background: "rgba(239,68,68,0.08)",
+          borderRadius: 6,
+          marginBottom: 12,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Row 1: Label + Type */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Label</label>
+          <input
+            className="proj-input"
+            type="text"
+            placeholder="my-server (optional)"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+            style={{ width: "100%" }}
+            autoFocus
+          />
+        </div>
+        <div style={{ minWidth: 140 }}>
+          <label style={labelStyle}>Type</label>
+          <select className="deploy-select" value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
+            {INSTANCE_TYPES.map((t) => (
+              <option key={t.id} value={t.id}>{t.label} — {t.desc}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Row 2: Region + Plan */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Region</label>
+          <select className="deploy-select" value={region} onChange={(e) => setRegion(e.target.value)} style={selectStyle}>
+            {REGIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.city}, {r.country} ({r.id})</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Plan</label>
+          <select className="deploy-select" value={plan} onChange={(e) => setPlan(e.target.value)} style={selectStyle}>
+            {PLANS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.cpu}vCPU / {p.ram} / {p.disk} — {p.price}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Row 3: Domain (optional) */}
+      <div style={{ marginBottom: 12 }}>
+        <label style={labelStyle}>Domain (optional)</label>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <Globe className="h-3 w-3" style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
+          <input
+            className="proj-input"
+            type="text"
+            placeholder="app.example.com"
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleCreate();
+              if (e.key === "Escape") onCancel();
+            }}
+            style={{ flex: 1 }}
+          />
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div style={{
+        fontSize: "var(--font-xxs)",
+        color: "var(--muted-foreground)",
+        marginBottom: 12,
+        fontFamily: "monospace",
+      }}>
+        {selectedRegion?.city} · {selectedPlan?.cpu}vCPU · {selectedPlan?.ram} · {selectedPlan?.price}
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 6 }}>
+        <button
+          className="deploy-action-btn teal"
+          onClick={handleCreate}
+          disabled={creating}
+          style={{ padding: "5px 14px" }}
+        >
+          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+          <span>{creating ? "Provisioning..." : "Create Instance"}</span>
+        </button>
+        <button
+          className="panel-btn-sm"
+          onClick={onCancel}
+          disabled={creating}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "var(--font-xxs)",
+  color: "var(--muted-foreground)",
+  marginBottom: 4,
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+};
+
+const selectStyle: React.CSSProperties = {
+  width: "100%",
+  border: "1px solid var(--border)",
+  borderRadius: 6,
+  padding: "6px 8px",
+  fontSize: "var(--font-xs)",
+};
+
+/* ═══════════════════════════════════════════
+   INSTANCES TAB
+   ═══════════════════════════════════════════ */
+
 function InstancesTab() {
   const [loading, setLoading] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -62,6 +317,7 @@ function InstancesTab() {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Instance | null>(null);
   const [panel, setPanel] = useState<"terminal" | "files" | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -85,19 +341,23 @@ function InstancesTab() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Auto-refresh every 30s
+  // Auto-refresh every 15s (faster during provisioning)
+  const hasProvisioning = instances.some((i) => i.state === "creating" || i.state === "provisioning");
   useEffect(() => {
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(fetchData, hasProvisioning ? 10000 : 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [hasProvisioning]);
 
   const handleDelete = async (inst: Instance) => {
     if (!projectId) return;
-    if (!confirm(`Destroy instance "${inst.id}"? This will permanently delete the VPS.`)) return;
+    if (!confirm(`Destroy instance "${inst.label || inst.id}"? This will permanently delete the VPS.`)) return;
     try {
       await deleteInstance(projectId, inst.id);
       setInstances((prev) => prev.filter((i) => i.id !== inst.id));
-      if (selected?.id === inst.id) { setSelected(null); setPanel(null); }
+      if (selected?.id === inst.id) {
+        setSelected(null);
+        setPanel(null);
+      }
     } catch (e: any) {
       alert(e.message || "Delete failed");
     }
@@ -108,7 +368,9 @@ function InstancesTab() {
     try {
       await stopInstance(projectId, inst.id);
       fetchData();
-    } catch (e: any) { alert(e.message || "Stop failed"); }
+    } catch (e: any) {
+      alert(e.message || "Stop failed");
+    }
   };
 
   const handleStart = async (inst: Instance) => {
@@ -116,9 +378,12 @@ function InstancesTab() {
     try {
       await startInstance(projectId, inst.id);
       fetchData();
-    } catch (e: any) { alert(e.message || "Start failed"); }
+    } catch (e: any) {
+      alert(e.message || "Start failed");
+    }
   };
 
+  // Loading state
   if (loading && instances.length === 0) {
     return (
       <div className="panel-empty">
@@ -128,6 +393,7 @@ function InstancesTab() {
     );
   }
 
+  // Error state
   if (error) {
     return (
       <div className="panel-empty">
@@ -142,15 +408,16 @@ function InstancesTab() {
     );
   }
 
-  if (instances.length === 0) {
+  // Empty state
+  if (instances.length === 0 && !showCreate) {
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">No instances</div>
-        <div className="panel-empty-sub">Create instances via the API or CLI</div>
-        <button className="panel-btn" onClick={fetchData}>
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>Refresh</span>
+        <div className="panel-empty-sub">Create a VPS instance to get started.</div>
+        <button className="panel-btn" onClick={() => setShowCreate(true)}>
+          <Plus className="h-3.5 w-3.5" />
+          <span>Create Instance</span>
         </button>
       </div>
     );
@@ -158,14 +425,30 @@ function InstancesTab() {
 
   return (
     <div style={{ padding: "16px 0" }}>
+      {/* Header */}
       <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
         <span className="panel-count">
           {instances.length} instance{instances.length !== 1 ? "s" : ""}
         </span>
-        <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3 w-3" />
+            <span>New</span>
+          </button>
+        </div>
       </div>
+
+      {/* Create form */}
+      {showCreate && projectId && (
+        <CreateInstanceForm
+          projectId={projectId}
+          onCreated={() => { setShowCreate(false); fetchData(); }}
+          onCancel={() => setShowCreate(false)}
+        />
+      )}
 
       {/* Instance cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -183,11 +466,14 @@ function InstancesTab() {
                 {inst.label || inst.domain || inst.id}
               </div>
               <div className="proj-card-meta">
-                {inst.ip || "no ip"} — {inst.type} / {inst.plan} / {inst.region}
+                {inst.ip || "provisioning..."} — {inst.type} / {inst.plan} / {inst.region}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span className={`inst-badge ${inst.state === "ready" || inst.state === "active" ? "green" : inst.state === "provisioning" ? "yellow" : "red"}`}>
+              {(inst.state === "creating" || inst.state === "provisioning") && (
+                <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--color-yellow)" }} />
+              )}
+              <span className={`inst-badge ${stateBadgeClass(inst.state)}`}>
                 {inst.state}
               </span>
             </div>
@@ -225,15 +511,15 @@ function InstancesTab() {
               >
                 <FolderOpen className="h-3.5 w-3.5" />
               </button>
-              {selected.state === "ready" ? (
+              {selected.state === "ready" || selected.state === "active" ? (
                 <button className="svc-btn yellow" title="Stop" onClick={() => handleStop(selected)}>
                   <Power className="h-3.5 w-3.5" />
                 </button>
-              ) : (
+              ) : selected.state === "stopped" ? (
                 <button className="svc-btn green" title="Start" onClick={() => handleStart(selected)}>
                   <Play className="h-3.5 w-3.5" />
                 </button>
-              )}
+              ) : null}
               <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -270,7 +556,10 @@ function InstancesTab() {
   );
 }
 
-/* ═══ TERMINAL PANEL ═══ */
+/* ═══════════════════════════════════════════
+   TERMINAL PANEL
+   ═══════════════════════════════════════════ */
+
 function TerminalPanel({ projectId, instance }: { projectId: string; instance: Instance }) {
   const [cmd, setCmd] = useState("");
   const [history, setHistory] = useState<{ cmd: string; output: string; code: number }[]>([]);
@@ -355,17 +644,18 @@ function TerminalPanel({ projectId, instance }: { projectId: string; instance: I
   );
 }
 
-/* ═══ FILES PANEL ═══ */
+/* ═══════════════════════════════════════════
+   FILES PANEL
+   ═══════════════════════════════════════════ */
+
 function FilesPanel({ instance }: { instance: Instance }) {
   const [files, setFiles] = useState<any[]>([]);
   const [currentPath, setCurrentPath] = useState("/opt/app");
   const [loading, setLoading] = useState(true);
-  const [fileContent, setFileContent] = useState<{ path: string; content: string } | null>(null);
 
   const fetchFiles = async (path: string) => {
     if (!instance.ip) return;
     setLoading(true);
-    setFileContent(null);
     try {
       const res = await listFiles(path);
       setFiles(res.items || []);
@@ -433,10 +723,21 @@ function FilesPanel({ instance }: { instance: Instance }) {
   );
 }
 
+/* ═══════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════ */
+
 function stateColor(state: string): string {
-  if (state === "ready" || state === "active") return "var(--color-green)";
-  if (state === "provisioning" || state === "pending") return "var(--color-yellow)";
+  if (state === "ready" || state === "active" || state === "running") return "var(--color-green)";
+  if (state === "creating" || state === "provisioning" || state === "deploying") return "var(--color-yellow)";
+  if (state === "stopped") return "var(--muted-foreground)";
   return "var(--color-red)";
+}
+
+function stateBadgeClass(state: string): string {
+  if (state === "ready" || state === "active" || state === "running") return "green";
+  if (state === "creating" || state === "provisioning" || state === "deploying") return "yellow";
+  return "red";
 }
 
 function formatSize(bytes: number): string {
@@ -445,7 +746,10 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/* ═══ SERVICES TAB ═══ */
+/* ═══════════════════════════════════════════
+   SERVICES TAB
+   ═══════════════════════════════════════════ */
+
 function ServicesTab() {
   const [statuses, setStatuses] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState<string | null>(null);
@@ -482,7 +786,6 @@ function ServicesTab() {
     setSysLoading(false);
   };
 
-  // Auto-fetch on mount
   useEffect(() => {
     SERVICES.forEach((svc) => handleService("status", svc.name));
     fetchSysInfo();
