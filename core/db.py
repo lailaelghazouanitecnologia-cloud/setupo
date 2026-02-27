@@ -113,7 +113,23 @@ async def _migrate(db: aiosqlite.Connection):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
-        -- Plugins
+        -- Plugin catalog (admin-published plugins that users can install)
+        CREATE TABLE IF NOT EXISTS plugin_catalog (
+            id TEXT PRIMARY KEY,
+            plugin_id TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            version TEXT DEFAULT '1.0.0',
+            category TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
+            author TEXT DEFAULT 'setupo',
+            published INTEGER DEFAULT 1,
+            config_schema TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Plugin installations (per-project)
         CREATE TABLE IF NOT EXISTS plugins (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL,
@@ -138,6 +154,7 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(project_id, name);
         CREATE INDEX IF NOT EXISTS idx_plugins_project ON plugins(project_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_plugins_unique ON plugins(project_id, plugin_id);
+        CREATE INDEX IF NOT EXISTS idx_plugin_catalog_published ON plugin_catalog(published);
 
     """)
 
@@ -239,13 +256,13 @@ async def delete_where(table: str, **where):
 
 def _row_to_dict(row: aiosqlite.Row) -> dict:
     d = dict(row)
-    for key in ("settings", "metadata"):
+    for key in ("settings", "metadata", "config", "config_schema"):
         if key in d and isinstance(d[key], str):
             try:
                 d[key] = json.loads(d[key])
             except (json.JSONDecodeError, TypeError):
                 pass
-    for key in ("proxied", "managed"):
+    for key in ("proxied", "managed", "enabled", "published"):
         if key in d and isinstance(d[key], int):
             d[key] = bool(d[key])
     return d

@@ -297,6 +297,46 @@ export async function uninstallPlugin(projectId: string, pluginId: string) {
   });
 }
 
+// Admin: Plugin catalog management
+export interface CatalogEntry {
+  id: string;
+  plugin_id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  icon: string;
+  author: string;
+  published: boolean;
+  config_schema: Record<string, any>;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listCatalog(projectId: string) {
+  return centralApi<{ catalog: CatalogEntry[] }>(`/api/projects/${projectId}/plugins/catalog`);
+}
+
+export async function publishPlugin(projectId: string, entry: Partial<CatalogEntry>) {
+  return centralApi<{ ok: boolean; entry: CatalogEntry }>(`/api/projects/${projectId}/plugins/catalog`, {
+    method: "POST",
+    body: JSON.stringify(entry),
+  });
+}
+
+export async function updateCatalogEntry(projectId: string, pluginId: string, updates: Partial<CatalogEntry>) {
+  return centralApi<{ ok: boolean; plugin_id: string }>(`/api/projects/${projectId}/plugins/catalog/${pluginId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function removeCatalogEntry(projectId: string, pluginId: string) {
+  return centralApi<{ ok: boolean; plugin_id: string }>(`/api/projects/${projectId}/plugins/catalog/${pluginId}`, {
+    method: "DELETE",
+  });
+}
+
 // Agent deploy endpoints (direct agent calls, routed via /agent/ prefix by nginx)
 export async function getDeployStatus() {
   return apiCall<any>("/agent/deploy/current");
