@@ -1,51 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { Mail, Bell, AlertCircle, CheckCircle, Info, Clock } from "lucide-react";
-
-interface InboxItem {
-  id: string;
-  type: "info" | "warning" | "success" | "alert";
-  title: string;
-  message: string;
-  time: string;
-  read: boolean;
-}
-
-const MOCK_ITEMS: InboxItem[] = [
-  {
-    id: "1",
-    type: "success",
-    title: "Deployment complete",
-    message: "NSO API v1.2.0 deployed successfully to production",
-    time: "2m ago",
-    read: false,
-  },
-  {
-    id: "2",
-    type: "info",
-    title: "System update available",
-    message: "A new system update is available for your VPS instance",
-    time: "1h ago",
-    read: false,
-  },
-  {
-    id: "3",
-    type: "warning",
-    title: "High memory usage",
-    message: "Instance memory usage exceeded 85% threshold",
-    time: "3h ago",
-    read: true,
-  },
-  {
-    id: "4",
-    type: "alert",
-    title: "SSL certificate expiring",
-    message: "Certificate for nso.dev expires in 14 days",
-    time: "1d ago",
-    read: true,
-  },
-];
+import { useState, useEffect, useCallback } from "react";
+import { Mail, Bell, AlertCircle, CheckCircle, Info, Clock, Loader2, Trash2 } from "lucide-react";
+import {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  deleteNotification,
+  type Notification,
+} from "@/lib/api/client";
 
 const TYPE_ICONS = {
   info: Info,
@@ -61,20 +24,81 @@ const TYPE_COLORS = {
   alert: "var(--color-red)",
 };
 
-export function InboxPanel() {
-  const [items, setItems] = useState<InboxItem[]>(MOCK_ITEMS);
-  const [filter, setFilter] = useState<"all" | "unread">("all");
+function timeAgo(dateStr: string): string {
+  const now = Date.now();
+  const then = new Date(dateStr).getTime();
+  const diff = Math.max(0, now - then);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
 
-  const markRead = (id: string) => {
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, read: true } : item)));
+export function InboxPanel() {
+  const [items, setItems] = useState<Notification[]>([]);
+  const [filter, setFilter] = useState<"all" | "unread">("all");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      const res = await listNotifications();
+      setItems(res.notifications);
+      setError("");
+    } catch (err: any) {
+      setError(err.message || "Failed to load notifications");
+    }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleMarkRead = async (id: string) => {
+    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    try {
+      await markNotificationRead(id);
+    } catch {}
   };
 
-  const markAllRead = () => {
-    setItems((prev) => prev.map((item) => ({ ...item, read: true })));
+  const handleMarkAllRead = async () => {
+    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    try {
+      await markAllNotificationsRead();
+    } catch {}
+  };
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setItems((prev) => prev.filter((n) => n.id !== id));
+    try {
+      await deleteNotification(id);
+    } catch {}
   };
 
   const filtered = filter === "unread" ? items.filter((i) => !i.read) : items;
   const unreadCount = items.filter((i) => !i.read).length;
+
+  if (loading) {
+    return (
+      <div className="panel-empty">
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--muted-foreground)" }} />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="panel-empty">
+        <AlertCircle className="h-10 w-10" style={{ color: "var(--color-red)", opacity: 0.5 }} />
+        <div className="panel-empty-title">Error</div>
+        <div className="panel-empty-sub">{error}</div>
+        <button className="panel-btn-sm" onClick={load} style={{ marginTop: 8 }}>Retry</button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -94,7 +118,7 @@ export function InboxPanel() {
           </button>
         </div>
         {unreadCount > 0 && (
-          <button className="panel-btn-sm" onClick={markAllRead}>
+          <button className="panel-btn-sm" onClick={handleMarkAllRead}>
             Mark all read
           </button>
         )}
@@ -109,14 +133,14 @@ export function InboxPanel() {
       ) : (
         <div className="inbox-list">
           {filtered.map((item) => {
-            const Icon = TYPE_ICONS[item.type];
+            const Icon = TYPE_ICONS[item.type] || Info;
             return (
               <div
                 key={item.id}
                 className={`inbox-item ${!item.read ? "unread" : ""}`}
-                onClick={() => markRead(item.id)}
+                onClick={() => handleMarkRead(item.id)}
               >
-                <div className="inbox-icon" style={{ color: TYPE_COLORS[item.type] }}>
+                <div className="inbox-icon" style={{ color: TYPE_COLORS[item.type] || "var(--color-blue)" }}>
                   <Icon className="h-4 w-4" />
                 </div>
                 <div className="inbox-content">
@@ -125,8 +149,15 @@ export function InboxPanel() {
                 </div>
                 <div className="inbox-time">
                   <Clock className="h-3 w-3" />
-                  <span>{item.time}</span>
+                  <span>{timeAgo(item.created_at)}</span>
                 </div>
+                <button
+                  className="inbox-delete"
+                  onClick={(e) => handleDelete(e, item.id)}
+                  title="Delete"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
               </div>
             );
           })}

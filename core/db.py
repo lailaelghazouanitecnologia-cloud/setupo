@@ -144,6 +144,7 @@ async def _migrate(db: aiosqlite.Connection):
             role TEXT DEFAULT 'user',
             balance REAL DEFAULT 0.00,
             verified INTEGER DEFAULT 0,
+            subdomain TEXT UNIQUE,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -186,8 +187,21 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
         CREATE INDEX IF NOT EXISTS idx_transactions_type ON transactions(type);
+        CREATE TABLE IF NOT EXISTS notifications (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            type TEXT DEFAULT 'info',
+            title TEXT NOT NULL,
+            message TEXT DEFAULT '',
+            read INTEGER DEFAULT 0,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);
         CREATE INDEX IF NOT EXISTS idx_modules_published ON modules(published);
+        CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(user_id, read);
     """)
 
     try:
@@ -204,6 +218,14 @@ async def _migrate(db: aiosqlite.Connection):
                 await db.execute(f"ALTER TABLE workspaces ADD COLUMN {col} TEXT DEFAULT {default}")
             except Exception:
                 pass
+
+    try:
+        await db.execute("SELECT subdomain FROM users LIMIT 1")
+    except Exception:
+        try:
+            await db.execute("ALTER TABLE users ADD COLUMN subdomain TEXT UNIQUE")
+        except Exception:
+            pass
 
     await db.commit()
     logger.info("Database migrations complete")
@@ -275,7 +297,7 @@ async def delete_where(table: str, **where):
 
 
 JSON_FIELDS = frozenset({"settings", "metadata", "config", "config_schema"})
-BOOL_FIELDS = frozenset({"proxied", "managed", "enabled", "published", "verified"})
+BOOL_FIELDS = frozenset({"proxied", "managed", "enabled", "published", "verified", "read"})
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict:

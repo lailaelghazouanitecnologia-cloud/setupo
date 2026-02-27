@@ -22,6 +22,8 @@ class Settings:
     VULTR_DEFAULT_OS = int(os.environ.get("VULTR_DEFAULT_OS", "2136"))
 
     CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
+    CF_NSO_ZONE_ID = os.environ.get("CF_NSO_ZONE_ID", "")
+    NSO_BASE_DOMAIN = os.environ.get("NSO_BASE_DOMAIN", "nso.dev")
 
     R2_ENDPOINT = os.environ.get("R2_ENDPOINT", "")
     R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")

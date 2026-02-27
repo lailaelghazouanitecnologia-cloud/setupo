@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from auth import require_admin, AdminUser
 
-logger = logging.getLogger("nso-agent.secrets")
+logger = logging.getLogger("nso-agent.envvars")
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 
 ENV_FILE = Path("/opt/setupo/.env")

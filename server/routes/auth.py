@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from server.auth.middleware import LoginRequest, LoginResponse, verify_password, load_admin_token
 from server.auth.jwt import hash_password, verify_password as verify_user_password, create_user_token
 from server.deps import require_user, AuthContext
+from server.routes.notifications import create_notification
 from core import db
 
 logger = logging.getLogger("setupo.auth")
@@ -68,6 +69,13 @@ async def register(req: RegisterRequest):
 
     token = create_user_token(user_id, email, "user")
     logger.info("New user registered: %s (%s)", email, user_id)
+
+    await create_notification(
+        user_id, "Welcome to NSO",
+        f"Your account is ready, {display_name}. Deploy your first app or claim a free subdomain.",
+        "success",
+    )
+
     return RegisterResponse(token=token, email=email, role="user", user_id=user_id)
 
 

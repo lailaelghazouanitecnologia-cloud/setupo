@@ -408,80 +408,38 @@ export async function topUp(amount: number, reference = "") {
   });
 }
 
-export interface ModuleInfo {
+export interface Notification {
   id: string;
-  name: string;
-  display_name: string;
-  description: string;
-  version: string;
-  category: string;
-  r2_key: string;
-  size: number;
-  hash: string;
-  published: boolean;
+  type: "info" | "warning" | "success" | "alert";
+  title: string;
+  message: string;
+  read: boolean;
   created_at: string;
-  updated_at: string;
 }
 
-export async function listModules() {
-  return apiCall<{ modules: ModuleInfo[]; count: number }>("/api/modules/catalog");
+export async function listNotifications() {
+  return centralApi<{ notifications: Notification[]; count: number; unread: number }>("/api/notifications");
 }
 
-export async function getModule(name: string) {
-  return apiCall<{ module: ModuleInfo }>(`/api/modules/catalog/${name}`);
+export async function markNotificationRead(id: string) {
+  return centralApi<{ ok: boolean }>(`/api/notifications/${id}/read`, { method: "POST" });
 }
 
-export async function listAllModules() {
-  return centralApi<{ modules: ModuleInfo[]; count: number }>("/api/modules");
+export async function markAllNotificationsRead() {
+  return centralApi<{ ok: boolean }>("/api/notifications/read-all", { method: "POST" });
 }
 
-export async function publishModule(data: Partial<ModuleInfo> & { name: string }) {
-  return centralApi<{ ok: boolean; action: string; name: string; version: string }>("/api/modules", {
+export async function deleteNotification(id: string) {
+  return centralApi<{ ok: boolean }>(`/api/notifications/${id}`, { method: "DELETE" });
+}
+
+export async function claimSubdomain(subdomain: string) {
+  return centralApi<{ ok: boolean; subdomain: string; domain: string }>("/api/subdomain/claim", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({ subdomain }),
   });
 }
 
-export async function uploadModuleZar(name: string, file: File, version = "") {
-  const formData = new FormData();
-  formData.append("file", file);
-  if (version) formData.append("version", version);
-
-  const token = getToken("nso_api_token");
-  const headers: Record<string, string> = {};
-  if (token) headers["Authorization"] = `Bearer ${token}`;
-
-  const resp = await fetch(`${API_BASE}/api/modules/${name}/upload`, {
-    method: "POST",
-    headers,
-    body: formData,
-  });
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
-  }
-  return resp.json() as Promise<{ ok: boolean; name: string; version: string; r2_key: string; size: number; hash: string }>;
-}
-
-export async function listModuleVersions(name: string) {
-  return apiCall<{ name: string; versions: string[]; current: string; r2_key: string }>(`/api/modules/${name}/versions`);
-}
-
-export async function getModuleDownloadInfo(name: string, version = "") {
-  const query = version ? `?version=${encodeURIComponent(version)}` : "";
-  return apiCall<{ name: string; version: string; r2_key: string; size: number; hash: string }>(`/api/modules/${name}/download${query}`);
-}
-
-export async function updateModule(name: string, updates: Partial<ModuleInfo>) {
-  return centralApi<{ ok: boolean; name: string; updated: string[] }>(`/api/modules/${name}`, {
-    method: "PATCH",
-    body: JSON.stringify(updates),
-  });
-}
-
-export async function removeModule(name: string) {
-  return centralApi<{ ok: boolean; name: string }>(`/api/modules/${name}`, {
-    method: "DELETE",
-  });
+export async function getSubdomain() {
+  return centralApi<{ subdomain: string | null; domain: string | null }>("/api/subdomain");
 }
