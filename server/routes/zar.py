@@ -35,15 +35,22 @@ def _get_r2() -> R2Client:
 
 
 async def _get_agent_url(instance_id: str, project_id: str) -> str:
-    """Get the agent HTTP URL for an instance."""
+    """Get the agent HTTP URL for an instance. Validates state."""
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst:
         raise HTTPException(404, f"Instance {instance_id} not found")
     if inst.get("project_id") != project_id:
         raise HTTPException(403, "Instance does not belong to this project")
+    state = inst.get("state", "")
+    if state in ("creating", "provisioning"):
+        raise HTTPException(409, f"Instance is still {state} — wait until it's ready before deploying")
+    if state == "destroying":
+        raise HTTPException(409, "Instance is being destroyed")
+    if state == "error":
+        raise HTTPException(409, f"Instance is in error state: {inst.get('error', 'unknown')}. Fix or recreate it first.")
     ip = inst.get("ip")
     if not ip:
-        raise HTTPException(400, "Instance has no IP yet")
+        raise HTTPException(400, "Instance has no IP address yet — it may still be provisioning")
     return f"http://{ip}:8081"
 
 
@@ -52,14 +59,24 @@ async def _get_agent_token(agent_url: str) -> str:
     agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
     if not agent_password:
         raise HTTPException(503, "AGENT_ADMIN_PASSWORD not configured")
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.post(f"{agent_url}/auth/login", json={
-            "email": settings.ADMIN_EMAIL,
-            "password": agent_password,
-        })
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(f"{agent_url}/auth/login", json={
+                "email": settings.ADMIN_EMAIL,
+                "password": agent_password,
+            })
+    except httpx.ConnectError:
+        raise HTTPException(502, f"Cannot connect to agent at {agent_url} — instance may be starting up or unreachable")
+    except httpx.TimeoutException:
+        raise HTTPException(504, f"Agent at {agent_url} did not respond in time")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Agent connection error: {exc}")
     if resp.status_code != 200:
-        raise HTTPException(502, f"Agent auth failed: {resp.status_code}")
-    return resp.json()["token"]
+        raise HTTPException(502, f"Agent auth failed (HTTP {resp.status_code}). Check AGENT_ADMIN_PASSWORD.")
+    try:
+        return resp.json()["token"]
+    except (KeyError, ValueError):
+        raise HTTPException(502, "Agent returned invalid auth response")
 
 
 async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -> str:
@@ -81,24 +98,40 @@ async def _deploy_via_agent(
 ) -> dict:
     """Send deploy/pull request to the agent."""
     r2_cfg = settings.r2_config()
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{agent_url}/deploy/pull",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "r2_key": r2_key,
-                "r2_endpoint": r2_cfg.endpoint,
-                "r2_bucket": r2_cfg.bucket,
-                "r2_access_key_id": r2_cfg.access_key_id,
-                "r2_secret_access_key": r2_cfg.secret_access_key,
-                "target_dir": "/opt/app",
-                "restart_service": "setupo-app",
-                "install_deps": True,
-            },
-        )
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{agent_url}/deploy/pull",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "r2_key": r2_key,
+                    "r2_endpoint": r2_cfg.endpoint,
+                    "r2_bucket": r2_cfg.bucket,
+                    "r2_access_key_id": r2_cfg.access_key_id,
+                    "r2_secret_access_key": r2_cfg.secret_access_key,
+                    "target_dir": "/opt/app",
+                    "restart_service": "setupo-app",
+                    "install_deps": True,
+                },
+            )
+    except httpx.ConnectError:
+        raise HTTPException(502, f"Cannot connect to agent at {agent_url} — instance may be down")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Deploy timed out after 5 minutes — the agent did not respond. Check instance health.")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Agent connection error during deploy: {exc}")
     if resp.status_code != 200:
-        raise HTTPException(502, f"Agent deploy failed: {resp.status_code} {resp.text[:500]}")
-    return resp.json()
+        # Try to extract a useful error message from the response
+        try:
+            body = resp.json()
+            detail = body.get("detail", body.get("error", resp.text[:500]))
+        except Exception:
+            detail = resp.text[:500]
+        raise HTTPException(502, f"Agent deploy failed (HTTP {resp.status_code}): {detail}")
+    try:
+        return resp.json()
+    except ValueError:
+        raise HTTPException(502, "Agent returned invalid JSON after deploy")
 
 
 # ── Request models ───────────────────────────────────────────────
@@ -145,14 +178,19 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project)):
         raise HTTPException(404, f"Workspace '{name}' not found")
 
     ws_path = ws.get("path", "")
+    if not ws_path:
+        raise HTTPException(400, f"Workspace '{name}' has no path configured")
     pkg_config = read_package_config(ws_path)
 
-    zar_bytes, manifest = pack(
-        workspace_path=ws_path,
-        version=pkg_config.version if pkg_config else None,
-        branch=pkg_config.branch if pkg_config else "main",
-        project_id=project_id,
-    )
+    try:
+        zar_bytes, manifest = pack(
+            workspace_path=ws_path,
+            version=pkg_config.version if pkg_config else None,
+            branch=pkg_config.branch if pkg_config else "main",
+            project_id=project_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, f"Workspace directory not found: {ws_path}")
 
     return {"ok": True, "manifest": manifest.model_dump(), "size": len(zar_bytes)}
 
@@ -167,18 +205,25 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
         raise HTTPException(404, f"Workspace '{name}' not found")
 
     ws_path = ws.get("path", "")
+    if not ws_path:
+        raise HTTPException(400, f"Workspace '{name}' has no path configured")
     pkg_config = read_package_config(ws_path)
 
-    zar_bytes, manifest = pack(
-        workspace_path=ws_path,
-        version=pkg_config.version if pkg_config else None,
-        branch=branch,
-        project_id=project_id,
-    )
+    try:
+        zar_bytes, manifest = pack(
+            workspace_path=ws_path,
+            version=pkg_config.version if pkg_config else None,
+            branch=branch,
+            project_id=project_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, f"Workspace directory not found: {ws_path}")
 
     r2 = _get_r2()
     try:
         key = await r2.upload_zar(project_id, name, branch, manifest.version, zar_bytes)
+    except RuntimeError as exc:
+        raise HTTPException(502, f"R2 upload failed: {exc}")
     finally:
         await r2.close()
 
@@ -210,9 +255,15 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
 
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
-    result = await _deploy_via_agent(agent_url, token, r2_key)
 
-    await db.update("instances", instance_id, {"state": "running", "workspace": name})
+    await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
+    try:
+        result = await _deploy_via_agent(agent_url, token, r2_key)
+    except HTTPException:
+        await db.update("instances", instance_id, {"state": "error", "error": "deploy failed"})
+        raise
+
+    await db.update("instances", instance_id, {"state": "running", "error": ""})
 
     return {
         "ok": True, "workspace": name, "branch": req.branch,
@@ -231,27 +282,40 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         raise HTTPException(404, f"Workspace '{name}' not found")
 
     ws_path = ws.get("path", "")
+    if not ws_path:
+        raise HTTPException(400, f"Workspace '{name}' has no path configured")
     pkg_config = read_package_config(ws_path)
 
-    zar_bytes, manifest = pack(
-        workspace_path=ws_path,
-        version=pkg_config.version if pkg_config else None,
-        branch=req.branch,
-        project_id=project_id,
-    )
+    try:
+        zar_bytes, manifest = pack(
+            workspace_path=ws_path,
+            version=pkg_config.version if pkg_config else None,
+            branch=req.branch,
+            project_id=project_id,
+        )
+    except FileNotFoundError:
+        raise HTTPException(404, f"Workspace directory not found: {ws_path}")
 
     r2 = _get_r2()
     try:
         r2_key = await r2.upload_zar(project_id, name, req.branch, manifest.version, zar_bytes)
+    except RuntimeError as exc:
+        raise HTTPException(502, f"R2 upload failed: {exc}")
     finally:
         await r2.close()
 
     instance_id = await _resolve_instance(name, project_id, req.instance_id)
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
-    result = await _deploy_via_agent(agent_url, token, r2_key)
 
-    await db.update("instances", instance_id, {"state": "running", "workspace": name})
+    await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
+    try:
+        result = await _deploy_via_agent(agent_url, token, r2_key)
+    except HTTPException:
+        await db.update("instances", instance_id, {"state": "error", "error": "ship deploy failed"})
+        raise
+
+    await db.update("instances", instance_id, {"state": "running", "error": ""})
 
     return {
         "ok": True, "action": "ship", "workspace": name,
@@ -269,16 +333,26 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"{agent_url}/deploy/rollback",
-            headers={"Authorization": f"Bearer {token}"},
-            params={"target_dir": "/opt/app", "restart_service": "setupo-app"},
-            json={"snapshot": req.snapshot},
-        )
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{agent_url}/deploy/rollback",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"target_dir": "/opt/app", "restart_service": "setupo-app"},
+                json={"snapshot": req.snapshot},
+            )
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to agent — instance may be down")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Rollback timed out — agent did not respond")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Agent connection error: {exc}")
     if resp.status_code != 200:
         raise HTTPException(502, f"Agent rollback failed: {resp.text[:500]}")
-    return resp.json()
+    try:
+        return resp.json()
+    except ValueError:
+        raise HTTPException(502, "Agent returned invalid response after rollback")
 
 
 # ── Branch ───────────────────────────────────────────────────────
@@ -345,19 +419,29 @@ async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        resp = await client.post(
-            f"{agent_url}/deploy/self-update",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "component": req.component,
-                "r2_key": req.r2_key,
-                "r2_endpoint": r2_cfg.endpoint,
-                "r2_bucket": r2_cfg.bucket,
-                "r2_access_key_id": r2_cfg.access_key_id,
-                "r2_secret_access_key": r2_cfg.secret_access_key,
-            },
-        )
+    try:
+        async with httpx.AsyncClient(timeout=300.0) as client:
+            resp = await client.post(
+                f"{agent_url}/deploy/self-update",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "component": req.component,
+                    "r2_key": req.r2_key,
+                    "r2_endpoint": r2_cfg.endpoint,
+                    "r2_bucket": r2_cfg.bucket,
+                    "r2_access_key_id": r2_cfg.access_key_id,
+                    "r2_secret_access_key": r2_cfg.secret_access_key,
+                },
+            )
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to agent — instance may be down")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Self-update timed out — agent did not respond")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Agent connection error: {exc}")
     if resp.status_code != 200:
         raise HTTPException(502, f"Self-update failed: {resp.text[:500]}")
-    return resp.json()
+    try:
+        return resp.json()
+    except ValueError:
+        raise HTTPException(502, "Agent returned invalid response after self-update")

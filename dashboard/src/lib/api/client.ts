@@ -17,12 +17,37 @@ export async function apiCall<T>(
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
   }
-  const resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  let resp: Response;
+  try {
+    resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  } catch (err: any) {
+    throw new Error(`Network error: ${err.message || "Could not reach the server"}`);
+  }
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`${resp.status}: ${text}`);
+    throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
   }
   return resp.json();
+}
+
+/** Extract a human-readable message from error response text. */
+function parseErrorText(status: number, text: string): string {
+  // Try JSON first (FastAPI returns {"detail": "..."})
+  try {
+    const json = JSON.parse(text);
+    if (json.detail) return json.detail;
+    if (json.error) return json.error;
+    if (json.message) return json.message;
+  } catch {}
+  // Strip HTML (e.g. Cloudflare 502 pages)
+  if (text.includes("<html") || text.includes("<!DOCTYPE")) {
+    if (status === 502) return "Bad Gateway — the server is unreachable or restarting";
+    if (status === 503) return "Service unavailable — the server may be starting up";
+    if (status === 504) return "Gateway timeout — the server did not respond in time";
+    return `HTTP ${status} — server returned an error page`;
+  }
+  // Truncate long plain-text errors
+  return text.length > 300 ? text.slice(0, 300) + "..." : text;
 }
 
 /** Call the central API (uses nso_api_token). */

@@ -71,7 +71,6 @@ export function DeployPanel() {
   const loadDeployStatus = () => {
     getDeployStatus()
       .then((data) => {
-        // Response is keyed by target path, e.g. {"/opt/app": {...}}
         const keys = Object.keys(data);
         if (keys.length > 0) {
           const info = data[keys[0]];
@@ -86,7 +85,9 @@ export function DeployPanel() {
           });
         }
       })
-      .catch(() => {});
+      .catch(() => {
+        // Agent may not be available — that's ok on the central server
+      });
     getDeploySnapshots()
       .then((r) => setSnapshots(r.snapshots || []))
       .catch(() => {});
@@ -102,16 +103,18 @@ export function DeployPanel() {
         const wsList = wsRes.workspaces || [];
         setWorkspaces(wsList);
         if (wsList.length > 0 && !selectedWs) setSelectedWs(wsList[0].name);
-      } catch {
+      } catch (e: any) {
         setWorkspaces([]);
+        setLoadError(e.message?.includes("401") ? "Not authorized to load workspaces" : "Failed to load workspaces");
       }
       try {
         const instRes = await listInstances(projectId);
         const instList = instRes.instances || [];
         setInstances(instList);
         if (instList.length > 0 && !selectedInstance) setSelectedInstance(instList[0].id);
-      } catch {
+      } catch (e: any) {
         setInstances([]);
+        if (!loadError) setLoadError(e.message?.includes("401") ? "Not authorized to load instances" : "Failed to load instances");
       }
     })();
   }, [projectId]);
@@ -134,8 +137,35 @@ export function DeployPanel() {
     setLogs((l) => [...l, { time, action, message, ok }]);
   };
 
+  const validateBeforeAction = (action: DeployAction): string | null => {
+    if (!projectId) return "No project selected";
+    if (!selectedWs) return "Select a workspace first";
+    const needsInstance = ["deploy", "ship", "rollback"].includes(action);
+    if (needsInstance && !selectedInstance) return "Select an instance first";
+    if (needsInstance) {
+      const inst = instances.find((i) => i.id === selectedInstance);
+      if (inst) {
+        const state = inst.state || "";
+        if (state === "creating" || state === "provisioning")
+          return `Instance is still ${state} — wait until it's ready`;
+        if (state === "destroying")
+          return "Instance is being destroyed — cannot deploy";
+        if (state === "error")
+          return `Instance is in error state — fix or recreate it first`;
+      }
+    }
+    return null;
+  };
+
   const runAction = async (action: DeployAction) => {
-    if (running || !projectId || !selectedWs) return;
+    if (running) return;
+
+    const validationError = validateBeforeAction(action);
+    if (validationError) {
+      addLog("error", validationError, false);
+      return;
+    }
+
     setRunning(action);
     addLog("info", `Starting ${action}...`, true);
 
@@ -151,17 +181,14 @@ export function DeployPanel() {
           addLog("push", `Pushed v${result.version || "?"} to R2 (${branch}) — ${formatSize(result.size || 0)}`, true);
           break;
         case "deploy":
-          if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarDeploy(projectId, selectedWs, { branch, instance_id: selectedInstance });
           addLog("deploy", `Deployed ${selectedWs} to ${instanceLabel(selectedInstance)} — snapshot: ${result.snapshot || "n/a"}`, true);
           break;
         case "ship":
-          if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarShip(projectId, selectedWs, { branch, instance_id: selectedInstance });
           addLog("ship", `Shipped ${selectedWs} v${result.version || "?"} to ${instanceLabel(selectedInstance)}`, true);
           break;
         case "rollback":
-          if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarRollback(projectId, selectedWs, selectedInstance);
           addLog("rollback", `Rolled back ${selectedWs} on ${instanceLabel(selectedInstance)}`, true);
           break;
@@ -174,10 +201,11 @@ export function DeployPanel() {
       }
       // Refresh deploy status after deploy/ship/rollback
       if (["deploy", "ship", "rollback"].includes(action)) {
-        loadDeployStatus();
+        setTimeout(loadDeployStatus, 2000); // short delay for agent to update
       }
     } catch (e: any) {
-      addLog("error", `${action} failed: ${e.message || "Unknown error"}`, false);
+      const msg = e.message || "Unknown error";
+      addLog("error", `${action} failed: ${msg}`, false);
     }
     setRunning(null);
   };
@@ -224,11 +252,16 @@ export function DeployPanel() {
           <Server className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
           <select className="deploy-select" value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)}>
             <option value="">Instance...</option>
-            {instances.map((inst) => (
-              <option key={inst.id} value={inst.id}>
-                {inst.label || inst.domain || inst.ip || inst.id}
-              </option>
-            ))}
+            {instances.map((inst) => {
+              const state = inst.state || "";
+              const ready = ["ready", "running"].includes(state);
+              const label = inst.label || inst.domain || inst.ip || inst.id;
+              return (
+                <option key={inst.id} value={inst.id} disabled={!ready && state !== "deploying"}>
+                  {label}{state && !ready ? ` (${state})` : ""}
+                </option>
+              );
+            })}
           </select>
         </div>
       </div>
