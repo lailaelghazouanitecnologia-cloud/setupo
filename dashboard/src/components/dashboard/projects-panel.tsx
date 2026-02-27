@@ -4,12 +4,12 @@ import { useState, useEffect } from "react";
 import {
   FolderOpen, Plus, RefreshCw, FileText,
   Trash2, FolderTree, Rocket, GitBranch,
-  Package, Upload, RotateCcw,
+  Package,
 } from "lucide-react";
 import {
   listProjects, listWorkspaces, createWorkspace,
   deleteWorkspace as apiDeleteWorkspace, getWorkspaceFiles,
-  zarVersions,
+  listFiles, zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
 
@@ -30,6 +30,14 @@ interface Workspace {
   exists: boolean;
   is_git: boolean;
   instance_id: string;
+  config?: { name: string; type: string; description: string };
+}
+
+function wsTypeLabel(ws: Workspace): string {
+  // Prefer config.type, then stack, then ws_type
+  const t = ws.config?.type || ws.stack || ws.ws_type || "custom";
+  if (t === "custom") return "workspace";
+  return t;
 }
 
 export function ProjectsPanel() {
@@ -115,11 +123,17 @@ export function ProjectsPanel() {
     setSelected(ws);
     if (!selectedProject) return;
     setFilesLoading(true);
+    // Try workspace API first, fall back to agent endpoint
     try {
       const res = await getWorkspaceFiles(selectedProject.id, ws.name);
       setSelectedFiles(res.items || []);
     } catch {
-      setSelectedFiles([]);
+      try {
+        const res = await listFiles(ws.path);
+        setSelectedFiles(res.items || []);
+      } catch {
+        setSelectedFiles([]);
+      }
     }
     setFilesLoading(false);
     // Fetch versions info
@@ -239,7 +253,7 @@ export function ProjectsPanel() {
                 <div className="proj-card-info">
                   <div className="proj-card-name">{ws.name}</div>
                   <div className="proj-card-meta">
-                    {ws.stack || ws.ws_type}{ws.branch ? ` / ${ws.branch}` : ""}
+                    {wsTypeLabel(ws)}{ws.branch ? ` / ${ws.branch}` : ""}
                     {ws.is_git && " (git)"}
                   </div>
                 </div>
@@ -267,7 +281,7 @@ export function ProjectsPanel() {
               <div className="proj-detail-header">
                 <FolderOpen className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
                 <span className="proj-detail-name">{selected.name}</span>
-                <span className="proj-detail-path">{selected.path}</span>
+                <span className="proj-detail-path">{wsTypeLabel(selected)}</span>
               </div>
               {/* Info bar: branch, versions, deploy button */}
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
@@ -298,7 +312,7 @@ export function ProjectsPanel() {
                 </div>
               </div>
               {selected.description && (
-                <div style={{ padding: "4px 12px", fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>
+                <div style={{ padding: "6px 14px", fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>
                   {selected.description}
                 </div>
               )}
@@ -318,7 +332,7 @@ export function ProjectsPanel() {
                         ? <FolderOpen className="h-3.5 w-3.5" style={{ color: "var(--color-blue)" }} />
                         : <FileText className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />}
                       <span className="proj-file-name">{f.name}</span>
-                      {f.size != null && (
+                      {f.size != null && f.type !== "dir" && (
                         <span className="proj-file-size">{formatSize(f.size)}</span>
                       )}
                     </div>
