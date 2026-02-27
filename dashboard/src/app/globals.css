@@ -224,10 +224,9 @@
     padding: 5px 10px; border-radius: 6px;
     background: none; border: 1px solid transparent;
     color: var(--muted-foreground); cursor: pointer;
-    font-size: var(--font-xs); transition: all 0.1s;
+    font-size: var(--font-xs);
   }
   .header-action-btn:hover {
-    background: var(--accent); border-color: var(--border);
     color: var(--foreground);
   }
   .header-action-btn svg { width: 14px; height: 14px; }

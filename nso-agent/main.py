@@ -28,7 +28,7 @@ from models import MetricReport, HealthResponse
 from files import router as files_router
 from exec import router as exec_router
 from deploy import router as deploy_router
-from secrets import router as secrets_router
+from envvars import router as secrets_router
 
 logging.basicConfig(
     level=logging.INFO,

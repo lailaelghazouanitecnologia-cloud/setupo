@@ -4,11 +4,10 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet, User, Code, Shield, HelpCircle,
+  Bell, Wallet,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
-import { getApiHealth, getAgentHealth } from "@/lib/api/client";
 import { InboxPanel } from "./inbox-panel";
 import { InstancesPanel } from "./instances-panel";
 import { ProjectsPanel } from "./projects-panel";
@@ -210,17 +209,6 @@ export function DashboardLayout() {
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const toggleSidebar = useDashboardStore((s) => s.toggleSidebar);
 
-  const [apiHealth, setApiHealth] = useState<any>(null);
-  const [agentHealth, setAgentHealth] = useState<any>(null);
-
-  useEffect(() => {
-    getApiHealth().then(setApiHealth).catch(() => {});
-    getAgentHealth().then(setAgentHealth).catch(() => {});
-  }, []);
-
-  const apiUp = !!apiHealth;
-  const agentUp = !!agentHealth;
-
   return (
     <div style={{ height: "100vh", overflow: "hidden", position: "relative" }}>
       {/* ════ ACTIVATION STRIP ════ */}
@@ -260,20 +248,6 @@ export function DashboardLayout() {
           >
             <Bell className="h-3.5 w-3.5" />
           </button>
-
-          {/* Support */}
-          <button
-            className="header-action-btn"
-            title="Support"
-          >
-            <HelpCircle className="h-3.5 w-3.5" />
-          </button>
-
-          {/* Status */}
-          <div className="fheader-status">
-            <div className="status-dot" style={{ background: apiUp && agentUp ? "var(--color-green)" : apiUp ? "var(--color-yellow)" : "var(--color-red)" }} />
-            <span>{apiUp && agentUp ? "Online" : apiUp ? "Partial" : "Offline"}</span>
-          </div>
         </div>
       </header>
 
