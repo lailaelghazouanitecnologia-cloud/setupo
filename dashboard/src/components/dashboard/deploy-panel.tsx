@@ -3,8 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import {
   Rocket, RefreshCw, Package, Upload, Play,
-  RotateCcw, GitBranch, CheckCircle, XCircle,
-  Clock, ChevronDown, Server, Loader,
+  RotateCcw, GitBranch, Clock, Server, Loader,
 } from "lucide-react";
 import {
   listProjects, listWorkspaces, listInstances,
@@ -19,7 +18,16 @@ interface LogEntry {
   action: DeployAction | "info" | "error";
   message: string;
   ok: boolean;
-  detail?: any;
+}
+
+interface DeployInfo {
+  version: string;
+  workspace: string;
+  branch: string;
+  stack: string;
+  deployed_at: string;
+  snapshot: string;
+  hash: string;
 }
 
 export function DeployPanel() {
@@ -34,8 +42,9 @@ export function DeployPanel() {
   const [versions, setVersions] = useState<string[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState<DeployAction | null>(null);
-  const [deployStatus, setDeployStatus] = useState<any>(null);
-  const [snapshots, setSnapshots] = useState<any[]>([]);
+  const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
+  const [snapshots, setSnapshots] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState("");
   const logRef = useRef<HTMLDivElement>(null);
 
   // Scroll log to bottom
@@ -51,29 +60,59 @@ export function DeployPanel() {
         const projs = res.projects || [];
         setProjects(projs);
         if (projs.length > 0) setProjectId(projs[0].id);
-      } catch {}
+      } catch (e: any) {
+        setLoadError("Failed to load projects — check auth");
+      }
     })();
     // Load deploy status from agent
-    getDeployStatus().then(setDeployStatus).catch(() => {});
-    getDeploySnapshots().then((r) => setSnapshots(r.snapshots || [])).catch(() => {});
+    loadDeployStatus();
   }, []);
+
+  const loadDeployStatus = () => {
+    getDeployStatus()
+      .then((data) => {
+        // Response is keyed by target path, e.g. {"/opt/app": {...}}
+        const keys = Object.keys(data);
+        if (keys.length > 0) {
+          const info = data[keys[0]];
+          setDeployInfo({
+            version: info.version || "",
+            workspace: info.workspace || "",
+            branch: info.branch || "",
+            stack: info.stack || "",
+            deployed_at: info.deployed_at || "",
+            snapshot: info.snapshot || "",
+            hash: info.hash || "",
+          });
+        }
+      })
+      .catch(() => {});
+    getDeploySnapshots()
+      .then((r) => setSnapshots(r.snapshots || []))
+      .catch(() => {});
+  };
 
   // Load workspaces + instances when project changes
   useEffect(() => {
     if (!projectId) return;
+    setLoadError("");
     (async () => {
       try {
-        const [wsRes, instRes] = await Promise.all([
-          listWorkspaces(projectId),
-          listInstances(projectId),
-        ]);
+        const wsRes = await listWorkspaces(projectId);
         const wsList = wsRes.workspaces || [];
-        const instList = instRes.instances || [];
         setWorkspaces(wsList);
-        setInstances(instList);
         if (wsList.length > 0 && !selectedWs) setSelectedWs(wsList[0].name);
+      } catch {
+        setWorkspaces([]);
+      }
+      try {
+        const instRes = await listInstances(projectId);
+        const instList = instRes.instances || [];
+        setInstances(instList);
         if (instList.length > 0 && !selectedInstance) setSelectedInstance(instList[0].id);
-      } catch {}
+      } catch {
+        setInstances([]);
+      }
     })();
   }, [projectId]);
 
@@ -85,12 +124,12 @@ export function DeployPanel() {
         setVersions(r.versions || []);
         setBranches(r.branches || []);
       })
-      .catch(() => {});
+      .catch(() => { setVersions([]); setBranches([]); });
   }, [projectId, selectedWs, branch]);
 
-  const addLog = (action: LogEntry["action"], message: string, ok: boolean, detail?: any) => {
+  const addLog = (action: LogEntry["action"], message: string, ok: boolean) => {
     const time = new Date().toLocaleTimeString("en-GB", { hour12: false });
-    setLogs((l) => [...l, { time, action, message, ok, detail }]);
+    setLogs((l) => [...l, { time, action, message, ok }]);
   };
 
   const runAction = async (action: DeployAction) => {
@@ -103,26 +142,26 @@ export function DeployPanel() {
       switch (action) {
         case "pack":
           result = await zarPack(projectId, selectedWs);
-          addLog("pack", `Packed ${selectedWs} — ${formatSize(result.size)}, v${result.manifest?.version}`, true, result);
+          addLog("pack", `Packed ${selectedWs} — ${formatSize(result.size || 0)}, v${result.manifest?.version || "?"}`, true);
           break;
         case "push":
           result = await zarPush(projectId, selectedWs, branch);
-          addLog("push", `Pushed v${result.version} to R2 (${branch}) — ${formatSize(result.size)}`, true, result);
+          addLog("push", `Pushed v${result.version || "?"} to R2 (${branch}) — ${formatSize(result.size || 0)}`, true);
           break;
         case "deploy":
           if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarDeploy(projectId, selectedWs, { branch, instance_id: selectedInstance });
-          addLog("deploy", `Deployed ${selectedWs} to ${selectedInstance} — snapshot: ${result.snapshot || "n/a"}`, true, result);
+          addLog("deploy", `Deployed ${selectedWs} to ${instanceLabel(selectedInstance)} — snapshot: ${result.snapshot || "n/a"}`, true);
           break;
         case "ship":
           if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarShip(projectId, selectedWs, { branch, instance_id: selectedInstance });
-          addLog("ship", `Shipped ${selectedWs} v${result.version} to ${selectedInstance}`, true, result);
+          addLog("ship", `Shipped ${selectedWs} v${result.version || "?"} to ${instanceLabel(selectedInstance)}`, true);
           break;
         case "rollback":
           if (!selectedInstance) { addLog("error", "Select an instance first", false); break; }
           result = await zarRollback(projectId, selectedWs, selectedInstance);
-          addLog("rollback", `Rolled back ${selectedWs} on ${selectedInstance}`, true, result);
+          addLog("rollback", `Rolled back ${selectedWs} on ${instanceLabel(selectedInstance)}`, true);
           break;
       }
       // Refresh versions after mutating actions
@@ -133,8 +172,7 @@ export function DeployPanel() {
       }
       // Refresh deploy status after deploy/ship/rollback
       if (["deploy", "ship", "rollback"].includes(action)) {
-        getDeployStatus().then(setDeployStatus).catch(() => {});
-        getDeploySnapshots().then((r) => setSnapshots(r.snapshots || [])).catch(() => {});
+        loadDeployStatus();
       }
     } catch (e: any) {
       addLog("error", `${action} failed: ${e.message || "Unknown error"}`, false);
@@ -149,8 +187,14 @@ export function DeployPanel() {
 
   return (
     <div>
+      {loadError && (
+        <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12 }}>
+          {loadError}
+        </div>
+      )}
+
       {/* Config bar */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {/* Project */}
         {projects.length > 1 && (
           <select className="deploy-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
@@ -261,25 +305,31 @@ export function DeployPanel() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Current deploy */}
           <div style={{ border: "1px solid var(--border)", borderRadius: 8, padding: 12 }}>
-            <div style={{ fontSize: "var(--font-xxs)", fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.03em", marginBottom: 8 }}>
-              Current Deploy
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <div style={{ fontSize: "var(--font-xxs)", fontWeight: 600, color: "var(--muted-foreground)", textTransform: "uppercase", letterSpacing: "0.03em" }}>
+                Current Deploy
+              </div>
+              <button className="panel-btn-sm" onClick={loadDeployStatus}>
+                <RefreshCw className="h-3 w-3" />
+              </button>
             </div>
-            {deployStatus ? (
+            {deployInfo ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {[
-                  { label: "State", value: deployStatus.state || "—" },
-                  { label: "Workspace", value: deployStatus.workspace || "—" },
-                  { label: "Version", value: deployStatus.version || "—" },
-                  { label: "Deployed", value: deployStatus.deployed_at ? new Date(deployStatus.deployed_at).toLocaleString() : "—" },
+                  { label: "Workspace", value: deployInfo.workspace || "—" },
+                  { label: "Version", value: deployInfo.version || "—" },
+                  { label: "Branch", value: deployInfo.branch || "—" },
+                  { label: "Snapshot", value: deployInfo.snapshot || "—" },
+                  { label: "Deployed", value: deployInfo.deployed_at ? new Date(deployInfo.deployed_at).toLocaleString() : "—" },
                 ].map((item) => (
                   <div key={item.label} style={{ display: "flex", justifyContent: "space-between", fontSize: "var(--font-xs)" }}>
                     <span style={{ color: "var(--muted-foreground)" }}>{item.label}</span>
-                    <span style={{ fontWeight: 500, fontFamily: "monospace" }}>{item.value}</span>
+                    <span style={{ fontWeight: 500, fontFamily: "monospace", maxWidth: 140, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right" }}>{item.value}</span>
                   </div>
                 ))}
               </div>
             ) : (
-              <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>No deploy info</div>
+              <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>No active deploy</div>
             )}
           </div>
 
@@ -315,12 +365,10 @@ export function DeployPanel() {
             </div>
             {snapshots.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 100, overflowY: "auto" }}>
-                {snapshots.map((s: any, i: number) => (
+                {snapshots.map((s, i) => (
                   <div key={i} style={{ fontSize: "var(--font-xs)", fontFamily: "monospace", color: "var(--foreground)", display: "flex", alignItems: "center", gap: 6 }}>
                     <Clock className="h-3 w-3" style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {typeof s === "string" ? s : s.name || s.id || JSON.stringify(s)}
-                    </span>
+                    <span>{s}</span>
                   </div>
                 ))}
               </div>
@@ -347,6 +395,7 @@ function actionColor(action: string): string {
 }
 
 function formatSize(bytes: number): string {
+  if (!bytes) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

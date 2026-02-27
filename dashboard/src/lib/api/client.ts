@@ -224,11 +224,11 @@ export async function zarSelfUpdate(projectId: string, instanceId: string, compo
   );
 }
 
-// Agent deploy endpoints (direct agent calls)
+// Agent deploy endpoints (direct agent calls, routed via /agent/ prefix by nginx)
 export async function getDeployStatus() {
-  return apiCall<{ state: string; workspace: string; version: string; deployed_at: string; snapshot: string }>("/deploy/current");
+  return apiCall<any>("/agent/deploy/current");
 }
 
 export async function getDeploySnapshots() {
-  return apiCall<{ snapshots: any[] }>("/deploy/snapshots");
+  return apiCall<{ target: string; snapshots: string[] }>("/agent/deploy/snapshots");
 }
