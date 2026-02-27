@@ -96,8 +96,28 @@ export async function getMe() {
   return centralApi<{
     id: string; email: string; name: string;
     role: string; balance: number; verified: boolean;
-    created_at: string;
+    subdomain: string | null; created_at: string;
   }>("/api/auth/me");
+}
+
+export async function updateProfile(updates: { name?: string; email?: string }) {
+  return centralApi<{ ok: boolean; user: any }>("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return centralApi<{ ok: boolean }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}
+
+export async function checkSubdomain(name: string) {
+  return centralApi<{ subdomain: string; available: boolean; domain: string | null }>(
+    `/api/subdomain/check?name=${encodeURIComponent(name)}`,
+  );
 }
 
 export async function getApiHealth() {

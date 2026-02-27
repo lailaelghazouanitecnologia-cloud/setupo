@@ -1,21 +1,17 @@
 import logging
-import re
-import secrets as stdlib_secrets
+from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 
 from server.auth.middleware import LoginRequest, LoginResponse, verify_password, load_admin_token
-from server.auth.jwt import hash_password, verify_password as verify_user_password, create_user_token
-from server.deps import require_user, AuthContext
+from server.deps import require_user, require_admin, AuthContext
 from server.routes.notifications import create_notification
-from core import db
+from core import users
+from core.errors import SetupoError
 
 logger = logging.getLogger("setupo.auth")
 router = APIRouter()
-
-EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
-MIN_PASSWORD_LENGTH = 6
 
 
 class RegisterRequest(BaseModel):
@@ -38,45 +34,37 @@ class UserProfile(BaseModel):
     role: str
     balance: float
     verified: bool
+    subdomain: Optional[str]
     created_at: str
+
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
 
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(req: RegisterRequest):
-    email = req.email.strip().lower()
-    if not EMAIL_RE.match(email):
-        raise HTTPException(400, "Invalid email format")
-    if len(req.password) < MIN_PASSWORD_LENGTH:
-        raise HTTPException(400, f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    try:
+        user = await users.create_user(req.email, req.password, req.name)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
 
-    existing = await db.fetch_one("users", email=email)
-    if existing:
-        raise HTTPException(409, "Email already registered")
-
-    user_id = f"user_{stdlib_secrets.token_hex(12)}"
-    pw_hash = hash_password(req.password)
-    display_name = req.name.strip() or email.split("@")[0]
-
-    await db.insert("users", {
-        "id": user_id,
-        "email": email,
-        "password_hash": pw_hash,
-        "name": display_name,
-        "role": "user",
-        "balance": 0.00,
-        "verified": 0,
-    })
-
-    token = create_user_token(user_id, email, "user")
-    logger.info("New user registered: %s (%s)", email, user_id)
+    token = users.issue_token(user)
+    display_name = user["name"]
 
     await create_notification(
-        user_id, "Welcome to NSO",
+        user["id"], "Welcome to NSO",
         f"Your account is ready, {display_name}. Deploy your first app or claim a free subdomain.",
         "success",
     )
 
-    return RegisterResponse(token=token, email=email, role="user", user_id=user_id)
+    return RegisterResponse(token=token, email=user["email"], role=user["role"], user_id=user["id"])
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -87,28 +75,43 @@ async def login(req: LoginRequest):
         logger.info("Admin login: %s", req.email)
         return LoginResponse(token=token, email=req.email, role="admin")
 
-    email = req.email.strip().lower()
-    user = await db.fetch_one("users", email=email)
-    if not user or not verify_user_password(req.password, user["password_hash"]):
-        logger.warning("Failed login attempt for %s", req.email)
+    try:
+        user = await users.authenticate(req.email, req.password)
+    except SetupoError:
         raise HTTPException(401, "Invalid email or password")
 
-    token = create_user_token(user["id"], user["email"], user["role"])
-    logger.info("User login: %s (%s)", user["email"], user["id"])
+    token = users.issue_token(user)
     return LoginResponse(token=token, email=user["email"], role=user["role"])
 
 
-@router.get("/me")
+@router.get("/me", response_model=UserProfile)
 async def get_me(auth: AuthContext = Depends(require_user)):
-    user = await db.fetch_one("users", id=auth.user_id)
-    if not user:
-        raise HTTPException(404, "User not found")
-    return UserProfile(
-        id=user["id"],
-        email=user["email"],
-        name=user["name"],
-        role=user["role"],
-        balance=user["balance"],
-        verified=user["verified"],
-        created_at=user["created_at"],
-    )
+    try:
+        user = await users.get_user(auth.user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return UserProfile(**user)
+
+
+@router.patch("/profile")
+async def update_profile(req: UpdateProfileRequest, auth: AuthContext = Depends(require_user)):
+    try:
+        user = await users.update_profile(auth.user_id, name=req.name, email=req.email)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "user": user}
+
+
+@router.post("/change-password")
+async def change_password(req: ChangePasswordRequest, auth: AuthContext = Depends(require_user)):
+    try:
+        await users.change_password(auth.user_id, req.current_password, req.new_password)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True}
+
+
+@router.get("/users")
+async def list_all_users(auth: AuthContext = Depends(require_admin)):
+    all_users = await users.list_users()
+    return {"users": all_users, "count": len(all_users)}

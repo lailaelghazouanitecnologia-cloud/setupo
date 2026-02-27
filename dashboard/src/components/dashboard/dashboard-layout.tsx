@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet, CreditCard,
+  Bell, Wallet, CreditCard, UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -15,6 +15,7 @@ import { SecretsPanel } from "./secrets-panel";
 import { PluginsPanel } from "./plugins-panel";
 import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
+import { SettingsPanel } from "./settings-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -108,6 +109,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "settings", label: "Settings", icon: UserCog },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -118,6 +120,7 @@ const viewTitles: Record<DashboardView, string> = {
   secrets: "Secrets",
   plugins: "Plugins",
   billing: "Billing",
+  settings: "Settings",
 };
 
 /* ═══════════════════════════════════════════
@@ -168,9 +171,9 @@ function UserProfile() {
             <Bell className="h-3.5 w-3.5" />
             <span>Notifications</span>
           </button>
-          <button className="user-profile-menu-item" onClick={() => menuNav("plugins")}>
+          <button className="user-profile-menu-item" onClick={() => menuNav("settings")}>
             <Settings className="h-3.5 w-3.5" />
-            <span>Preferences</span>
+            <span>Settings</span>
           </button>
           <div className="user-profile-menu-sep" />
           <button className="user-profile-menu-item destructive" onClick={logout}>
@@ -212,6 +215,16 @@ export function DashboardLayout() {
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const toggleSidebar = useDashboardStore((s) => s.toggleSidebar);
 
+  const [balance, setBalance] = useState(0);
+  const [unread, setUnread] = useState(0);
+
+  useEffect(() => {
+    import("@/lib/api/client").then(({ getMe, listNotifications }) => {
+      getMe().then((me) => setBalance(me.balance)).catch(() => {});
+      listNotifications().then((n) => setUnread(n.unread)).catch(() => {});
+    });
+  }, [activeView]);
+
   return (
     <div style={{ height: "100vh", overflow: "hidden", position: "relative" }}>
       {/* ════ ACTIVATION STRIP ════ */}
@@ -240,7 +253,7 @@ export function DashboardLayout() {
             onClick={() => setActiveView("billing")}
           >
             <Wallet className="h-3.5 w-3.5" />
-            <span className="header-balance">$0.00</span>
+            <span className="header-balance">${balance.toFixed(2)}</span>
           </button>
 
           {/* Notifications */}
@@ -248,8 +261,10 @@ export function DashboardLayout() {
             className="header-action-btn"
             title="Notifications"
             onClick={() => setActiveView("inbox")}
+            style={{ position: "relative" }}
           >
             <Bell className="h-3.5 w-3.5" />
+            {unread > 0 && <span className="header-notif-badge">{unread}</span>}
           </button>
         </div>
       </header>
@@ -298,6 +313,7 @@ export function DashboardLayout() {
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
           {activeView === "plugins" && <PanelErrorBoundary name="Plugins"><PluginsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
+          {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>
