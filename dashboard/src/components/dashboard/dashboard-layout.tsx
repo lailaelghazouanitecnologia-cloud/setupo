@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet, CreditCard, UserCog,
+  Bell, Wallet, CreditCard, UserCog, Sun, Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -131,6 +131,8 @@ function UserProfile() {
   const userRole = useDashboardStore((s) => s.userRole);
   const logout = useDashboardStore((s) => s.logout);
   const setActiveView = useDashboardStore((s) => s.setActiveView);
+  const theme = useDashboardStore((s) => s.theme);
+  const setTheme = useDashboardStore((s) => s.setTheme);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -174,6 +176,13 @@ function UserProfile() {
           <button className="user-profile-menu-item" onClick={() => menuNav("settings")}>
             <Settings className="h-3.5 w-3.5" />
             <span>Settings</span>
+          </button>
+          <button
+            className="user-profile-menu-item"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            {theme === "dark" ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+            <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
           </button>
           <div className="user-profile-menu-sep" />
           <button className="user-profile-menu-item destructive" onClick={logout}>

@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   User, Globe, Lock, Loader2, Check, AlertCircle, Search,
+  Sun, Moon, Monitor,
 } from "lucide-react";
 import {
   getMe, updateProfile, changePassword,
   getSubdomain, checkSubdomain, claimSubdomain,
 } from "@/lib/api/client";
-import { useDashboardStore } from "@/stores/dashboard-store";
+import { useDashboardStore, type Theme } from "@/stores/dashboard-store";
 
 function ProfileSection() {
   const [name, setName] = useState("");
@@ -322,11 +323,47 @@ function PasswordSection() {
   );
 }
 
+const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "auto", label: "System", icon: Monitor },
+];
+
+function ThemeSection() {
+  const theme = useDashboardStore((s) => s.theme);
+  const setTheme = useDashboardStore((s) => s.setTheme);
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-header">
+        <Sun className="h-4 w-4" />
+        <span>Appearance</span>
+      </div>
+      <div className="theme-options">
+        {THEME_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          return (
+            <button
+              key={opt.value}
+              className={`theme-option ${theme === opt.value ? "active" : ""}`}
+              onClick={() => setTheme(opt.value)}
+            >
+              <Icon className="h-4 w-4" />
+              <span>{opt.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPanel() {
   return (
     <div className="settings-panel">
       <ProfileSection />
       <SubdomainSection />
+      <ThemeSection />
       <PasswordSection />
     </div>
   );

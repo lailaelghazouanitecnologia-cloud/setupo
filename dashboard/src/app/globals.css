@@ -1078,6 +1078,24 @@
     padding: 4px 10px; border-radius: 4px;
   }
 
+  /* ── Theme options ── */
+  .theme-options {
+    display: flex; gap: 8px;
+  }
+  .theme-option {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; gap: 6px; padding: 14px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--background); color: var(--muted-foreground);
+    cursor: pointer; font-size: var(--font-xs);
+    transition: border-color 0.15s, color 0.15s, background 0.15s;
+  }
+  .theme-option:hover { border-color: var(--foreground); color: var(--foreground); }
+  .theme-option.active {
+    border-color: var(--foreground); color: var(--foreground);
+    background: var(--accent);
+  }
+
   /* ── Header notification badge ── */
   .header-notif-badge {
     position: absolute; top: -2px; right: -4px;
