@@ -28,6 +28,7 @@ from models import MetricReport, HealthResponse
 from files import router as files_router
 from exec import router as exec_router
 from deploy import router as deploy_router
+from secrets import router as secrets_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +73,7 @@ app.add_middleware(
 app.include_router(files_router)
 app.include_router(exec_router)
 app.include_router(deploy_router)
+app.include_router(secrets_router)
 
 
 # ── Health (public) ──────────────────────────────────────────────

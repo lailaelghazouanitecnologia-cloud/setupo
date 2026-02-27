@@ -126,6 +126,38 @@ export async function manageService(action: string, name: string) {
   return apiCall<any>(`/agent/exec/service?action=${action}&name=${name}`, { method: "POST" });
 }
 
+// ─── Agent: Secrets management ───
+
+export interface AgentSecret {
+  key: string;
+  value: string;
+  bucket: string;
+}
+
+export async function listSecrets() {
+  return apiCall<{ secrets: AgentSecret[]; buckets: Record<string, { key: string; value: string }[]>; count: number }>("/agent/secrets");
+}
+
+export async function addSecret(key: string, value: string) {
+  return apiCall<{ ok: boolean; key: string; bucket: string }>("/agent/secrets", {
+    method: "POST",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export async function updateSecret(key: string, value: string) {
+  return apiCall<{ ok: boolean; key: string }>(`/agent/secrets/${encodeURIComponent(key)}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export async function deleteSecret(key: string) {
+  return apiCall<{ ok: boolean; key: string }>(`/agent/secrets/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
 // ─── Central API: Projects & Workspaces ───
 
 export async function listProjects() {
