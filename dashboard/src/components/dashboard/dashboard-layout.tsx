@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet,
+  Bell, Wallet, Package, CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -14,6 +14,8 @@ import { ProjectsPanel } from "./projects-panel";
 import { SecretsPanel } from "./secrets-panel";
 import { PluginsPanel } from "./plugins-panel";
 import { DeployPanel } from "./deploy-panel";
+import { ModulesPanel } from "./modules-panel";
+import { BillingPanel } from "./billing-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -104,8 +106,10 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "instances", label: "Instances", icon: Server },
   { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "deploy", label: "Deploy", icon: Rocket },
+  { id: "modules", label: "Modules", icon: Package },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "billing", label: "Billing", icon: CreditCard },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -113,8 +117,10 @@ const viewTitles: Record<DashboardView, string> = {
   instances: "Instances",
   projects: "Projects",
   deploy: "Deploy",
+  modules: "Modules",
   secrets: "Secrets",
   plugins: "Plugins",
+  billing: "Billing",
 };
 
 /* ═══════════════════════════════════════════
@@ -234,7 +240,7 @@ export function DashboardLayout() {
           <button
             className="header-action-btn"
             title="Account balance"
-            onClick={() => setActiveView("secrets")}
+            onClick={() => setActiveView("billing")}
           >
             <Wallet className="h-3.5 w-3.5" />
             <span className="header-balance">$0.00</span>
@@ -292,8 +298,10 @@ export function DashboardLayout() {
           {activeView === "instances" && <PanelErrorBoundary name="Instances"><InstancesPanel /></PanelErrorBoundary>}
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
           {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
+          {activeView === "modules" && <PanelErrorBoundary name="Modules"><ModulesPanel /></PanelErrorBoundary>}
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
           {activeView === "plugins" && <PanelErrorBoundary name="Plugins"><PluginsPanel /></PanelErrorBoundary>}
+          {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>
