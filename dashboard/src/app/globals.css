@@ -212,11 +212,28 @@
   }
   .fheader.shifted { left: var(--layout-sidebar-w); }
   .fheader-left { display: flex; align-items: center; gap: 10px; }
-  .fheader-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  .fheader-right { margin-left: auto; display: flex; align-items: center; gap: 4px; }
   .fheader-title { font-size: var(--font-md); font-weight: 600; user-select: none; }
   .fheader-status {
     display: flex; align-items: center; gap: 6px;
     font-size: var(--font-xs); color: var(--muted-foreground);
+    margin-left: 4px;
+  }
+  .header-action-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px; border-radius: 6px;
+    background: none; border: 1px solid transparent;
+    color: var(--muted-foreground); cursor: pointer;
+    font-size: var(--font-xs); transition: all 0.1s;
+  }
+  .header-action-btn:hover {
+    background: var(--accent); border-color: var(--border);
+    color: var(--foreground);
+  }
+  .header-action-btn svg { width: 14px; height: 14px; }
+  .header-balance {
+    font-family: var(--font-mono); font-weight: 600;
+    color: var(--color-teal); font-size: var(--font-xs);
   }
 
   /* ── Status dot ── */

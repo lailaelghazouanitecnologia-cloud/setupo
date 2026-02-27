@@ -4,6 +4,7 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
+  Bell, Wallet, User, Code, Shield, HelpCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -124,6 +125,7 @@ function UserProfile() {
   const userEmail = useDashboardStore((s) => s.userEmail);
   const userRole = useDashboardStore((s) => s.userRole);
   const logout = useDashboardStore((s) => s.logout);
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +141,11 @@ function UserProfile() {
 
   const initial = (userEmail || "U")[0].toUpperCase();
 
+  const menuNav = (view: DashboardView) => {
+    setActiveView(view);
+    setMenuOpen(false);
+  };
+
   return (
     <div className="user-profile-wrapper" ref={menuRef}>
       {menuOpen && (
@@ -150,6 +157,19 @@ function UserProfile() {
               <div className="user-profile-role">{userRole || "admin"}</div>
             </div>
           </div>
+          <div className="user-profile-menu-sep" />
+          <button className="user-profile-menu-item" onClick={() => menuNav("secrets")}>
+            <Key className="h-3.5 w-3.5" />
+            <span>API Keys & Secrets</span>
+          </button>
+          <button className="user-profile-menu-item" onClick={() => menuNav("inbox")}>
+            <Bell className="h-3.5 w-3.5" />
+            <span>Notifications</span>
+          </button>
+          <button className="user-profile-menu-item" onClick={() => menuNav("plugins")}>
+            <Settings className="h-3.5 w-3.5" />
+            <span>Preferences</span>
+          </button>
           <div className="user-profile-menu-sep" />
           <button className="user-profile-menu-item destructive" onClick={logout}>
             <LogOut className="h-3.5 w-3.5" />
@@ -222,9 +242,37 @@ export function DashboardLayout() {
           <span className="fheader-title">{viewTitles[activeView]}</span>
         </div>
         <div className="fheader-right">
+          {/* Balance */}
+          <button
+            className="header-action-btn"
+            title="Account balance"
+            onClick={() => setActiveView("secrets")}
+          >
+            <Wallet className="h-3.5 w-3.5" />
+            <span className="header-balance">$0.00</span>
+          </button>
+
+          {/* Notifications */}
+          <button
+            className="header-action-btn"
+            title="Notifications"
+            onClick={() => setActiveView("inbox")}
+          >
+            <Bell className="h-3.5 w-3.5" />
+          </button>
+
+          {/* Support */}
+          <button
+            className="header-action-btn"
+            title="Support"
+          >
+            <HelpCircle className="h-3.5 w-3.5" />
+          </button>
+
+          {/* Status */}
           <div className="fheader-status">
             <div className="status-dot" style={{ background: apiUp && agentUp ? "var(--color-green)" : apiUp ? "var(--color-yellow)" : "var(--color-red)" }} />
-            <span>{apiUp && agentUp ? "All systems online" : apiUp ? "Partially online" : "Offline"}</span>
+            <span>{apiUp && agentUp ? "Online" : apiUp ? "Partial" : "Offline"}</span>
           </div>
         </div>
       </header>
