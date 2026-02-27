@@ -42,6 +42,10 @@ class Settings:
     ADMIN_PASSWORD = os.environ.get("SETUPO_ADMIN_PASSWORD", "")
     AGENT_ADMIN_PASSWORD = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
+    STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
+    STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+
     @classmethod
     def db_path(cls) -> Path:
         if cls.DATA_DIR.parent.exists():

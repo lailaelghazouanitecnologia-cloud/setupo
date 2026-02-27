@@ -85,6 +85,8 @@ PUBLIC_PATHS = frozenset({
     "/api/auth/login",
     "/api/auth/register",
     "/api/capabilities",
+    "/api/billing/plans",
+    "/api/billing/stripe/webhook",
     "/docs",
     "/openapi.json",
     "/redoc",

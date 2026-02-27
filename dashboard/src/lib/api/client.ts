@@ -413,6 +413,146 @@ export interface Transaction {
   created_at: string;
 }
 
+export interface BillingPlan {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  interval: string;
+  amount_cents: number;
+  currency: string;
+  features: Record<string, any>;
+}
+
+export interface BillingSubscription {
+  id: string;
+  user_id: string;
+  plan_id: string;
+  plan_code: string;
+  status: string;
+  current_period_start: string;
+  current_period_end: string;
+  amount_cents: number;
+  currency: string;
+  created_at: string;
+  cancelled_at: string | null;
+}
+
+export interface Invoice {
+  id: string;
+  user_id: string;
+  subscription_id: string | null;
+  number: string;
+  status: string;
+  payment_status: string;
+  currency: string;
+  subtotal_cents: number;
+  credits_applied_cents: number;
+  total_cents: number;
+  period_start: string;
+  period_end: string;
+  due_date: string;
+  finalized_at: string | null;
+  paid_at: string | null;
+  created_at: string;
+  items: InvoiceItem[];
+}
+
+export interface InvoiceItem {
+  id: string;
+  invoice_id: string;
+  type: string;
+  description: string;
+  units: number;
+  unit_price_cents: number;
+  amount_cents: number;
+  metric: string | null;
+}
+
+export interface PaymentMethod {
+  id: string;
+  user_id: string;
+  type: string;
+  provider: string;
+  provider_id: string;
+  label: string;
+  is_default: boolean;
+  metadata: Record<string, any>;
+  created_at: string;
+}
+
+export interface BillingOverview {
+  balance: number;
+  currency: string;
+  plan: BillingPlan | null;
+  subscription: BillingSubscription | null;
+  invoices: Invoice[];
+  payment_methods: PaymentMethod[];
+  transactions: Transaction[];
+  usage: Record<string, number>;
+}
+
+// ── Plans ──
+export async function listBillingPlans() {
+  return centralApi<{ plans: BillingPlan[] }>("/api/billing/plans");
+}
+
+// ── Subscriptions ──
+export async function getSubscription() {
+  return centralApi<{ subscription: BillingSubscription | null; plan: BillingPlan | null }>("/api/billing/subscription");
+}
+
+export async function subscribe(planCode: string) {
+  return centralApi<{ ok: boolean; subscription: BillingSubscription }>("/api/billing/subscribe", {
+    method: "POST",
+    body: JSON.stringify({ plan_code: planCode }),
+  });
+}
+
+export async function cancelSubscription() {
+  return centralApi<{ ok: boolean; subscription: BillingSubscription }>("/api/billing/cancel", {
+    method: "POST",
+  });
+}
+
+// ── Checkout (Stripe) ──
+export async function createCheckout(planCode: string, successUrl = "", cancelUrl = "") {
+  return centralApi<{ session_id?: string; url?: string; plan_code: string; subscription?: any; free?: boolean }>("/api/billing/checkout", {
+    method: "POST",
+    body: JSON.stringify({ plan_code: planCode, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+}
+
+export async function createTopUpCheckout(amountCents: number, successUrl = "", cancelUrl = "") {
+  return centralApi<{ session_id: string; url: string; amount_cents: number }>("/api/billing/topup/checkout", {
+    method: "POST",
+    body: JSON.stringify({ amount_cents: amountCents, success_url: successUrl, cancel_url: cancelUrl }),
+  });
+}
+
+// ── Invoices ──
+export async function listInvoices() {
+  return centralApi<{ invoices: Invoice[]; count: number }>("/api/billing/invoices");
+}
+
+export async function getInvoice(invoiceId: string) {
+  return centralApi<{ invoice: Invoice }>(`/api/billing/invoices/${invoiceId}`);
+}
+
+// ── Payment Methods ──
+export async function listPaymentMethods() {
+  return centralApi<{ payment_methods: PaymentMethod[] }>("/api/billing/payment-methods");
+}
+
+export async function removePaymentMethod(pmId: string) {
+  return centralApi<{ ok: boolean }>(`/api/billing/payment-methods/${pmId}`, { method: "DELETE" });
+}
+
+export async function setDefaultPaymentMethod(pmId: string) {
+  return centralApi<{ ok: boolean; payment_method: PaymentMethod }>(`/api/billing/payment-methods/${pmId}/default`, { method: "POST" });
+}
+
+// ── Wallet ──
 export async function getBalance() {
   return centralApi<{ balance: number; currency: string }>("/api/billing/balance");
 }
@@ -426,6 +566,11 @@ export async function topUp(amount: number, reference = "") {
     method: "POST",
     body: JSON.stringify({ amount, reference }),
   });
+}
+
+// ── Overview ──
+export async function getBillingOverview() {
+  return centralApi<BillingOverview>("/api/billing/overview");
 }
 
 export interface Notification {

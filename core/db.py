@@ -198,10 +198,102 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS billing_plans (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            interval TEXT DEFAULT 'monthly',
+            amount_cents INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            features TEXT DEFAULT '{}',
+            active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_subscriptions (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            plan_id TEXT NOT NULL,
+            plan_code TEXT NOT NULL,
+            status TEXT DEFAULT 'active',
+            current_period_start TEXT,
+            current_period_end TEXT,
+            amount_cents INTEGER DEFAULT 0,
+            currency TEXT DEFAULT 'USD',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            cancelled_at TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (plan_id) REFERENCES billing_plans(id) ON DELETE RESTRICT
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_invoices (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            subscription_id TEXT,
+            number TEXT NOT NULL,
+            status TEXT DEFAULT 'draft',
+            payment_status TEXT DEFAULT 'pending',
+            currency TEXT DEFAULT 'USD',
+            subtotal_cents INTEGER DEFAULT 0,
+            credits_applied_cents INTEGER DEFAULT 0,
+            total_cents INTEGER DEFAULT 0,
+            period_start TEXT,
+            period_end TEXT,
+            due_date TEXT,
+            finalized_at TEXT,
+            paid_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_invoice_items (
+            id TEXT PRIMARY KEY,
+            invoice_id TEXT NOT NULL,
+            type TEXT DEFAULT 'subscription',
+            description TEXT DEFAULT '',
+            units REAL DEFAULT 1,
+            unit_price_cents INTEGER DEFAULT 0,
+            amount_cents INTEGER DEFAULT 0,
+            metric TEXT,
+            FOREIGN KEY (invoice_id) REFERENCES billing_invoices(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_payment_methods (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            type TEXT DEFAULT 'card',
+            provider TEXT DEFAULT 'stripe',
+            provider_id TEXT DEFAULT '',
+            label TEXT DEFAULT '',
+            is_default INTEGER DEFAULT 0,
+            metadata TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_usage_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            metric TEXT NOT NULL,
+            units REAL DEFAULT 0,
+            properties TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);
         CREATE INDEX IF NOT EXISTS idx_modules_published ON modules(published);
         CREATE INDEX IF NOT EXISTS idx_notifications_user ON notifications(user_id);
         CREATE INDEX IF NOT EXISTS idx_notifications_read ON notifications(user_id, read);
+        CREATE INDEX IF NOT EXISTS idx_billing_subs_user ON billing_subscriptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_billing_subs_status ON billing_subscriptions(status);
+        CREATE INDEX IF NOT EXISTS idx_billing_inv_user ON billing_invoices(user_id);
+        CREATE INDEX IF NOT EXISTS idx_billing_inv_status ON billing_invoices(status);
+        CREATE INDEX IF NOT EXISTS idx_billing_items_invoice ON billing_invoice_items(invoice_id);
+        CREATE INDEX IF NOT EXISTS idx_billing_pm_user ON billing_payment_methods(user_id);
+        CREATE INDEX IF NOT EXISTS idx_billing_usage_user ON billing_usage_events(user_id);
+        CREATE INDEX IF NOT EXISTS idx_billing_usage_metric ON billing_usage_events(metric);
     """)
 
     try:
@@ -296,8 +388,8 @@ async def delete_where(table: str, **where):
     await db.commit()
 
 
-JSON_FIELDS = frozenset({"settings", "metadata", "config", "config_schema"})
-BOOL_FIELDS = frozenset({"proxied", "managed", "enabled", "published", "verified", "read"})
+JSON_FIELDS = frozenset({"settings", "metadata", "config", "config_schema", "features", "properties"})
+BOOL_FIELDS = frozenset({"proxied", "managed", "enabled", "published", "verified", "read", "is_default", "active"})
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict:

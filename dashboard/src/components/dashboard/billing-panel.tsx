@@ -1,179 +1,554 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Wallet, ArrowUpRight, ArrowDownRight, Plus,
   Loader, AlertCircle, CreditCard, Receipt,
-  DollarSign, Clock,
+  DollarSign, Clock, Check, Zap, Star, Crown,
+  ChevronRight, X, ExternalLink, Trash2,
+  FileText, Shield, CircleDot,
 } from "lucide-react";
 import {
   getBalance, getTransactions, topUp,
-  type Transaction,
+  listBillingPlans, getSubscription, subscribe, cancelSubscription,
+  createCheckout, createTopUpCheckout,
+  listInvoices, listPaymentMethods, removePaymentMethod,
+  type Transaction, type BillingPlan, type BillingSubscription,
+  type Invoice, type PaymentMethod,
 } from "@/lib/api/client";
 
 const MAX_TOPUP = 1000;
 const MIN_TOPUP = 5;
 
+const PLAN_ICONS: Record<string, typeof Star> = {
+  free: Zap,
+  starter: Star,
+  pro: Crown,
+  scale: Shield,
+};
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatDate(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch {
+    return dateStr;
+  }
+}
+
+function formatDateShort(dateStr: string): string {
+  try {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return dateStr;
+  }
+}
+
+// ══════════════════════════════════════════════
+//  MAIN BILLING PANEL
+// ══════════════════════════════════════════════
+
 export function BillingPanel() {
+  const [tab, setTab] = useState<"overview" | "plans" | "invoices" | "wallet">("overview");
   const [balance, setBalance] = useState<number | null>(null);
-  const [currency, setCurrency] = useState("USD");
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [plans, setPlans] = useState<BillingPlan[]>([]);
+  const [subscription, setSub] = useState<BillingSubscription | null>(null);
+  const [currentPlan, setCurrentPlan] = useState<BillingPlan | null>(null);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showTopUp, setShowTopUp] = useState(false);
 
-  useEffect(() => { loadData(); }, []);
-
-  const loadData = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [balRes, txRes] = await Promise.allSettled([
+      const [balRes, txRes, plansRes, subRes, invRes, pmRes] = await Promise.allSettled([
         getBalance(),
         getTransactions(),
+        listBillingPlans(),
+        getSubscription(),
+        listInvoices(),
+        listPaymentMethods(),
       ]);
 
-      if (balRes.status === "fulfilled") {
-        setBalance(balRes.value.balance);
-        setCurrency(balRes.value.currency || "USD");
+      if (balRes.status === "fulfilled") setBalance(balRes.value.balance);
+      if (txRes.status === "fulfilled") setTransactions(txRes.value.transactions || []);
+      if (plansRes.status === "fulfilled") setPlans(plansRes.value.plans || []);
+      if (subRes.status === "fulfilled") {
+        setSub(subRes.value.subscription);
+        setCurrentPlan(subRes.value.plan);
       }
-      if (txRes.status === "fulfilled") {
-        setTransactions(txRes.value.transactions || []);
-      }
-
-      if (balRes.status === "rejected" && txRes.status === "rejected") {
-        setError("Failed to load billing data");
-      }
+      if (invRes.status === "fulfilled") setInvoices(invRes.value.invoices || []);
+      if (pmRes.status === "fulfilled") setPaymentMethods(pmRes.value.payment_methods || []);
     } catch (e: any) {
       setError(e.message);
     }
     setLoading(false);
-  };
+  }, []);
 
-  const formatAmount = (amount: number) => {
-    const prefix = amount >= 0 ? "+" : "";
-    return `${prefix}$${Math.abs(amount).toFixed(2)}`;
-  };
+  useEffect(() => { loadAll(); }, [loadAll]);
 
-  const formatDate = (dateStr: string) => {
-    try {
-      const d = new Date(dateStr);
-      return d.toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-    } catch {
-      return dateStr;
-    }
-  };
+  const tabs = [
+    { id: "overview" as const, label: "Overview", icon: Wallet },
+    { id: "plans" as const, label: "Plans", icon: Zap },
+    { id: "invoices" as const, label: "Invoices", icon: FileText },
+    { id: "wallet" as const, label: "Wallet", icon: DollarSign },
+  ];
 
   return (
     <div>
+      {/* Tab bar */}
+      <div className="tab-bar">
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            className={`tab-item ${tab === id ? "active" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            <Icon className="h-3.5 w-3.5" />
+            {label}
+          </button>
+        ))}
+      </div>
+
       {error && (
-        <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+        <div className="billing-error">
           <AlertCircle className="h-3.5 w-3.5" style={{ flexShrink: 0 }} />
           <span>{error}</span>
         </div>
       )}
 
       {loading ? (
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, gap: 8, color: "var(--muted-foreground)" }}>
+        <div className="billing-loading">
           <Loader className="h-4 w-4 animate-spin" />
-          <span style={{ fontSize: "var(--font-xs)" }}>Loading billing...</span>
+          <span>Loading billing...</span>
         </div>
       ) : (
         <>
-          {/* Balance card */}
-          <div style={{
-            padding: 20,
-            background: "linear-gradient(135deg, var(--sidebar-bg), var(--background))",
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            marginBottom: 20,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", marginBottom: 4 }}>Current Balance</div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: "var(--foreground)", fontFamily: "monospace" }}>
-                  ${(balance ?? 0).toFixed(2)}
-                </div>
-                <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 4 }}>{currency}</div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn-primary" onClick={() => setShowTopUp(true)}>
-                  <Plus className="h-3.5 w-3.5" />
-                  <span>Top Up</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {showTopUp && (
-            <TopUpForm
-              onClose={() => setShowTopUp(false)}
-              onSuccess={() => { setShowTopUp(false); loadData(); }}
+          {tab === "overview" && (
+            <OverviewTab
+              balance={balance}
+              currentPlan={currentPlan}
+              subscription={subscription}
+              paymentMethods={paymentMethods}
+              transactions={transactions}
+              onReload={loadAll}
             />
           )}
+          {tab === "plans" && (
+            <PlansTab
+              plans={plans}
+              currentPlan={currentPlan}
+              subscription={subscription}
+              onReload={loadAll}
+            />
+          )}
+          {tab === "invoices" && <InvoicesTab invoices={invoices} />}
+          {tab === "wallet" && (
+            <WalletTab
+              balance={balance}
+              transactions={transactions}
+              onReload={loadAll}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
-          {/* Transactions */}
-          <div className="settings-section">
-            <div className="settings-section-title">
-              <Receipt className="h-3.5 w-3.5" style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
-              Transactions ({transactions.length})
-            </div>
+// ══════════════════════════════════════════════
+//  OVERVIEW TAB
+// ══════════════════════════════════════════════
 
-            {transactions.length === 0 ? (
-              <div className="panel-empty">
-                <CreditCard className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-                <div className="panel-empty-title">No transactions</div>
-                <div className="panel-empty-sub">Top up your balance to get started</div>
+function OverviewTab({
+  balance, currentPlan, subscription, paymentMethods, transactions, onReload,
+}: {
+  balance: number | null;
+  currentPlan: BillingPlan | null;
+  subscription: BillingSubscription | null;
+  paymentMethods: PaymentMethod[];
+  transactions: Transaction[];
+  onReload: () => void;
+}) {
+  return (
+    <div className="billing-overview">
+      {/* Balance + Plan row */}
+      <div className="billing-overview-cards">
+        <div className="billing-card">
+          <div className="billing-card-label">Wallet Balance</div>
+          <div className="billing-card-value">${(balance ?? 0).toFixed(2)}</div>
+          <div className="billing-card-sub">USD</div>
+        </div>
+        <div className="billing-card">
+          <div className="billing-card-label">Current Plan</div>
+          <div className="billing-card-value">{currentPlan?.name || "No plan"}</div>
+          <div className="billing-card-sub">
+            {currentPlan ? (
+              currentPlan.amount_cents === 0 ? "Free" : `${formatCents(currentPlan.amount_cents)}/${currentPlan.interval}`
+            ) : "Subscribe to get started"}
+          </div>
+        </div>
+        <div className="billing-card">
+          <div className="billing-card-label">Billing Period</div>
+          <div className="billing-card-value">
+            {subscription ? formatDate(subscription.current_period_end) : "—"}
+          </div>
+          <div className="billing-card-sub">
+            {subscription ? `Since ${formatDate(subscription.current_period_start)}` : "No active period"}
+          </div>
+        </div>
+      </div>
+
+      {/* Plan features */}
+      {currentPlan && currentPlan.features && (
+        <div className="billing-section">
+          <div className="billing-section-title">Plan Limits</div>
+          <div className="billing-features">
+            {Object.entries(currentPlan.features).map(([key, val]) => (
+              <div key={key} className="billing-feature-row">
+                <span className="billing-feature-key">{key.replace(/_/g, " ")}</span>
+                <span className="billing-feature-val">
+                  {val === -1 ? "Unlimited" : typeof val === "number" ? val.toLocaleString() : val}
+                </span>
               </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {transactions.map((tx) => (
-                  <div key={tx.id} style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                    padding: "8px 10px",
-                    borderRadius: 6,
-                    fontSize: "var(--font-xs)",
-                  }}>
-                    <div style={{
-                      width: 28,
-                      height: 28,
-                      borderRadius: 6,
-                      background: tx.amount >= 0 ? "rgba(20,184,166,0.1)" : "rgba(239,68,68,0.08)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      flexShrink: 0,
-                    }}>
-                      {tx.amount >= 0 ? (
-                        <ArrowDownRight className="h-3.5 w-3.5" style={{ color: "var(--color-teal)" }} />
-                      ) : (
-                        <ArrowUpRight className="h-3.5 w-3.5" style={{ color: "var(--color-red)" }} />
-                      )}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 500 }}>{tx.description || tx.type}</div>
-                      <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", display: "flex", alignItems: "center", gap: 4, marginTop: 1 }}>
-                        <Clock className="h-2.5 w-2.5" />
-                        {formatDate(tx.created_at)}
-                        {tx.reference && <span>· {tx.reference}</span>}
-                      </div>
-                    </div>
-                    <div style={{
-                      fontWeight: 600,
-                      fontFamily: "monospace",
-                      color: tx.amount >= 0 ? "var(--color-teal)" : "var(--color-red)",
-                    }}>
-                      {formatAmount(tx.amount)}
-                    </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Payment methods */}
+      <div className="billing-section">
+        <div className="billing-section-title">Payment Methods</div>
+        {paymentMethods.length === 0 ? (
+          <div className="billing-empty-sm">No payment methods configured. Pay with Stripe at checkout.</div>
+        ) : (
+          <div className="billing-pm-list">
+            {paymentMethods.map((pm) => (
+              <div key={pm.id} className="billing-pm-row">
+                <CreditCard className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
+                <span className="billing-pm-label">{pm.label}</span>
+                <span className="billing-pm-type">{pm.type} via {pm.provider}</span>
+                {pm.is_default && <span className="billing-pm-default">Default</span>}
+                <button
+                  className="billing-pm-remove"
+                  onClick={async () => {
+                    await removePaymentMethod(pm.id);
+                    onReload();
+                  }}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Recent transactions */}
+      <div className="billing-section">
+        <div className="billing-section-title">Recent Activity</div>
+        {transactions.length === 0 ? (
+          <div className="billing-empty-sm">No transactions yet.</div>
+        ) : (
+          <div className="billing-txn-list">
+            {transactions.slice(0, 5).map((tx) => (
+              <TxnRow key={tx.id} tx={tx} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+//  PLANS TAB
+// ══════════════════════════════════════════════
+
+function PlansTab({
+  plans, currentPlan, subscription, onReload,
+}: {
+  plans: BillingPlan[];
+  currentPlan: BillingPlan | null;
+  subscription: BillingSubscription | null;
+  onReload: () => void;
+}) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  const handleSubscribe = async (planCode: string, amountCents: number) => {
+    setBusy(planCode);
+    setError("");
+    try {
+      if (amountCents === 0) {
+        await subscribe(planCode);
+        onReload();
+      } else {
+        const res = await createCheckout(
+          planCode,
+          window.location.origin + "/dashboard?billing=success",
+          window.location.origin + "/dashboard?billing=cancelled",
+        );
+        if (res.free) {
+          onReload();
+        } else if (res.url) {
+          window.open(res.url, "_blank");
+        }
+      }
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setBusy(null);
+  };
+
+  const handleCancel = async () => {
+    setBusy("cancel");
+    setError("");
+    try {
+      await cancelSubscription();
+      onReload();
+    } catch (e: any) {
+      setError(e.message);
+    }
+    setBusy(null);
+  };
+
+  return (
+    <div>
+      {error && (
+        <div className="billing-error" style={{ marginBottom: 12 }}>
+          <AlertCircle className="h-3.5 w-3.5" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      <div className="billing-plans-grid">
+        {plans.map((plan) => {
+          const isCurrent = currentPlan?.code === plan.code;
+          const Icon = PLAN_ICONS[plan.code] || Zap;
+
+          return (
+            <div key={plan.code} className={`billing-plan-card ${isCurrent ? "current" : ""}`}>
+              <div className="billing-plan-header">
+                <div className="billing-plan-icon">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div className="billing-plan-name">{plan.name}</div>
+                {isCurrent && <span className="billing-plan-badge">Current</span>}
+              </div>
+
+              <div className="billing-plan-price">
+                {plan.amount_cents === 0 ? (
+                  <span className="billing-plan-amount">Free</span>
+                ) : (
+                  <>
+                    <span className="billing-plan-amount">{formatCents(plan.amount_cents)}</span>
+                    <span className="billing-plan-interval">/{plan.interval}</span>
+                  </>
+                )}
+              </div>
+
+              <div className="billing-plan-desc">{plan.description}</div>
+
+              <div className="billing-plan-features">
+                {plan.features && Object.entries(plan.features).map(([key, val]) => (
+                  <div key={key} className="billing-plan-feature">
+                    <Check className="h-3 w-3" style={{ color: "var(--color-teal)", flexShrink: 0 }} />
+                    <span>
+                      {val === -1 ? "Unlimited" : val} {key.replace(/_/g, " ")}
+                    </span>
                   </div>
                 ))}
               </div>
-            )}
+
+              <div className="billing-plan-actions">
+                {isCurrent ? (
+                  <button
+                    className="billing-plan-btn current"
+                    onClick={handleCancel}
+                    disabled={busy === "cancel"}
+                  >
+                    {busy === "cancel" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : "Cancel Plan"}
+                  </button>
+                ) : (
+                  <button
+                    className="billing-plan-btn"
+                    onClick={() => handleSubscribe(plan.code, plan.amount_cents)}
+                    disabled={busy === plan.code}
+                  >
+                    {busy === plan.code ? (
+                      <Loader className="h-3.5 w-3.5 animate-spin" />
+                    ) : plan.amount_cents === 0 ? (
+                      "Get Started"
+                    ) : (
+                      <>Subscribe <ChevronRight className="h-3.5 w-3.5" /></>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+//  INVOICES TAB
+// ══════════════════════════════════════════════
+
+function InvoicesTab({ invoices }: { invoices: Invoice[] }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  if (invoices.length === 0) {
+    return (
+      <div className="panel-empty">
+        <Receipt className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-title">No invoices</div>
+        <div className="panel-empty-sub">Invoices will appear here after billing cycles</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="billing-invoices-list">
+      {invoices.map((inv) => (
+        <div key={inv.id} className="billing-invoice-card">
+          <div className="billing-invoice-row" onClick={() => setExpanded(expanded === inv.id ? null : inv.id)}>
+            <div className="billing-invoice-left">
+              <FileText className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
+              <span className="billing-invoice-number">{inv.number}</span>
+            </div>
+            <div className="billing-invoice-center">
+              <span className={`billing-invoice-status ${inv.status}`}>{inv.status}</span>
+              <span className={`billing-invoice-payment ${inv.payment_status}`}>{inv.payment_status}</span>
+            </div>
+            <div className="billing-invoice-right">
+              <span className="billing-invoice-amount">{formatCents(inv.total_cents)}</span>
+              <span className="billing-invoice-date">{formatDate(inv.created_at)}</span>
+            </div>
           </div>
-        </>
+
+          {expanded === inv.id && inv.items && inv.items.length > 0 && (
+            <div className="billing-invoice-details">
+              {inv.items.map((item) => (
+                <div key={item.id} className="billing-invoice-item">
+                  <span className="billing-invoice-item-desc">{item.description}</span>
+                  <span className="billing-invoice-item-amount">{formatCents(item.amount_cents)}</span>
+                </div>
+              ))}
+              {inv.credits_applied_cents > 0 && (
+                <div className="billing-invoice-item credits">
+                  <span className="billing-invoice-item-desc">Credits applied</span>
+                  <span className="billing-invoice-item-amount">-{formatCents(inv.credits_applied_cents)}</span>
+                </div>
+              )}
+              <div className="billing-invoice-item total">
+                <span className="billing-invoice-item-desc">Total due</span>
+                <span className="billing-invoice-item-amount">{formatCents(inv.total_cents)}</span>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+//  WALLET TAB
+// ══════════════════════════════════════════════
+
+function WalletTab({
+  balance, transactions, onReload,
+}: {
+  balance: number | null;
+  transactions: Transaction[];
+  onReload: () => void;
+}) {
+  const [showTopUp, setShowTopUp] = useState(false);
+
+  return (
+    <div>
+      {/* Balance card */}
+      <div className="billing-balance-card">
+        <div className="billing-balance-left">
+          <div className="billing-balance-label">Wallet Balance</div>
+          <div className="billing-balance-amount">${(balance ?? 0).toFixed(2)}</div>
+          <div className="billing-balance-currency">USD — prepaid credits</div>
+        </div>
+        <div className="billing-balance-right">
+          <button className="billing-topup-btn" onClick={() => setShowTopUp(true)}>
+            <Plus className="h-3.5 w-3.5" />
+            Top Up
+          </button>
+        </div>
+      </div>
+
+      {showTopUp && (
+        <TopUpForm
+          onClose={() => setShowTopUp(false)}
+          onSuccess={() => { setShowTopUp(false); onReload(); }}
+        />
       )}
+
+      {/* Transactions */}
+      <div className="billing-section">
+        <div className="billing-section-title">
+          <Receipt className="h-3.5 w-3.5" style={{ display: "inline", marginRight: 6, verticalAlign: "middle" }} />
+          Transactions ({transactions.length})
+        </div>
+
+        {transactions.length === 0 ? (
+          <div className="panel-empty">
+            <CreditCard className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+            <div className="panel-empty-title">No transactions</div>
+            <div className="panel-empty-sub">Top up your balance to get started</div>
+          </div>
+        ) : (
+          <div className="billing-txn-list">
+            {transactions.map((tx) => <TxnRow key={tx.id} tx={tx} />)}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════
+//  SHARED COMPONENTS
+// ══════════════════════════════════════════════
+
+function TxnRow({ tx }: { tx: Transaction }) {
+  return (
+    <div className="billing-txn-row">
+      <div className={`billing-txn-icon ${tx.amount >= 0 ? "in" : "out"}`}>
+        {tx.amount >= 0 ? (
+          <ArrowDownRight className="h-3.5 w-3.5" />
+        ) : (
+          <ArrowUpRight className="h-3.5 w-3.5" />
+        )}
+      </div>
+      <div className="billing-txn-info">
+        <div className="billing-txn-desc">{tx.description || tx.type}</div>
+        <div className="billing-txn-meta">
+          <Clock className="h-2.5 w-2.5" />
+          {formatDateShort(tx.created_at)}
+          {tx.reference && <span>· {tx.reference}</span>}
+        </div>
+      </div>
+      <div className={`billing-txn-amount ${tx.amount >= 0 ? "in" : "out"}`}>
+        {tx.amount >= 0 ? "+" : ""}${Math.abs(tx.amount).toFixed(2)}
+      </div>
     </div>
   );
 }
@@ -183,6 +558,7 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
   const [reference, setReference] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [useStripe, setUseStripe] = useState(false);
 
   const presets = [10, 25, 50, 100];
 
@@ -194,8 +570,20 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
     setBusy(true);
     setError("");
     try {
-      await topUp(num, reference.trim());
-      onSuccess();
+      if (useStripe) {
+        const res = await createTopUpCheckout(
+          Math.round(num * 100),
+          window.location.origin + "/dashboard?topup=success",
+          window.location.origin + "/dashboard?topup=cancelled",
+        );
+        if (res.url) {
+          window.open(res.url, "_blank");
+          onClose();
+        }
+      } else {
+        await topUp(num, reference.trim());
+        onSuccess();
+      }
     } catch (e: any) {
       setError(e.message);
     }
@@ -203,33 +591,31 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
   };
 
   return (
-    <div style={{ padding: 16, background: "var(--sidebar-bg)", borderRadius: 8, marginBottom: 16, border: "1px solid var(--border)" }}>
-      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Top Up Balance</div>
+    <div className="billing-topup-form">
+      <div className="billing-topup-header">
+        <span style={{ fontSize: 13, fontWeight: 600 }}>Top Up Balance</span>
+        <button className="ibtn" onClick={onClose}><X className="h-3.5 w-3.5" /></button>
+      </div>
 
-      {error && (
-        <div style={{ padding: "6px 10px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 10 }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="billing-error" style={{ marginBottom: 10 }}>{error}</div>}
 
-      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+      <div className="billing-topup-presets">
         {presets.map((p) => (
           <button
             key={p}
-            className={amount === String(p) ? "btn-primary" : "btn-secondary"}
+            className={`billing-topup-preset ${amount === String(p) ? "active" : ""}`}
             onClick={() => setAmount(String(p))}
-            style={{ flex: 1 }}
           >
             ${p}
           </button>
         ))}
       </div>
 
-      <div style={{ display: "flex", gap: 10, marginBottom: 12 }}>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 3, display: "block" }}>Amount ($)</label>
+      <div className="billing-topup-fields">
+        <div className="billing-topup-field">
+          <label className="settings-label">Amount ($)</label>
           <input
-            className="deploy-select"
+            className="settings-input"
             type="number"
             min={MIN_TOPUP}
             max={MAX_TOPUP}
@@ -237,26 +623,40 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
             placeholder="0.00"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            style={{ width: "100%" }}
           />
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 3, display: "block" }}>Reference (optional)</label>
+        <div className="billing-topup-field">
+          <label className="settings-label">Reference (optional)</label>
           <input
-            className="deploy-select"
+            className="settings-input"
             placeholder="e.g. invoice #123"
             value={reference}
             onChange={(e) => setReference(e.target.value)}
-            style={{ width: "100%" }}
           />
         </div>
       </div>
 
-      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-        <button className="btn-secondary" onClick={onClose}>Cancel</button>
-        <button className="btn-primary" onClick={handleSubmit} disabled={busy}>
-          {busy ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <DollarSign className="h-3.5 w-3.5" />}
-          <span>{busy ? "Processing..." : `Top Up $${amount || "0"}`}</span>
+      {/* Payment method toggle */}
+      <div className="billing-topup-method">
+        <button
+          className={`billing-topup-method-btn ${!useStripe ? "active" : ""}`}
+          onClick={() => setUseStripe(false)}
+        >
+          <Wallet className="h-3 w-3" /> Wallet Credits
+        </button>
+        <button
+          className={`billing-topup-method-btn ${useStripe ? "active" : ""}`}
+          onClick={() => setUseStripe(true)}
+        >
+          <CreditCard className="h-3 w-3" /> Stripe
+        </button>
+      </div>
+
+      <div className="billing-topup-actions">
+        <button className="billing-topup-cancel" onClick={onClose}>Cancel</button>
+        <button className="billing-topup-submit" onClick={handleSubmit} disabled={busy}>
+          {busy ? <Loader className="h-3.5 w-3.5 animate-spin" /> : useStripe ? <ExternalLink className="h-3.5 w-3.5" /> : <DollarSign className="h-3.5 w-3.5" />}
+          <span>{busy ? "Processing..." : useStripe ? `Pay $${amount || "0"} with Stripe` : `Top Up $${amount || "0"}`}</span>
         </button>
       </div>
     </div>
