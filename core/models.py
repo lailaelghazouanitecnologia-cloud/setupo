@@ -278,6 +278,32 @@ class ZarDeployStatus(BaseModel):
     snapshots: list[str] = Field(default_factory=list)  # Available rollback versions
 
 
+# ── Plugins ─────────────────────────────────────────────────────
+
+class PluginInstallation(BaseModel):
+    """A plugin installed on a project."""
+    id: str                                         # plg_xxxx
+    project_id: str
+    plugin_id: str                                  # e.g. "monitoring", "backups"
+    name: str
+    description: str = ""
+    version: str = "1.0.0"
+    category: str = ""
+    enabled: bool = True
+    config: dict[str, Any] = Field(default_factory=dict)
+    installed_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class InstallPluginRequest(BaseModel):
+    plugin_id: str                                  # Which plugin to install
+    config: dict[str, Any] = Field(default_factory=dict)
+
+
+class UpdatePluginRequest(BaseModel):
+    enabled: Optional[bool] = None
+    config: Optional[dict[str, Any]] = None
+
+
 # ── Capabilities (agent-friendly) ───────────────────────────────
 
 class Capabilities(BaseModel):

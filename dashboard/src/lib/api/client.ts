@@ -258,6 +258,45 @@ export async function zarSelfUpdate(projectId: string, instanceId: string, compo
   );
 }
 
+// ─── Central API: Plugins ───
+
+export interface PluginInfo {
+  plugin_id: string;
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  installed: boolean;
+  enabled: boolean;
+  config: Record<string, any>;
+  installed_at: string | null;
+  id: string | null;
+}
+
+export async function listPlugins(projectId: string) {
+  return centralApi<{ plugins: PluginInfo[] }>(`/api/projects/${projectId}/plugins`);
+}
+
+export async function installPlugin(projectId: string, pluginId: string, config: Record<string, any> = {}) {
+  return centralApi<{ ok: boolean; plugin: PluginInfo }>(`/api/projects/${projectId}/plugins/install`, {
+    method: "POST",
+    body: JSON.stringify({ plugin_id: pluginId, config }),
+  });
+}
+
+export async function updatePlugin(projectId: string, pluginId: string, opts: { enabled?: boolean; config?: Record<string, any> }) {
+  return centralApi<{ ok: boolean; plugin_id: string; updated: string[] }>(`/api/projects/${projectId}/plugins/${pluginId}`, {
+    method: "PATCH",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function uninstallPlugin(projectId: string, pluginId: string) {
+  return centralApi<{ ok: boolean; plugin_id: string }>(`/api/projects/${projectId}/plugins/${pluginId}`, {
+    method: "DELETE",
+  });
+}
+
 // Agent deploy endpoints (direct agent calls, routed via /agent/ prefix by nginx)
 export async function getDeployStatus() {
   return apiCall<any>("/agent/deploy/current");

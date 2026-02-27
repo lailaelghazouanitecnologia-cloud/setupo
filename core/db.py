@@ -113,6 +113,21 @@ async def _migrate(db: aiosqlite.Connection):
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
+        -- Plugins
+        CREATE TABLE IF NOT EXISTS plugins (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            plugin_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            version TEXT DEFAULT '1.0.0',
+            category TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            config TEXT DEFAULT '{}',
+            installed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+
         -- Indexes
         CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
         CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
@@ -121,6 +136,8 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_domains_instance ON domains(instance_id);
         CREATE INDEX IF NOT EXISTS idx_deploy_logs_instance ON deploy_logs(instance_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(project_id, name);
+        CREATE INDEX IF NOT EXISTS idx_plugins_project ON plugins(project_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_plugins_unique ON plugins(project_id, plugin_id);
 
     """)
 
