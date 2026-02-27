@@ -111,10 +111,10 @@ export async function listWorkspaces(projectId: string) {
   return centralApi<{ workspaces: any[] }>(`/api/projects/${projectId}/workspaces`);
 }
 
-export async function createWorkspace(projectId: string, name: string, type = "custom", description = "") {
+export async function createWorkspace(projectId: string, name: string, stack = "node", description = "") {
   return centralApi<any>(`/api/projects/${projectId}/workspaces`, {
     method: "POST",
-    body: JSON.stringify({ name, type, description }),
+    body: JSON.stringify({ name, stack, description }),
   });
 }
 
@@ -124,8 +124,19 @@ export async function deleteWorkspace(projectId: string, name: string) {
   });
 }
 
-export async function getWorkspaceFiles(projectId: string, name: string) {
-  return centralApi<{ files: any[] }>(`/api/projects/${projectId}/workspaces/${name}/files`);
+export async function getWorkspaceFiles(projectId: string, name: string, path = ".") {
+  return centralApi<{ path: string; items: any[] }>(`/api/projects/${projectId}/workspaces/${name}/files?path=${encodeURIComponent(path)}`);
+}
+
+export async function readWorkspaceFile(projectId: string, name: string, path: string) {
+  return centralApi<{ path: string; content: string; size: number }>(`/api/projects/${projectId}/workspaces/${name}/files/read?path=${encodeURIComponent(path)}`);
+}
+
+export async function writeWorkspaceFile(projectId: string, name: string, path: string, content: string) {
+  return centralApi<{ path: string; written: boolean; size: number }>(`/api/projects/${projectId}/workspaces/${name}/files/write`, {
+    method: "POST",
+    body: JSON.stringify({ path, content }),
+  });
 }
 
 // ─── Central API: Instances ───

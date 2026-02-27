@@ -35,6 +35,40 @@ def _ws_path(name: str) -> str:
     return str(settings.workspace_path(name))
 
 
+def _scaffold_workspace(ws_path: str, stack: str, name: str) -> None:
+    """Generate starter files based on stack type.
+
+    Skips if files already exist (e.g. from git clone).
+    """
+    if not stack or stack == "custom":
+        return
+
+    existing = set(os.listdir(ws_path)) if os.path.isdir(ws_path) else set()
+    if existing - {"config.toml", ".git"}:
+        return  # already has content
+
+    os.makedirs(ws_path, exist_ok=True)
+
+    if stack == "node":
+        _write(ws_path, "package.json", f'''{{\n  "name": "{name}",\n  "version": "0.1.0",\n  "private": true,\n  "scripts": {{\n    "dev": "npx serve -l 3000 .",\n    "start": "npx serve -l 3000 ."\n  }}\n}}''')
+        _write(ws_path, "index.html", f'''<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>{name}</title>\n  <style>\n    body {{ font-family: system-ui, sans-serif; margin: 0; padding: 40px; background: #0d1117; color: #c9d1d9; }}\n    h1 {{ color: #58a6ff; }}\n  </style>\n</head>\n<body>\n  <h1>{name}</h1>\n  <p>Workspace ready. Edit files and ship.</p>\n</body>\n</html>''')
+    elif stack == "python":
+        _write(ws_path, "requirements.txt", "fastapi\nuvicorn\n")
+        _write(ws_path, "main.py", f'''from fastapi import FastAPI\n\napp = FastAPI(title="{name}")\n\n@app.get("/")\ndef root():\n    return {{"workspace": "{name}", "status": "running"}}\n''')
+        _write(ws_path, "Procfile", "web: uvicorn main:app --host 0.0.0.0 --port 3000\n")
+    elif stack == "static":
+        _write(ws_path, "index.html", f'''<!DOCTYPE html>\n<html lang="en">\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>{name}</title>\n</head>\n<body>\n  <h1>{name}</h1>\n  <p>Static workspace ready.</p>\n</body>\n</html>''')
+
+
+def _write(base: str, name: str, content: str) -> None:
+    """Write a file only if it doesn't exist."""
+    path = os.path.join(base, name)
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            f.write(content)
+
+
 # ── CRUD ─────────────────────────────────────────────────────────
 
 @router.post("")
@@ -67,6 +101,9 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
             raise HTTPException(500, f"Clone failed: {stdout.decode()}")
     else:
         os.makedirs(ws_path, exist_ok=True)
+
+    # Scaffold starter files based on stack type
+    _scaffold_workspace(ws_path, req.stack, req.name)
 
     # Generate config.toml
     config = WorkspaceConfig(

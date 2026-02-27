@@ -14,8 +14,8 @@ class Settings:
     CONFIG_DIR = Path(os.environ.get("SETUPO_CONFIG_DIR", "/opt/setupo/config"))
     TOKEN_PATH = CONFIG_DIR / "token"
 
-    # Workspaces live in the repo under workspaces/
-    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", str(_PROJECT_ROOT / "workspaces")))
+    # Workspaces live on the VPS, not in the repo
+    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", "/opt/setupo/workspaces"))
 
     # Dev fallbacks
     DEV_DATA_DIR = Path("/tmp/setupo/data")

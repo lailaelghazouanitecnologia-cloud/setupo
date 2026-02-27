@@ -8,8 +8,8 @@ import {
 } from "lucide-react";
 import {
   listProjects, listWorkspaces, createWorkspace,
-  deleteWorkspace as apiDeleteWorkspace, listFiles,
-  zarVersions, listInstances,
+  deleteWorkspace as apiDeleteWorkspace, getWorkspaceFiles,
+  zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
 
@@ -23,9 +23,13 @@ interface Workspace {
   name: string;
   path: string;
   ws_type: string;
+  stack: string;
   description: string;
   branch: string;
   created_at: string;
+  exists: boolean;
+  is_git: boolean;
+  instance_id: string;
 }
 
 export function ProjectsPanel() {
@@ -35,6 +39,7 @@ export function ProjectsPanel() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newStack, setNewStack] = useState("node");
   const [selected, setSelected] = useState<Workspace | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
@@ -83,8 +88,9 @@ export function ProjectsPanel() {
     const name = newName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
     if (!name || !selectedProject) return;
     try {
-      await createWorkspace(selectedProject.id, name);
+      await createWorkspace(selectedProject.id, name, newStack);
       setNewName("");
+      setNewStack("node");
       setCreating(false);
       fetchWorkspaces();
     } catch (e: any) {
@@ -107,20 +113,19 @@ export function ProjectsPanel() {
 
   const selectWorkspace = async (ws: Workspace) => {
     setSelected(ws);
+    if (!selectedProject) return;
     setFilesLoading(true);
     try {
-      const res = await listFiles(ws.path);
+      const res = await getWorkspaceFiles(selectedProject.id, ws.name);
       setSelectedFiles(res.items || []);
     } catch {
       setSelectedFiles([]);
     }
     setFilesLoading(false);
     // Fetch versions info
-    if (selectedProject) {
-      zarVersions(selectedProject.id, ws.name, ws.branch || "main")
-        .then((r) => { setWsVersions(r.versions || []); setWsBranches(r.branches || []); })
-        .catch(() => { setWsVersions([]); setWsBranches([]); });
-    }
+    zarVersions(selectedProject.id, ws.name, ws.branch || "main")
+      .then((r) => { setWsVersions(r.versions || []); setWsBranches(r.branches || []); })
+      .catch(() => { setWsVersions([]); setWsBranches([]); });
   };
 
   return (
@@ -170,24 +175,35 @@ export function ProjectsPanel() {
       {/* Create workspace */}
       {creating && (
         <div className="proj-create">
-          <input
-            className="proj-input"
-            type="text"
-            placeholder="Workspace name (e.g. my-app)"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreate();
-              if (e.key === "Escape") { setCreating(false); setNewName(""); }
-            }}
-            autoFocus
-          />
-          <button className="panel-btn-sm" onClick={handleCreate} disabled={!newName.trim()}>
-            Create
-          </button>
-          <button className="panel-btn-sm" onClick={() => { setCreating(false); setNewName(""); }}>
-            Cancel
-          </button>
+          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+            <input
+              className="proj-input"
+              type="text"
+              placeholder="Workspace name (e.g. my-app)"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleCreate();
+                if (e.key === "Escape") { setCreating(false); setNewName(""); }
+              }}
+              style={{ flex: 1 }}
+              autoFocus
+            />
+            <select className="deploy-select" value={newStack} onChange={(e) => setNewStack(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", minWidth: 90 }}>
+              <option value="node">Node</option>
+              <option value="python">Python</option>
+              <option value="static">Static</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="panel-btn-sm" onClick={handleCreate} disabled={!newName.trim()}>
+              Create
+            </button>
+            <button className="panel-btn-sm" onClick={() => { setCreating(false); setNewName(""); }}>
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -223,17 +239,23 @@ export function ProjectsPanel() {
                 <div className="proj-card-info">
                   <div className="proj-card-name">{ws.name}</div>
                   <div className="proj-card-meta">
-                    {ws.ws_type}{ws.branch ? ` / ${ws.branch}` : ""}
+                    {ws.stack || ws.ws_type}{ws.branch ? ` / ${ws.branch}` : ""}
+                    {ws.is_git && " (git)"}
                   </div>
                 </div>
-                <div className="proj-card-actions">
-                  <button
-                    className="svc-btn red"
-                    title="Delete"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span className={`inst-badge ${ws.exists ? "green" : "yellow"}`}>
+                    {ws.exists ? "ready" : "missing"}
+                  </span>
+                  <div className="proj-card-actions">
+                    <button
+                      className="svc-btn red"
+                      title="Delete"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
