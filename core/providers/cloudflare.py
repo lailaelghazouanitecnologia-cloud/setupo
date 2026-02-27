@@ -1,4 +1,3 @@
-"""Cloudflare API provider — DNS record management."""
 import logging
 
 import httpx
@@ -8,15 +7,10 @@ from core.errors import ProviderError
 logger = logging.getLogger("setupo.cloudflare")
 
 BASE = "https://api.cloudflare.com/client/v4"
+REQUEST_TIMEOUT = 15.0
 
 
 class CloudflareProvider:
-    """Manages DNS records via Cloudflare API.
-
-    Can be initialized with a global token (from env) or per-user token
-    (user provides their own CF API token for their zone).
-    """
-
     def __init__(self, api_token: str):
         self.api_token = api_token
         self._client: httpx.AsyncClient | None = None
@@ -27,7 +21,7 @@ class CloudflareProvider:
             self._client = httpx.AsyncClient(
                 base_url=BASE,
                 headers={"Authorization": f"Bearer {self.api_token}"},
-                timeout=15.0,
+                timeout=REQUEST_TIMEOUT,
             )
         return self._client
 
@@ -48,8 +42,6 @@ class CloudflareProvider:
         except httpx.HTTPError as e:
             raise ProviderError("cloudflare", str(e))
 
-    # ── Zones ────────────────────────────────────────────────────
-
     async def list_zones(self, name: str | None = None) -> list[dict]:
         params = {"per_page": 50}
         if name:
@@ -58,7 +50,6 @@ class CloudflareProvider:
         return data.get("result", [])
 
     async def get_zone_by_domain(self, domain: str) -> dict | None:
-        """Find the zone for a domain (walks up subdomains)."""
         parts = domain.split(".")
         for i in range(len(parts) - 1):
             zone_name = ".".join(parts[i:])
@@ -67,8 +58,6 @@ class CloudflareProvider:
                 return zones[0]
         return None
 
-    # ── DNS Records ──────────────────────────────────────────────
-
     async def create_dns_record(
         self,
         zone_id: str,
@@ -76,7 +65,7 @@ class CloudflareProvider:
         name: str,
         content: str,
         proxied: bool = False,
-        ttl: int = 1,  # 1 = auto
+        ttl: int = 1,
     ) -> dict:
         data = await self._request("POST", f"/zones/{zone_id}/dns_records", json={
             "type": record_type,

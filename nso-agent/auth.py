@@ -1,4 +1,3 @@
-"""NSO Agent — Admin authentication via JWT."""
 import hashlib
 import hmac
 import json
@@ -14,37 +13,32 @@ from pydantic import BaseModel
 
 logger = logging.getLogger("nso-agent.auth")
 
-# Admin credentials — loaded from env or defaults
 ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@setupo.dev")
 ADMIN_PASSWORD_HASH = os.environ.get("NSO_ADMIN_PASSWORD_HASH", "")
 
-# JWT secret — generated per-boot if not set
 JWT_SECRET = os.environ.get("NSO_JWT_SECRET", secrets.token_hex(32))
-JWT_EXPIRY = 86400 * 7  # 7 days
+JWT_EXPIRY_SECONDS = 86400 * 7
+PBKDF2_ITERATIONS = 100_000
 
 
 def _hash_password(password: str) -> str:
-    """Hash password with PBKDF2-SHA256."""
     salt = secrets.token_hex(16)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
     return f"{salt}:{dk.hex()}"
 
 
 def _verify_password(password: str, stored: str) -> bool:
-    """Verify password against PBKDF2-SHA256 hash."""
     if ":" not in stored:
         return False
     salt, hash_hex = stored.split(":", 1)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 100_000)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
     return hmac.compare_digest(dk.hex(), hash_hex)
 
 
-# Pre-hash the default password at module load — matches API server password
 _DEFAULT_HASH = _hash_password("zarnlok4123")
 
 
 def get_password_hash() -> str:
-    """Get the admin password hash (from env or default)."""
     return ADMIN_PASSWORD_HASH or _DEFAULT_HASH
 
 
@@ -60,12 +54,11 @@ def _b64decode_json(s: str) -> dict:
 
 
 def create_token(email: str) -> str:
-    """Create a simple JWT-like token (HS256)."""
     header = _b64encode_json({"alg": "HS256", "typ": "JWT"})
     payload = _b64encode_json({
         "sub": email,
         "iat": int(time.time()),
-        "exp": int(time.time()) + JWT_EXPIRY,
+        "exp": int(time.time()) + JWT_EXPIRY_SECONDS,
     })
     signing_input = f"{header}.{payload}"
     sig = hmac.new(JWT_SECRET.encode(), signing_input.encode(), hashlib.sha256).digest()
@@ -74,7 +67,6 @@ def create_token(email: str) -> str:
 
 
 def verify_token(token: str) -> Optional[dict]:
-    """Verify and decode a JWT token. Returns payload or None."""
     try:
         parts = token.split(".")
         if len(parts) != 3:
@@ -92,9 +84,6 @@ def verify_token(token: str) -> Optional[dict]:
     except Exception:
         return None
 
-
-# ── Login / auth models ──────────────────────────────────────────
-
 class LoginRequest(BaseModel):
     email: str
     password: str
@@ -110,27 +99,22 @@ class AdminUser(BaseModel):
     email: str
     role: str = "admin"
 
+BEARER_PREFIX_LEN = 7
 
-# ── Dependency: require admin auth ───────────────────────────────
 
 async def require_admin(request: Request) -> AdminUser:
-    """FastAPI dependency — extracts and verifies the Bearer token."""
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(401, "Missing or invalid Authorization header")
 
-    token = auth_header[7:]
+    token = auth_header[BEARER_PREFIX_LEN:]
     payload = verify_token(token)
     if not payload:
         raise HTTPException(401, "Invalid or expired token")
 
     return AdminUser(email=payload["sub"])
 
-
-# ── Login handler ────────────────────────────────────────────────
-
 def authenticate(email: str, password: str) -> Optional[str]:
-    """Authenticate admin and return token, or None."""
     if email != ADMIN_EMAIL:
         return None
     if not _verify_password(password, get_password_hash()):

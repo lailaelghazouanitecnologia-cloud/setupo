@@ -1,4 +1,3 @@
-"""Instance type definitions — what each type provisions."""
 import base64
 from pathlib import Path
 
@@ -6,8 +5,6 @@ from server.config import settings
 
 CLOUD_INIT_DIR = Path(__file__).parent.parent.parent / "base"
 
-
-# Default cloud-init scripts per instance type
 INSTANCE_CONFIGS = {
     "setup": {
         "description": "Basic server with nginx, SSL-ready, optimized for quick deploy",
@@ -24,7 +21,7 @@ INSTANCE_CONFIGS = {
     "gpu": {
         "description": "GPU-powered instance for ML/AI workloads (Runpod)",
         "default_plan": "gpu-a40",
-        "cloud_init": None,  # Runpod handles this
+        "cloud_init": None,
         "features": ["cuda", "python", "pytorch", "jupyter"],
     },
     "custom": {
@@ -37,7 +34,6 @@ INSTANCE_CONFIGS = {
 
 
 def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
-    """Load and customize cloud-init for an instance type."""
     config = INSTANCE_CONFIGS.get(instance_type, INSTANCE_CONFIGS["custom"])
     template_name = config.get("cloud_init")
 
@@ -50,17 +46,20 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
 
     content = template_path.read_text()
 
-    # Replace placeholders
-    content = content.replace("{{DOMAIN}}", domain or "localhost")
-    content = content.replace("{{VULTR_API_KEY}}", settings.VULTR_API_KEY)
-    content = content.replace("{{CF_API_TOKEN}}", settings.CF_API_TOKEN)
-    content = content.replace("{{ADMIN_EMAIL}}", settings.ADMIN_EMAIL)
-    content = content.replace("{{GIT_BRANCH}}", "claude/zarnight-3YWf0")
-    content = content.replace("{{R2_ENDPOINT}}", settings.R2_ENDPOINT)
-    content = content.replace("{{R2_ACCESS_KEY_ID}}", settings.R2_ACCESS_KEY_ID)
-    content = content.replace("{{R2_SECRET_ACCESS_KEY}}", settings.R2_SECRET_ACCESS_KEY)
-    content = content.replace("{{R2_BUCKET}}", settings.R2_BUCKET)
-    content = content.replace("{{ADMIN_PASSWORD}}", settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD)
+    replacements = {
+        "{{DOMAIN}}": domain or "localhost",
+        "{{VULTR_API_KEY}}": settings.VULTR_API_KEY,
+        "{{CF_API_TOKEN}}": settings.CF_API_TOKEN,
+        "{{ADMIN_EMAIL}}": settings.ADMIN_EMAIL,
+        "{{GIT_BRANCH}}": "main",
+        "{{R2_ENDPOINT}}": settings.R2_ENDPOINT,
+        "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,
+        "{{R2_SECRET_ACCESS_KEY}}": settings.R2_SECRET_ACCESS_KEY,
+        "{{R2_BUCKET}}": settings.R2_BUCKET,
+        "{{ADMIN_PASSWORD}}": settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD,
+    }
+    for placeholder, value in replacements.items():
+        content = content.replace(placeholder, value)
 
     return base64.b64encode(content.encode()).decode()
 

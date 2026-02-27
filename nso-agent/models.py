@@ -1,4 +1,3 @@
-"""NSO Agent — Data models."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,11 +6,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 
-
-# ── Installation stages ──────────────────────────────────────────
-
 class Stage(str, Enum):
-    """Installation stages in order."""
     BOOTING = "booting"
     FIREWALL = "firewall"
     PACKAGES = "packages"
@@ -40,11 +35,7 @@ STAGE_ORDER: list[tuple[Stage, int]] = [
 
 STAGE_PROGRESS = {stage: pct for stage, pct in STAGE_ORDER}
 
-
-# ── Metrics models ───────────────────────────────────────────────
-
 class MetricReport(BaseModel):
-    """What the VPS sends to report its status."""
     instance_id: str
     token: str
     stage: Stage
@@ -54,7 +45,6 @@ class MetricReport(BaseModel):
 
 
 class StageInfo(BaseModel):
-    """Status of a single installation stage."""
     name: str
     status: str = "pending"
     started_at: Optional[str] = None
@@ -64,7 +54,6 @@ class StageInfo(BaseModel):
 
 
 class InstanceMetrics(BaseModel):
-    """Full metrics for an instance installation."""
     instance_id: str
     current_stage: str = "booting"
     progress: int = 0
@@ -75,9 +64,6 @@ class InstanceMetrics(BaseModel):
     elapsed_s: float = 0
     estimated_remaining_s: float = 0
     error: Optional[str] = None
-
-
-# ── Health ───────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
     service: str = "nso-agent"

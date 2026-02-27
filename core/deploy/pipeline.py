@@ -1,8 +1,3 @@
-"""Deploy pipeline — detect stack, install deps, start app on instance.
-
-Reads config.toml from the workspace when available to determine stack,
-start command, port, and environment variables.
-"""
 import logging
 
 from core import db
@@ -16,8 +11,42 @@ from server.config import settings
 logger = logging.getLogger("setupo.deploy")
 
 
+DEPS_INSTALL_TIMEOUT = 300
+REMOTE_APP_DIR = "/opt/app"
+DEFAULT_PORT = 3000
+
+STACK_CHECKS = [
+    ("package.json", "node"),
+    ("requirements.txt", "python"),
+    ("Pipfile", "python"),
+    ("pyproject.toml", "python"),
+    ("go.mod", "go"),
+    ("Cargo.toml", "rust"),
+    ("Dockerfile", "docker"),
+    ("docker-compose.yml", "docker"),
+    ("index.html", "static"),
+]
+
+INSTALL_COMMANDS = {
+    "node": "npm install --production 2>&1",
+    "python": "pip install -r requirements.txt 2>&1",
+    "go": "go build ./... 2>&1",
+    "rust": "cargo build --release 2>&1",
+    "docker": "docker compose up -d --build 2>&1",
+    "static": "echo 'No deps for static site'",
+}
+
+DEFAULT_START_COMMANDS = {
+    "node": "npm start",
+    "python": "python main.py",
+    "go": "./main",
+    "rust": "./target/release/*",
+    "docker": "docker compose up -d",
+    "static": "echo 'Static site served by nginx'",
+}
+
+
 async def _log(instance_id: str, message: str, level: str = "info"):
-    """Add a deploy log entry."""
     await db.insert("deploy_logs", {
         "instance_id": instance_id,
         "level": level,
@@ -33,12 +62,6 @@ async def deploy_to_instance(
     branch: str = "main",
     command: str | None = None,
 ) -> dict:
-    """Full deploy pipeline: sync → detect → install → start.
-
-    Reads config.toml from the workspace for stack/command/port/env overrides.
-    Returns deploy status dict.
-    """
-    # Validate instance
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
         raise NotFoundError("Instance", instance_id)
@@ -49,16 +72,14 @@ async def deploy_to_instance(
     if not ip:
         raise ProviderError("deploy", "Instance has no IP")
 
-    # Validate workspace
     ws = await db.fetch_one("workspaces", project_id=project_id, name=workspace_name)
     if not ws:
         raise NotFoundError("Workspace", workspace_name)
 
-    # Read config.toml for deploy settings
     ws_config = read_config(ws["path"])
     config_stack = ws_config.type if ws_config else None
     config_command = ws_config.deploy.command if ws_config else None
-    config_port = ws_config.deploy.port if ws_config else 3000
+    config_port = ws_config.deploy.port if ws_config else DEFAULT_PORT
     config_env = ws_config.deploy.env if ws_config else {}
     config_domain = None
     if ws_config and ws_config.services.get("nginx"):
@@ -66,23 +87,20 @@ async def deploy_to_instance(
 
     keys_dir = settings.keys_dir(project_id)
     key_path = str(keys_dir / "id_ed25519")
-    remote_dir = "/opt/app"
+    remote_dir = REMOTE_APP_DIR
 
-    # Update state
     await db.update("instances", instance_id, {
         "state": InstanceState.DEPLOYING.value,
         "workspace": workspace_name,
     })
 
     try:
-        # 1. Sync files
         await _log(instance_id, f"Syncing workspace '{workspace_name}' to {ip}:{remote_dir}")
         ok, sync_output = await sync_workspace(ws["path"], ip, key_path, remote_dir)
         if not ok:
             raise ProviderError("deploy", f"File sync failed: {sync_output}")
         await _log(instance_id, "Files synced successfully")
 
-        # 2. Detect stack (config.toml overrides auto-detection)
         if config_stack and config_stack != "custom":
             stack = config_stack
             await _log(instance_id, f"Stack from config.toml: {stack}")
@@ -91,29 +109,24 @@ async def deploy_to_instance(
             stack = await _detect_stack(ip, key_path, remote_dir)
             await _log(instance_id, f"Detected stack: {stack}")
 
-        # 3. Install dependencies
         await _log(instance_id, "Installing dependencies...")
         await _install_deps(ip, key_path, remote_dir, stack)
         await _log(instance_id, "Dependencies installed")
 
-        # 4. Set env vars on instance if config.toml has them
         if config_env:
             await _log(instance_id, f"Setting {len(config_env)} env vars from config.toml")
             env_lines = "\n".join(f"{k}={v}" for k, v in config_env.items())
             await run_ssh_command(ip, f"cat >> {remote_dir}/.env << 'ENVEOF'\n{env_lines}\nENVEOF", key_path)
 
-        # 5. Start application
         start_cmd = command or config_command or _default_start_command(stack)
         await _log(instance_id, f"Starting app: {start_cmd}")
-        port = config_port or 3000
+        port = config_port or DEFAULT_PORT
         await _start_app(ip, key_path, remote_dir, start_cmd, port=port, env_vars=config_env)
 
-        # 6. Configure nginx reverse proxy for the user app
         domain = config_domain or inst.get("domain")
         await _log(instance_id, "Configuring nginx for app...")
         await _setup_app_nginx(ip, key_path, domain, stack, port=port)
 
-        # 6. Setup SSL if domain is configured
         if domain:
             await _log(instance_id, f"Setting up SSL for {domain}...")
             from core.instances.provisioner import setup_ssl
@@ -150,19 +163,7 @@ async def deploy_to_instance(
 
 
 async def _detect_stack(ip: str, key_path: str, remote_dir: str) -> str:
-    """Detect the project stack by checking for config files."""
-    checks = [
-        ("package.json", "node"),
-        ("requirements.txt", "python"),
-        ("Pipfile", "python"),
-        ("pyproject.toml", "python"),
-        ("go.mod", "go"),
-        ("Cargo.toml", "rust"),
-        ("Dockerfile", "docker"),
-        ("docker-compose.yml", "docker"),
-        ("index.html", "static"),
-    ]
-    for filename, stack in checks:
+    for filename, stack in STACK_CHECKS:
         output, code = await run_ssh_command(ip, f"test -f {remote_dir}/{filename} && echo yes", key_path)
         if code == 0 and "yes" in output:
             return stack
@@ -170,36 +171,21 @@ async def _detect_stack(ip: str, key_path: str, remote_dir: str) -> str:
 
 
 async def _install_deps(ip: str, key_path: str, remote_dir: str, stack: str):
-    """Install dependencies based on detected stack."""
-    commands = {
-        "node": f"cd {remote_dir} && npm install --production 2>&1",
-        "python": f"cd {remote_dir} && pip install -r requirements.txt 2>&1",
-        "go": f"cd {remote_dir} && go build ./... 2>&1",
-        "rust": f"cd {remote_dir} && cargo build --release 2>&1",
-        "docker": f"cd {remote_dir} && docker compose up -d --build 2>&1",
-        "static": "echo 'No deps for static site'",
-    }
-    cmd = commands.get(stack)
-    if cmd:
-        output, code = await run_ssh_command(ip, cmd, key_path, timeout=300)
+    base_cmd = INSTALL_COMMANDS.get(stack)
+    if not base_cmd:
+        return
+    cmd = f"cd {remote_dir} && {base_cmd}" if stack != "static" else base_cmd
+    output, code = await run_ssh_command(ip, cmd, key_path, timeout=DEPS_INSTALL_TIMEOUT)
+    if code != 0:
         if code != 0:
             raise ProviderError("deploy", f"Dependency install failed (exit {code}): {output[-500:]}")
 
 
 def _default_start_command(stack: str) -> str:
-    """Default start command based on stack."""
-    return {
-        "node": "npm start",
-        "python": "python main.py",
-        "go": "./main",
-        "rust": "./target/release/*",
-        "docker": "docker compose up -d",
-        "static": "echo 'Static site served by nginx'",
-    }.get(stack, "echo 'Unknown stack'")
+    return DEFAULT_START_COMMANDS.get(stack, "echo 'Unknown stack'")
 
 
-async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: str, port: int = 3000):
-    """Configure nginx on the instance to reverse-proxy the user's app."""
+async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: str, port: int = DEFAULT_PORT):
     server_name = domain or "_"
     if stack == "static":
         location_block = """
@@ -231,8 +217,7 @@ async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: st
     await run_ssh_command(ip, "nginx -t && systemctl reload nginx", key_path)
 
 
-async def _start_app(ip: str, key_path: str, remote_dir: str, command: str, port: int = 3000, env_vars: dict | None = None):
-    """Start the app as a background process via systemd."""
+async def _start_app(ip: str, key_path: str, remote_dir: str, command: str, port: int = DEFAULT_PORT, env_vars: dict | None = None):
     env_lines = [
         f"Environment=NODE_ENV=production",
         f"Environment=PORT={port}",
@@ -256,14 +241,15 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 """
-    # Write service file and start
     write_cmd = f"cat > /etc/systemd/system/setupo-app.service << 'SERVICEEOF'\n{service}\nSERVICEEOF"
     await run_ssh_command(ip, write_cmd, key_path)
     await run_ssh_command(ip, "systemctl daemon-reload && systemctl enable setupo-app && systemctl restart setupo-app", key_path)
 
 
-async def get_deploy_logs(instance_id: str, limit: int = 100) -> list[dict]:
-    """Get deploy logs for an instance."""
+LOG_FETCH_LIMIT = 100
+
+
+async def get_deploy_logs(instance_id: str, limit: int = LOG_FETCH_LIMIT) -> list[dict]:
     database = await db.get_db()
     cursor = await database.execute(
         "SELECT * FROM deploy_logs WHERE instance_id = ? ORDER BY id DESC LIMIT ?",

@@ -1,8 +1,3 @@
-"""NSO Agent — Secrets management (.env file CRUD).
-
-Proper API for managing environment variables in .env files.
-No shell commands — all file I/O through Python.
-"""
 import logging
 import re
 from pathlib import Path
@@ -17,12 +12,8 @@ logger = logging.getLogger("nso-agent.secrets")
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 
 ENV_FILE = Path("/opt/setupo/.env")
-
-# Key validation: uppercase letters, digits, underscores
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
-
-# ── Models ───────────────────────────────────────────────────────
 
 class SecretItem(BaseModel):
     key: str
@@ -31,15 +22,13 @@ class SecretItem(BaseModel):
 
 
 class SecretAddRequest(BaseModel):
-    key: str = Field(..., description="Secret key (uppercase, letters/digits/underscores)")
-    value: str = Field(..., description="Secret value")
+    key: str
+    value: str
 
 
 class SecretUpdateRequest(BaseModel):
-    value: str = Field(..., description="New value for the secret")
+    value: str
 
-
-# ── Bucket classification ────────────────────────────────────────
 
 BUCKETS = [
     {"name": "auth", "label": "Authentication", "prefixes": ["SETUPO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_"]},
@@ -55,11 +44,7 @@ def _classify(key: str) -> str:
             return bucket["name"]
     return "custom"
 
-
-# ── Helpers ──────────────────────────────────────────────────────
-
 def _read_env() -> list[SecretItem]:
-    """Parse the .env file into a list of secrets."""
     if not ENV_FILE.exists():
         return []
     items = []
@@ -75,31 +60,22 @@ def _read_env() -> list[SecretItem]:
 
 
 def _write_env(items: list[SecretItem]) -> None:
-    """Write secrets back to the .env file, preserving comments."""
     lines: list[str] = []
-    # Preserve existing comments and blank lines
     if ENV_FILE.exists():
         for line in ENV_FILE.read_text().splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 lines.append(line)
-            # Skip non-comment lines — they'll be rewritten from items
-    # Write all secrets
     if lines and lines[-1] != "":
-        lines.append("")  # blank separator before secrets
+        lines.append("")
     for item in items:
         lines.append(f"{item.key}={item.value}")
-    lines.append("")  # trailing newline
+    lines.append("")
     ENV_FILE.write_text("\n".join(lines))
-
-
-# ── Endpoints ────────────────────────────────────────────────────
 
 @router.get("")
 async def list_secrets(admin: AdminUser = Depends(require_admin)):
-    """List all secrets grouped by bucket."""
     items = _read_env()
-    # Group by bucket
     grouped: dict[str, list[dict]] = {}
     for item in items:
         bucket = item.bucket
@@ -115,7 +91,6 @@ async def list_secrets(admin: AdminUser = Depends(require_admin)):
 
 @router.post("")
 async def add_secret(req: SecretAddRequest, admin: AdminUser = Depends(require_admin)):
-    """Add a new secret."""
     key = req.key.strip().upper().replace(" ", "_")
     value = req.value.strip()
 
@@ -138,7 +113,6 @@ async def add_secret(req: SecretAddRequest, admin: AdminUser = Depends(require_a
 
 @router.put("/{key}")
 async def update_secret(key: str, req: SecretUpdateRequest, admin: AdminUser = Depends(require_admin)):
-    """Update an existing secret's value."""
     key = key.upper()
     items = _read_env()
     found = False
@@ -157,7 +131,6 @@ async def update_secret(key: str, req: SecretUpdateRequest, admin: AdminUser = D
 
 @router.delete("/{key}")
 async def delete_secret(key: str, admin: AdminUser = Depends(require_admin)):
-    """Remove a secret."""
     key = key.upper()
     items = _read_env()
     new_items = [i for i in items if i.key != key]
@@ -171,5 +144,4 @@ async def delete_secret(key: str, admin: AdminUser = Depends(require_admin)):
 
 @router.get("/buckets")
 async def list_buckets(admin: AdminUser = Depends(require_admin)):
-    """List available bucket definitions."""
     return {"buckets": BUCKETS + [{"name": "custom", "label": "Custom", "prefixes": []}]}

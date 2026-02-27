@@ -1,11 +1,7 @@
-"""NSO Agent — Lightweight storage for installation metrics.
-
-Uses SQLite for persistence. Each instance gets a row with JSON stages + logs.
-"""
 import json
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import aiosqlite
@@ -23,6 +19,7 @@ logger = logging.getLogger("nso-agent.store")
 
 DB_PATH = Path("/opt/setupo/data/metrics.db")
 DEV_DB_PATH = Path("/tmp/setupo/metrics.db")
+MAX_LOG_ENTRIES = 500
 
 _db: aiosqlite.Connection | None = None
 
@@ -75,7 +72,6 @@ async def count_tracked() -> int:
 
 
 def _build_initial_stages() -> list[dict]:
-    """Build the initial stages list with all pending."""
     return [
         StageInfo(name=stage.value).model_dump()
         for stage, _ in STAGE_ORDER
@@ -83,11 +79,10 @@ def _build_initial_stages() -> list[dict]:
 
 
 def _now() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 async def register_instance(instance_id: str, token: str):
-    """Register a new instance for tracking. Called when instance is created."""
     now = _now()
     stages = _build_initial_stages()
     await _db.execute(
@@ -100,7 +95,6 @@ async def register_instance(instance_id: str, token: str):
 
 
 async def verify_token(instance_id: str, token: str) -> bool:
-    """Verify the provision token for an instance."""
     cursor = await _db.execute(
         "SELECT token FROM instance_metrics WHERE instance_id = ?",
         (instance_id,),
@@ -112,14 +106,12 @@ async def verify_token(instance_id: str, token: str) -> bool:
 
 
 async def report(data: MetricReport) -> InstanceMetrics:
-    """Process a metric report from a VPS instance."""
     cursor = await _db.execute(
         "SELECT * FROM instance_metrics WHERE instance_id = ?",
         (data.instance_id,),
     )
     row = await cursor.fetchone()
     if not row:
-        # Auto-register if not found (first report acts as registration)
         await register_instance(data.instance_id, data.token)
         cursor = await _db.execute(
             "SELECT * FROM instance_metrics WHERE instance_id = ?",
@@ -131,7 +123,6 @@ async def report(data: MetricReport) -> InstanceMetrics:
     stages = json.loads(row["stages"])
     logs = json.loads(row["logs"])
 
-    # Update stages
     stage_progress = STAGE_PROGRESS.get(data.stage, data.progress)
     progress = max(stage_progress, data.progress)
 
@@ -150,7 +141,6 @@ async def report(data: MetricReport) -> InstanceMetrics:
                     s["duration_s"] = round((finished - started).total_seconds(), 1)
             break
 
-    # Mark previous stages as done
     stage_names = [st.value for st, _ in STAGE_ORDER]
     current_idx = stage_names.index(data.stage.value) if data.stage.value in stage_names else -1
     for i, s in enumerate(stages):
@@ -159,20 +149,17 @@ async def report(data: MetricReport) -> InstanceMetrics:
             if not s["finished_at"]:
                 s["finished_at"] = now
 
-    # Add log entry
     log_entry = f"{now} [{data.stage.value}] {data.message}"
     logs.append(log_entry)
-    if len(logs) > 500:
-        logs = logs[-500:]
+    if len(logs) > MAX_LOG_ENTRIES:
+        logs = logs[-MAX_LOG_ENTRIES:]
 
-    # Calculate finished_at
     finished_at = row["finished_at"]
     error = row["error"]
     if data.stage == Stage.READY:
         finished_at = now
     if data.stage == Stage.ERROR or data.error:
         error = data.error or data.message
-        # Mark current stage as error
         for s in stages:
             if s["name"] == data.stage.value:
                 s["status"] = "error"
@@ -193,7 +180,6 @@ async def report(data: MetricReport) -> InstanceMetrics:
 
 
 async def get_metrics(instance_id: str) -> InstanceMetrics | None:
-    """Get full metrics for an instance."""
     cursor = await _db.execute(
         "SELECT * FROM instance_metrics WHERE instance_id = ?",
         (instance_id,),
@@ -206,7 +192,6 @@ async def get_metrics(instance_id: str) -> InstanceMetrics | None:
     stages = json.loads(row["stages"])
     logs = json.loads(row["logs"])
 
-    # Calculate elapsed time
     elapsed = 0.0
     estimated = 0.0
     if row["started_at"]:
@@ -215,8 +200,7 @@ async def get_metrics(instance_id: str) -> InstanceMetrics | None:
             finished = datetime.fromisoformat(row["finished_at"])
             elapsed = (finished - started).total_seconds()
         else:
-            elapsed = (datetime.utcnow() - started).total_seconds()
-            # Estimate remaining based on progress
+            elapsed = (datetime.now(timezone.utc) - started).total_seconds()
             progress = row["progress"] or 1
             if progress > 0:
                 total_estimated = elapsed / (progress / 100)
@@ -237,7 +221,6 @@ async def get_metrics(instance_id: str) -> InstanceMetrics | None:
 
 
 async def delete_metrics(instance_id: str):
-    """Remove metrics for an instance."""
     await _db.execute(
         "DELETE FROM instance_metrics WHERE instance_id = ?",
         (instance_id,),

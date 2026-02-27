@@ -1,13 +1,11 @@
-"""Instance manager — full lifecycle: create → provision → ready → deploy → destroy."""
 import asyncio
 import logging
 import secrets
-from datetime import datetime
-from pathlib import Path
+from datetime import datetime, timezone
 
 from core import db
 from core.errors import NotFoundError, ProviderError
-from core.models import Instance, InstanceState, InstanceType, CreateInstanceRequest, Provider
+from core.models import Instance, InstanceState, CreateInstanceRequest, Provider
 from core.providers.vultr import VultrProvider
 from core.instances.types import get_cloud_init
 from core.instances.provisioner import wait_for_ssh
@@ -15,13 +13,17 @@ from server.config import settings
 
 logger = logging.getLogger("setupo.instances")
 
+VPS_POLL_INTERVAL = 5
+VPS_POLL_MAX_ATTEMPTS = 60
+SSH_WAIT_TIMEOUT = 180
+AGENT_LOGIN_TIMEOUT = 10
+
 
 def _gen_id() -> str:
     return f"inst_{secrets.token_hex(8)}"
 
 
 async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
-    """Generate an Ed25519 SSH key pair for this project. Returns (private_path, public_key)."""
     keys_dir = settings.keys_dir(project_id)
     priv = keys_dir / "id_ed25519"
     pub = keys_dir / "id_ed25519.pub"
@@ -34,12 +36,10 @@ async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
         )
         await proc.communicate()
 
-    public_key = pub.read_text().strip()
-    return str(priv), public_key
+    return str(priv), pub.read_text().strip()
 
 
 async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instance:
-    """Create a new instance — provisions VPS and starts background setup."""
     instance_id = _gen_id()
 
     instance = Instance(
@@ -53,7 +53,7 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         domain=req.domain,
         workspace=req.workspace,
         state=InstanceState.CREATING,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
 
     await db.insert("instances", {
@@ -77,21 +77,15 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         "ready_at": None,
     })
 
-    # Start provisioning in background
     asyncio.create_task(_provision_instance(project_id, instance_id, req))
-
     logger.info("Created instance %s (type=%s) for project %s", instance_id, req.type.value, project_id)
     return instance
 
 
 async def _provision_instance(project_id: str, instance_id: str, req: CreateInstanceRequest):
-    """Background task: create VPS on Vultr, wait for SSH, mark ready."""
     vultr = VultrProvider()
     try:
-        # Generate SSH key
         priv_path, pub_key = await _generate_ssh_key(project_id)
-
-        # Register SSH key with Vultr
         ssh_key = await vultr.create_ssh_key(f"setupo-{project_id}", pub_key)
         ssh_key_id = ssh_key.get("id", "")
 
@@ -100,10 +94,8 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
             "state": InstanceState.PROVISIONING.value,
         })
 
-        # Get cloud-init script
         user_data = get_cloud_init(req.type.value, domain=req.domain)
 
-        # Create the VPS
         vps = await vultr.create_instance(
             region=req.region,
             plan=req.plan,
@@ -115,14 +107,11 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
         )
 
         provider_id = vps.get("id", "")
-        await db.update("instances", instance_id, {
-            "provider_id": provider_id,
-        })
+        await db.update("instances", instance_id, {"provider_id": provider_id})
 
-        # Poll Vultr until instance has IP and is active
         ip = None
-        for _ in range(60):  # Max 5 min
-            await asyncio.sleep(5)
+        for _ in range(VPS_POLL_MAX_ATTEMPTS):
+            await asyncio.sleep(VPS_POLL_INTERVAL)
             data = await vultr.get_instance(provider_id)
             if not data:
                 continue
@@ -138,15 +127,13 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
 
         await db.update("instances", instance_id, {"ip": ip})
 
-        # Wait for SSH to be reachable
-        ssh_ok = await wait_for_ssh(ip, timeout=180)
+        ssh_ok = await wait_for_ssh(ip, timeout=SSH_WAIT_TIMEOUT)
         if not ssh_ok:
             raise ProviderError("vultr", f"SSH not reachable at {ip}")
 
-        # Mark as ready
         await db.update("instances", instance_id, {
             "state": InstanceState.READY.value,
-            "ready_at": datetime.utcnow().isoformat(),
+            "ready_at": datetime.now(timezone.utc).isoformat(),
         })
 
         logger.info("Instance %s is READY at %s", instance_id, ip)
@@ -177,10 +164,8 @@ async def delete_instance(project_id: str, instance_id: str):
     if not inst or inst["project_id"] != project_id:
         raise NotFoundError("Instance", instance_id)
 
-    # Mark as destroying
     await db.update("instances", instance_id, {"state": InstanceState.DESTROYING.value})
 
-    # Destroy on Vultr
     if inst.get("provider_id"):
         vultr = VultrProvider()
         try:
@@ -190,7 +175,6 @@ async def delete_instance(project_id: str, instance_id: str):
         finally:
             await vultr.close()
 
-    # Clean up SSH key on Vultr
     if inst.get("ssh_key_id"):
         vultr = VultrProvider()
         try:
@@ -200,7 +184,6 @@ async def delete_instance(project_id: str, instance_id: str):
         finally:
             await vultr.close()
 
-    # Delete domain records
     await db.delete_where("domains", instance_id=instance_id)
     await db.delete_where("deploy_logs", instance_id=instance_id)
     await db.delete("instances", instance_id)
@@ -209,28 +192,29 @@ async def delete_instance(project_id: str, instance_id: str):
 
 async def stop_instance(project_id: str, instance_id: str):
     inst = await get_instance(project_id, instance_id)
-    if inst.get("provider_id"):
-        vultr = VultrProvider()
-        try:
-            await vultr.stop_instance(inst["provider_id"])
-            await db.update("instances", instance_id, {"state": InstanceState.STOPPED.value})
-        finally:
-            await vultr.close()
+    if not inst.get("provider_id"):
+        return
+    vultr = VultrProvider()
+    try:
+        await vultr.stop_instance(inst["provider_id"])
+        await db.update("instances", instance_id, {"state": InstanceState.STOPPED.value})
+    finally:
+        await vultr.close()
 
 
 async def start_instance(project_id: str, instance_id: str):
     inst = await get_instance(project_id, instance_id)
-    if inst.get("provider_id"):
-        vultr = VultrProvider()
-        try:
-            await vultr.start_instance(inst["provider_id"])
-            await db.update("instances", instance_id, {"state": InstanceState.READY.value})
-        finally:
-            await vultr.close()
+    if not inst.get("provider_id"):
+        return
+    vultr = VultrProvider()
+    try:
+        await vultr.start_instance(inst["provider_id"])
+        await db.update("instances", instance_id, {"state": InstanceState.READY.value})
+    finally:
+        await vultr.close()
 
 
 async def _agent_login(ip: str) -> str:
-    """Login to the NSO agent on an instance, return JWT token."""
     import httpx
 
     email = settings.ADMIN_EMAIL
@@ -238,7 +222,7 @@ async def _agent_login(ip: str) -> str:
     if not password:
         raise ProviderError("agent", "AGENT_ADMIN_PASSWORD not configured")
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with httpx.AsyncClient(timeout=AGENT_LOGIN_TIMEOUT) as client:
         resp = await client.post(
             f"http://{ip}:8081/auth/login",
             json={"email": email, "password": password},
@@ -249,7 +233,6 @@ async def _agent_login(ip: str) -> str:
 
 
 async def exec_on_instance(project_id: str, instance_id: str, command: str, timeout: int = 60) -> tuple[str, int]:
-    """Execute a command on the instance via the NSO agent HTTP API."""
     import httpx
 
     inst = await get_instance(project_id, instance_id)

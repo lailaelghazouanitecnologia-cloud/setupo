@@ -1,10 +1,12 @@
-"""Workspace sync — upload workspace files to an instance via rsync/scp."""
 import asyncio
 import logging
 
 from core.instances.provisioner import scp_upload, run_ssh_command
 
 logger = logging.getLogger("setupo.deploy.sync")
+
+RSYNC_TIMEOUT = 300
+RSYNC_EXCLUDES = ".git node_modules __pycache__ .env venv .venv"
 
 
 async def sync_workspace(
@@ -14,14 +16,8 @@ async def sync_workspace(
     remote_dir: str = "/opt/app",
     user: str = "root",
 ) -> tuple[bool, str]:
-    """Sync a local workspace directory to the remote instance.
-
-    Tries rsync first (faster, incremental), falls back to scp.
-    """
-    # Ensure remote dir exists
     await run_ssh_command(ip, f"mkdir -p {remote_dir}", key_path, user=user)
 
-    # Try rsync
     ssh_opts = (
         f"-e 'ssh -i {key_path} "
         "-o StrictHostKeyChecking=no "
@@ -42,7 +38,7 @@ async def sync_workspace(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=RSYNC_TIMEOUT)
         output = stdout.decode(errors="replace")
 
         if proc.returncode == 0:
@@ -53,6 +49,5 @@ async def sync_workspace(
     except Exception as e:
         logger.warning("rsync failed: %s, falling back to scp", e)
 
-    # Fallback to scp
     ok = await scp_upload(ip, workspace_path, remote_dir, key_path, user=user)
     return ok, "scp upload " + ("succeeded" if ok else "failed")

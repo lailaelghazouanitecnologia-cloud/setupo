@@ -1,4 +1,3 @@
-"""Vultr API provider — manages VPS instances, SSH keys, regions, plans."""
 import logging
 from typing import Any
 
@@ -11,6 +10,7 @@ from server.config import settings
 logger = logging.getLogger("setupo.vultr")
 
 BASE = settings.VULTR_BASE_URL
+REQUEST_TIMEOUT = 30.0
 
 
 class VultrProvider(CloudProvider):
@@ -24,7 +24,7 @@ class VultrProvider(CloudProvider):
             self._client = httpx.AsyncClient(
                 base_url=BASE,
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=30.0,
+                timeout=REQUEST_TIMEOUT,
             )
         return self._client
 
@@ -45,8 +45,6 @@ class VultrProvider(CloudProvider):
         except httpx.HTTPError as e:
             raise ProviderError("vultr", str(e))
 
-    # ── Instances ────────────────────────────────────────────────
-
     async def create_instance(
         self,
         region: str = "ewr",
@@ -58,7 +56,6 @@ class VultrProvider(CloudProvider):
         tag: str = "setupo",
         **kwargs,
     ) -> dict:
-        """Create a Vultr VPS instance."""
         payload: dict[str, Any] = {
             "region": region,
             "plan": plan,
@@ -103,8 +100,6 @@ class VultrProvider(CloudProvider):
         await self._request("POST", f"/instances/{instance_id}/reboot")
         return True
 
-    # ── SSH Keys ─────────────────────────────────────────────────
-
     async def create_ssh_key(self, name: str, public_key: str) -> dict:
         data = await self._request("POST", "/ssh-keys", json={
             "name": name,
@@ -120,8 +115,6 @@ class VultrProvider(CloudProvider):
         data = await self._request("GET", "/ssh-keys")
         return data.get("ssh_keys", []) if data else []
 
-    # ── Regions & Plans ──────────────────────────────────────────
-
     async def list_regions(self) -> list[dict]:
         data = await self._request("GET", "/regions")
         return data.get("regions", []) if data else []
@@ -133,8 +126,6 @@ class VultrProvider(CloudProvider):
     async def list_os(self) -> list[dict]:
         data = await self._request("GET", "/os")
         return data.get("os", []) if data else []
-
-    # ── Startup Scripts ──────────────────────────────────────────
 
     async def create_startup_script(self, name: str, script: str, script_type: str = "boot") -> dict:
         data = await self._request("POST", "/startup-scripts", json={

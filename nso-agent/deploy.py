@@ -1,17 +1,3 @@
-"""NSO Agent — Deploy endpoints.
-
-Receives .zar packages (from R2 or direct upload), extracts them,
-snapshots the previous version for rollback, installs deps, and
-restarts services. Handles both app deploys and self-updates.
-
-Endpoints:
-    POST /deploy/pull      — Download .zar from R2 and deploy
-    POST /deploy/upload    — Receive .zar directly and deploy
-    POST /deploy/rollback  — Restore previous snapshot
-    GET  /deploy/current   — Current deployment status
-    GET  /deploy/snapshots — List available snapshots
-    POST /deploy/self-update — Update the agent itself (brief restart)
-"""
 import asyncio
 import hashlib
 import hmac as hmac_mod
@@ -35,16 +21,15 @@ from auth import require_admin, AdminUser
 
 logger = logging.getLogger("nso-agent.deploy")
 router = APIRouter(prefix="/deploy", tags=["deploy"])
-
-# ── Paths ────────────────────────────────────────────────────────
-
 APP_DIR = Path("/opt/app")
 SNAPSHOTS_DIR = Path("/opt/setupo/snapshots")
 SETUPO_DIR = Path("/opt/setupo")
 DEPLOY_STATE_FILE = Path("/opt/setupo/data/deploy-state.json")
 MAX_SNAPSHOTS = 5
+R2_DOWNLOAD_TIMEOUT = 120.0
+DEPS_INSTALL_TIMEOUT = 300
+MAX_LOG_LINES = 500
 
-# Stack detection + install commands
 INSTALL_COMMANDS = {
     "node": "npm install --production 2>&1",
     "python": "pip install -r requirements.txt 2>&1",
@@ -66,11 +51,7 @@ STACK_INDICATORS = [
     ("index.html", "static"),
 ]
 
-
-# ── Models ───────────────────────────────────────────────────────
-
 class PullRequest(BaseModel):
-    """Request to download a .zar from R2 and deploy."""
     r2_key: str
     r2_endpoint: str
     r2_bucket: str
@@ -82,8 +63,7 @@ class PullRequest(BaseModel):
 
 
 class SelfUpdateRequest(BaseModel):
-    """Request to update a setupo component (agent, frontend, core)."""
-    component: str                          # "agent" | "frontend" | "core"
+    component: str
     r2_key: str
     r2_endpoint: str
     r2_bucket: str
@@ -102,10 +82,15 @@ class DeployStatus(BaseModel):
 
 
 class RollbackRequest(BaseModel):
-    snapshot: str = ""                      # Specific snapshot name, or empty for latest
+    snapshot: str = ""
 
 
-# ── Helpers ──────────────────────────────────────────────────────
+COMPONENT_MAP = {
+    "agent": {"target": "/opt/setupo/nso-agent", "service": "setupo-agent"},
+    "frontend": {"target": "/opt/setupo/dashboard/static", "service": None},
+    "core": {"target": "/opt/setupo", "service": "setupo"},
+}
+
 
 def _detect_stack(directory: str) -> str:
     for filename, stack in STACK_INDICATORS:
@@ -129,7 +114,6 @@ def _save_state(state: dict):
 
 
 def _list_snapshots(target_dir: str = "/opt/app") -> list[str]:
-    """List available snapshots for a target, newest first."""
     snap_dir = SNAPSHOTS_DIR / Path(target_dir).name
     if not snap_dir.exists():
         return []
@@ -138,7 +122,6 @@ def _list_snapshots(target_dir: str = "/opt/app") -> list[str]:
 
 
 def _create_snapshot(target_dir: str) -> str | None:
-    """Snapshot the current target_dir before deploying."""
     target = Path(target_dir)
     if not target.exists() or not any(target.iterdir()):
         return None
@@ -150,7 +133,6 @@ def _create_snapshot(target_dir: str) -> str | None:
     shutil.copytree(target, snap_dir, dirs_exist_ok=True)
     logger.info("Created snapshot: %s", snap_dir)
 
-    # Prune old snapshots
     all_snaps = _list_snapshots(target_dir)
     for old in all_snaps[MAX_SNAPSHOTS:]:
         old_path = SNAPSHOTS_DIR / target.name / old
@@ -161,13 +143,11 @@ def _create_snapshot(target_dir: str) -> str | None:
 
 
 def _restore_snapshot(target_dir: str, snapshot_name: str) -> bool:
-    """Restore a snapshot to target_dir."""
     target = Path(target_dir)
     snap_path = SNAPSHOTS_DIR / target.name / snapshot_name
     if not snap_path.exists():
         return False
 
-    # Clear target
     if target.exists():
         shutil.rmtree(target)
     shutil.copytree(snap_path, target)
@@ -179,7 +159,6 @@ async def _download_from_r2(
     endpoint: str, bucket: str, key: str,
     access_key: str, secret_key: str,
 ) -> bytes:
-    """Download a file from R2 using S3v4 signing."""
     now = datetime.now(timezone.utc)
     date_stamp = now.strftime("%Y%m%d")
     amz_date = now.strftime("%Y%m%dT%H%M%SZ")
@@ -220,7 +199,7 @@ async def _download_from_r2(
     )
 
     url = f"{endpoint}/{bucket}/{quote(key, safe='/')}"
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=R2_DOWNLOAD_TIMEOUT) as client:
         resp = await client.get(url, headers={
             "Authorization": auth_header,
             "x-amz-content-sha256": empty_hash,
@@ -232,9 +211,7 @@ async def _download_from_r2(
 
 
 def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
-    """Extract a .zar to target_dir. Returns manifest dict."""
     target = Path(target_dir)
-    # Clear target but preserve .env if it exists
     env_backup = None
     env_path = target / ".env"
     if env_path.exists():
@@ -247,7 +224,6 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
     manifest = {}
     with tarfile.open(fileobj=BytesIO(zar_bytes), mode="r:gz") as tar:
         for member in tar.getmembers():
-            # Block absolute paths and traversal
             if member.name.startswith("/") or ".." in member.name:
                 logger.warning("Skipping unsafe path: %s", member.name)
                 continue
@@ -270,7 +246,6 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
                         continue
                     tar.extract(member, target)
 
-    # Restore .env
     if env_backup:
         env_path.write_text(env_backup)
 
@@ -278,7 +253,6 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
 
 
 async def _install_deps(target_dir: str, stack: str) -> tuple[str, int]:
-    """Install dependencies for the detected stack."""
     cmd = INSTALL_COMMANDS.get(stack)
     if not cmd:
         return "No install command for stack", 0
@@ -289,12 +263,11 @@ async def _install_deps(target_dir: str, stack: str) -> tuple[str, int]:
         stderr=asyncio.subprocess.STDOUT,
         cwd=target_dir,
     )
-    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+    stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=DEPS_INSTALL_TIMEOUT)
     return stdout.decode(errors="replace"), proc.returncode
 
 
 async def _restart_service(name: str) -> tuple[str, int]:
-    """Restart a systemd service. No-op if name is empty."""
     if not name:
         return "", 0
     proc = await asyncio.create_subprocess_shell(
@@ -305,34 +278,23 @@ async def _restart_service(name: str) -> tuple[str, int]:
     stdout, _ = await proc.communicate()
     return stdout.decode(errors="replace"), proc.returncode
 
-
-# ── Endpoints ────────────────────────────────────────────────────
-
 @router.post("/pull")
 async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin)):
-    """Download a .zar from R2, snapshot current, extract, install deps, restart.
-
-    This is the main hot-update endpoint. No SSH. No instance recreation.
-    """
     logger.info("Deploy pull: %s → %s", req.r2_key, req.target_dir)
 
-    # 1. Download from R2
     zar_bytes = await _download_from_r2(
         req.r2_endpoint, req.r2_bucket, req.r2_key,
         req.r2_access_key_id, req.r2_secret_access_key,
     )
     logger.info("Downloaded %d bytes from R2", len(zar_bytes))
 
-    # 2. Snapshot current version
     snap = _create_snapshot(req.target_dir)
     if snap:
         logger.info("Snapshot created: %s", snap)
 
-    # 3. Extract
     manifest = _extract_zar(zar_bytes, req.target_dir)
     logger.info("Extracted to %s", req.target_dir)
 
-    # 4. Install deps
     install_output = ""
     stack = manifest.get("stack", "") or _detect_stack(req.target_dir)
     if req.install_deps and stack not in ("static", "unknown", ""):
@@ -344,7 +306,6 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
                 await _restart_service(req.restart_service)
             raise HTTPException(500, f"Dependency install failed: {install_output[-500:]}")
 
-    # 5. Restart service
     restart_out, restart_code = await _restart_service(req.restart_service)
     if restart_code != 0:
         logger.error("Service restart failed, rolling back")
@@ -353,7 +314,6 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
             await _restart_service(req.restart_service)
         raise HTTPException(500, f"Service restart failed: {restart_out}")
 
-    # 6. Save state
     state = _load_state()
     state[req.target_dir] = {
         "version": manifest.get("version", ""),
@@ -384,7 +344,6 @@ async def deploy_upload(
     install_deps: bool = True,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Upload a .zar directly and deploy. Same flow as /pull but without R2."""
     zar_bytes = await file.read()
     logger.info("Received upload: %d bytes → %s", len(zar_bytes), target_dir)
 
@@ -434,7 +393,6 @@ async def deploy_rollback(
     restart_service: str = "setupo-app",
     admin: AdminUser = Depends(require_admin),
 ):
-    """Rollback to a previous snapshot."""
     snaps = _list_snapshots(target_dir)
     if not snaps:
         raise HTTPException(404, "No snapshots available")
@@ -462,7 +420,6 @@ async def deploy_rollback(
 
 @router.get("/current")
 async def deploy_current(admin: AdminUser = Depends(require_admin)):
-    """Get current deployment status for all targets."""
     state = _load_state()
     result = {}
     for target_dir, info in state.items():
@@ -476,63 +433,29 @@ async def deploy_snapshots(
     target_dir: str = "/opt/app",
     admin: AdminUser = Depends(require_admin),
 ):
-    """List available snapshots for a target."""
     return {"target": target_dir, "snapshots": _list_snapshots(target_dir)}
 
 
 @router.post("/self-update")
 async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require_admin)):
-    """Update a setupo component (agent, frontend, core).
+    if req.component not in COMPONENT_MAP:
+        raise HTTPException(400, f"Unknown component: {req.component}. Use: {list(COMPONENT_MAP.keys())}")
 
-    Flow:
-    1. Download .zar from R2
-    2. Snapshot the current component
-    3. Extract new version
-    4. Brief restart of the affected service
-
-    Components:
-    - "agent"    → /opt/setupo/nso-agent/ → restart setupo-agent
-    - "frontend" → /opt/setupo/dashboard/static/ → no restart needed
-    - "core"     → /opt/setupo/server/ + /opt/setupo/core/ → restart setupo
-    """
-    component_map = {
-        "agent": {
-            "target": "/opt/setupo/nso-agent",
-            "service": "setupo-agent",
-        },
-        "frontend": {
-            "target": "/opt/setupo/dashboard/static",
-            "service": None,  # Static files, nginx serves them
-        },
-        "core": {
-            "target": "/opt/setupo",
-            "service": "setupo",
-        },
-    }
-
-    if req.component not in component_map:
-        raise HTTPException(400, f"Unknown component: {req.component}. Use: {list(component_map.keys())}")
-
-    comp = component_map[req.component]
+    comp = COMPONENT_MAP[req.component]
     target = comp["target"]
     service = comp["service"]
 
     logger.info("Self-update: %s → %s", req.component, target)
 
-    # Download
     zar_bytes = await _download_from_r2(
         req.r2_endpoint, req.r2_bucket, req.r2_key,
         req.r2_access_key_id, req.r2_secret_access_key,
     )
 
-    # Snapshot
     snap = _create_snapshot(target)
-
-    # Extract
     manifest = _extract_zar(zar_bytes, target)
 
-    # For agent self-update: install python deps if needed
-    if req.component == "agent":
+    if req.component in ("agent", "core"):
         req_file = os.path.join(target, "requirements.txt")
         if os.path.exists(req_file):
             proc = await asyncio.create_subprocess_shell(
@@ -542,18 +465,6 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
             )
             await proc.communicate()
 
-    # For core update: install python deps
-    if req.component == "core":
-        req_file = os.path.join(target, "requirements.txt")
-        if os.path.exists(req_file):
-            proc = await asyncio.create_subprocess_shell(
-                f"/opt/setupo/venv/bin/pip install -r {req_file} --quiet 2>&1",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.STDOUT,
-            )
-            await proc.communicate()
-
-    # Restart service (brief downtime)
     restart_ok = True
     if service:
         out, code = await _restart_service(service)
@@ -565,7 +476,6 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
             raise HTTPException(500, f"Service restart failed after update: {out}")
         restart_ok = code == 0
 
-    # Save state
     state = _load_state()
     state[f"self:{req.component}"] = {
         "version": manifest.get("version", ""),

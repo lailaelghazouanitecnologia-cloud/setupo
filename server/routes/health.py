@@ -1,6 +1,5 @@
-"""Health check + capabilities endpoint."""
 import platform
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
@@ -9,12 +8,12 @@ from core.instances.types import INSTANCE_CONFIGS
 
 router = APIRouter()
 
-_start_time = datetime.utcnow()
+_start_time = datetime.now(timezone.utc)
 
 
 @router.get("/health")
 async def health():
-    uptime = (datetime.utcnow() - _start_time).total_seconds()
+    uptime = (datetime.now(timezone.utc) - _start_time).total_seconds()
     return {
         "status": "ok",
         "version": "0.2.0",
@@ -25,7 +24,6 @@ async def health():
 
 @router.get("/capabilities")
 async def capabilities():
-    """Agent-friendly endpoint: what can this API do?"""
     return Capabilities(
         version="0.2.0",
         instance_types=[

@@ -1,7 +1,6 @@
-"""Project manager — CRUD for projects + API key lifecycle."""
 import logging
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 
 from core import db
 from core.errors import NotFoundError, ConflictError
@@ -18,7 +17,6 @@ def _gen_id() -> str:
 
 
 async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
-    """Create a new project. Returns (project, raw_api_key)."""
     existing = await db.fetch_all("projects", name=req.name)
     if existing:
         raise ConflictError(f"Project '{req.name}' already exists")
@@ -31,7 +29,7 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
         name=req.name,
         api_key_hash=hash_api_key(api_key),
         owner=req.owner,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
 
     await db.insert("projects", {
@@ -43,7 +41,6 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
         "created_at": project.created_at,
     })
 
-    # Create project directory structure
     project_dir = settings.project_dir(project_id)
     (project_dir / "workspaces").mkdir(exist_ok=True)
     logger.info("Created project %s (%s)", project.name, project.id)
@@ -67,18 +64,15 @@ async def delete_project(project_id: str):
     if not project:
         raise NotFoundError("Project", project_id)
 
-    # Delete all related resources
     await db.delete_where("domains", project_id=project_id)
     await db.delete_where("workspaces", project_id=project_id)
 
-    # Delete instances (should also destroy VPS, handled by caller)
     instances = await db.fetch_all("instances", project_id=project_id)
     for inst in instances:
         await db.delete("instances", inst["id"])
 
     await db.delete("projects", project_id)
 
-    # Remove project directory
     project_dir = settings.project_dir(project_id)
     if project_dir.exists():
         shutil.rmtree(project_dir, ignore_errors=True)
@@ -87,7 +81,6 @@ async def delete_project(project_id: str):
 
 
 async def rotate_api_key(project_id: str) -> str:
-    """Generate a new API key for a project. Returns the raw key."""
     project = await db.fetch_one("projects", id=project_id)
     if not project:
         raise NotFoundError("Project", project_id)

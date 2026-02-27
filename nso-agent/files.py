@@ -1,7 +1,3 @@
-"""NSO Agent — File system operations.
-
-Browse directories, read/write files, create dirs, delete — all via HTTP.
-"""
 import logging
 import os
 import shutil
@@ -17,22 +13,20 @@ from auth import require_admin, AdminUser
 logger = logging.getLogger("nso-agent.files")
 router = APIRouter(prefix="/files", tags=["files"])
 
-# Allowed root paths — prevent escaping
 ALLOWED_ROOTS = ["/opt/setupo", "/opt/app", "/var/log/setupo", "/tmp"]
+MAX_READ_SIZE = 5 * 1024 * 1024
+DEFAULT_PATH = "/opt/setupo"
+SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git", "venv", ".venv"})
 
 
 def _safe_path(path: str) -> Path:
-    """Resolve and validate a path is within allowed roots."""
     if not path:
-        path = "/opt/setupo"
+        path = DEFAULT_PATH
     resolved = Path(path).resolve()
     for root in ALLOWED_ROOTS:
         if str(resolved).startswith(root):
             return resolved
     raise HTTPException(403, f"Access denied: path outside allowed directories")
-
-
-# ── Models ───────────────────────────────────────────────────────
 
 class FSItem(BaseModel):
     name: str
@@ -63,9 +57,6 @@ class WriteRequest(BaseModel):
 class MkdirRequest(BaseModel):
     path: str
 
-
-# ── Helpers ──────────────────────────────────────────────────────
-
 def _stat_item(p: Path) -> FSItem:
     try:
         st = p.stat()
@@ -90,19 +81,11 @@ def _stat_item(p: Path) -> FSItem:
     except Exception:
         return FSItem(name=p.name, path=str(p), type="unknown")
 
-
-# ── Endpoints ────────────────────────────────────────────────────
-
 @router.get("/list", response_model=DirListing)
 async def list_directory(
-    path: str = Query("/opt/setupo", description="Directory to list"),
+    path: str = Query(DEFAULT_PATH),
     admin: AdminUser = Depends(require_admin),
 ):
-    """List contents of a directory.
-
-    curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/list?path=/opt/setupo"
-    """
     target = _safe_path(path)
     if not target.exists():
         raise HTTPException(404, f"Path not found: {path}")
@@ -121,23 +104,17 @@ async def list_directory(
 
 @router.get("/read", response_model=FileContent)
 async def read_file(
-    path: str = Query(..., description="File path to read"),
+    path: str = Query(...),
     admin: AdminUser = Depends(require_admin),
 ):
-    """Read contents of a file.
-
-    curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/read?path=/opt/setupo/.env"
-    """
     target = _safe_path(path)
     if not target.exists():
         raise HTTPException(404, f"File not found: {path}")
     if not target.is_file():
         raise HTTPException(400, f"Not a file: {path}")
 
-    # Limit file size to 5MB
     size = target.stat().st_size
-    if size > 5 * 1024 * 1024:
+    if size > MAX_READ_SIZE:
         raise HTTPException(413, f"File too large: {size} bytes (max 5MB)")
 
     try:
@@ -153,13 +130,6 @@ async def write_file(
     req: WriteRequest,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Write content to a file (creates or overwrites).
-
-    curl -X POST -H "Authorization: Bearer <token>" \\
-      -H "Content-Type: application/json" \\
-      -d '{"path":"/opt/app/index.html","content":"<h1>Hello</h1>"}' \\
-      https://server:8081/files/write
-    """
     target = _safe_path(req.path)
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -177,13 +147,6 @@ async def make_directory(
     req: MkdirRequest,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Create a directory (and parents).
-
-    curl -X POST -H "Authorization: Bearer <token>" \\
-      -H "Content-Type: application/json" \\
-      -d '{"path":"/opt/app/src"}' \\
-      https://server:8081/files/mkdir
-    """
     target = _safe_path(req.path)
     try:
         target.mkdir(parents=True, exist_ok=True)
@@ -196,19 +159,13 @@ async def make_directory(
 
 @router.delete("/")
 async def delete_path(
-    path: str = Query(..., description="Path to delete"),
+    path: str = Query(...),
     admin: AdminUser = Depends(require_admin),
 ):
-    """Delete a file or directory.
-
-    curl -X DELETE -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/?path=/opt/app/old-file.txt"
-    """
     target = _safe_path(path)
     if not target.exists():
         raise HTTPException(404, f"Path not found: {path}")
 
-    # Safety: never delete the root allowed dirs themselves
     for root in ALLOWED_ROOTS:
         if str(target) == root:
             raise HTTPException(403, f"Cannot delete root directory: {path}")
@@ -228,15 +185,10 @@ async def delete_path(
 
 @router.get("/tree")
 async def file_tree(
-    path: str = Query("/opt/setupo", description="Root directory"),
-    depth: int = Query(3, ge=1, le=5, description="Max depth"),
+    path: str = Query(DEFAULT_PATH),
+    depth: int = Query(3, ge=1, le=5),
     admin: AdminUser = Depends(require_admin),
 ):
-    """Get a directory tree (useful for agents to understand structure).
-
-    curl -H "Authorization: Bearer <token>" \\
-      "https://server:8081/files/tree?path=/opt/setupo&depth=2"
-    """
     target = _safe_path(path)
     if not target.exists() or not target.is_dir():
         raise HTTPException(404, f"Directory not found: {path}")
@@ -250,7 +202,7 @@ async def file_tree(
                 if child.name.startswith(".") and child.name not in (".env",):
                     continue
                 if child.is_dir():
-                    if child.name in ("node_modules", "__pycache__", ".git", "venv", ".venv"):
+                    if child.name in SKIP_DIRS:
                         node["children"].append({"name": child.name, "path": str(child), "type": "dir", "children": "..."})
                     else:
                         node["children"].append(_walk(child, current_depth + 1))

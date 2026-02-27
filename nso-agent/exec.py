@@ -1,7 +1,3 @@
-"""NSO Agent — Command execution on the VPS.
-
-Run commands, get output. Like SSH but via HTTP.
-"""
 import asyncio
 import logging
 import os
@@ -14,11 +10,12 @@ from auth import require_admin, AdminUser
 logger = logging.getLogger("nso-agent.exec")
 router = APIRouter(prefix="/exec", tags=["exec"])
 
-MAX_TIMEOUT = 300  # 5 minutes max
-MAX_OUTPUT = 1024 * 512  # 512KB max output
+MAX_TIMEOUT = 300
+MAX_OUTPUT = 512 * 1024
 
+ALLOWED_SERVICES = frozenset({"setupo", "setupo-agent", "nginx"})
+VALID_SERVICE_ACTIONS = frozenset({"start", "stop", "restart", "status", "enable", "disable"})
 
-# ── Models ───────────────────────────────────────────────────────
 
 class ExecRequest(BaseModel):
     command: str
@@ -32,9 +29,6 @@ class ExecResponse(BaseModel):
     stderr: str
     exit_code: int
     timed_out: bool = False
-
-
-# ── Blocked commands (safety) ────────────────────────────────────
 
 BLOCKED_PATTERNS = [
     "rm -rf /",
@@ -57,31 +51,14 @@ def _is_blocked(command: str) -> bool:
             return True
     return False
 
-
-# ── Endpoint ─────────────────────────────────────────────────────
-
 @router.post("/", response_model=ExecResponse)
 async def execute_command(
     req: ExecRequest,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Execute a shell command on the VPS.
-
-    curl -X POST -H "Authorization: Bearer <token>" \\
-      -H "Content-Type: application/json" \\
-      -d '{"command":"ls -la /opt/setupo","timeout":30}' \\
-      https://server:8081/exec/
-
-    Examples:
-      {"command": "systemctl status mms"}
-      {"command": "pip install requests", "working_dir": "/opt/app"}
-      {"command": "cat /var/log/mms/error.log", "timeout": 10}
-      {"command": "python3 -c 'print(1+1)'"}
-    """
     if _is_blocked(req.command):
         raise HTTPException(403, "Command blocked for safety")
 
-    # Validate working dir exists
     if not os.path.isdir(req.working_dir):
         req.working_dir = "/opt/setupo"
 
@@ -135,17 +112,10 @@ async def manage_service(
     name: str,
     admin: AdminUser = Depends(require_admin),
 ):
-    """Manage a systemd service (start/stop/restart/status).
-
-    curl -X POST -H "Authorization: Bearer <token>" \\
-      "https://server:8081/exec/service?action=restart&name=mms"
-    """
-    if action not in ("start", "stop", "restart", "status", "enable", "disable"):
+    if action not in VALID_SERVICE_ACTIONS:
         raise HTTPException(400, f"Invalid action: {action}")
 
-    # Only allow known service names
-    allowed = {"setupo", "setupo-agent", "nginx"}
-    if name not in allowed:
+    if name not in ALLOWED_SERVICES:
         raise HTTPException(403, f"Service not in allowed list: {name}")
 
     cmd = f"systemctl {action} {name}"
@@ -163,7 +133,6 @@ async def manage_service(
         "output": stdout.decode(errors="replace"),
     }
 
-    # For status, also get is-active
     if action == "status":
         is_active = await asyncio.create_subprocess_shell(
             f"systemctl is-active {name}",

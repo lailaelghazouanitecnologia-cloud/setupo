@@ -1,8 +1,3 @@
-"""Zar Resolver — Resolve and fetch workspace dependencies.
-
-Reads [package.dependencies] from config.toml, downloads each dependency
-.zar from R2, and extracts them into the specified paths.
-"""
 import json
 import logging
 import os
@@ -14,7 +9,7 @@ from core.zar.storage import R2Client
 
 logger = logging.getLogger("setupo.zar.resolver")
 
-MAX_DEPTH = 5  # Max dependency recursion depth
+MAX_DEPTH = 5
 
 
 async def resolve_dependencies(
@@ -24,13 +19,6 @@ async def resolve_dependencies(
     project_id: str,
     depth: int = 0,
 ) -> list[str]:
-    """Recursively resolve and extract dependencies.
-
-    Downloads each dependency .zar from R2, extracts it into the
-    specified path within target_dir, then resolves its own deps.
-
-    Returns list of resolved dependency names.
-    """
     if depth > MAX_DEPTH:
         logger.error("Max dependency depth (%d) exceeded", MAX_DEPTH)
         return []
@@ -48,7 +36,6 @@ async def resolve_dependencies(
             dep.name, dep.branch, dep_path, depth,
         )
 
-        # Download the dependency .zar
         zar_bytes = await r2.download_zar(
             project_id=project_id,
             workspace=dep.name,
@@ -60,11 +47,9 @@ async def resolve_dependencies(
             logger.warning("Dependency %s not found in R2, skipping", dep.name)
             continue
 
-        # Extract to the target path
         dep_manifest = extract(zar_bytes, full_path)
         resolved.append(dep.name)
 
-        # Recurse into sub-dependencies
         if dep_manifest and dep_manifest.dependencies:
             sub_resolved = await resolve_dependencies(
                 dep_manifest, full_path, r2, project_id, depth + 1,
@@ -75,13 +60,6 @@ async def resolve_dependencies(
 
 
 def parse_dependencies_from_toml(toml_data: dict) -> list[ZarDependency]:
-    """Parse [package.dependencies] from parsed TOML dict.
-
-    Supports formats:
-        [package.dependencies]
-        shared-utils = { branch = "main", path = "lib/shared" }
-        api-types = { version = ">=1.0.0", path = "lib/types" }
-    """
     package = toml_data.get("package", {})
     deps_raw = package.get("dependencies", {})
 
@@ -95,7 +73,6 @@ def parse_dependencies_from_toml(toml_data: dict) -> list[ZarDependency]:
                 path=config.get("path", f"deps/{name}"),
             ))
         elif isinstance(config, str):
-            # Simple format: dep_name = "main"
             deps.append(ZarDependency(name=name, branch=config))
 
     return deps
