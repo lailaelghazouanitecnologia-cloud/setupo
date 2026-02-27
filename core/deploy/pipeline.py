@@ -177,8 +177,7 @@ async def _install_deps(ip: str, key_path: str, remote_dir: str, stack: str):
     cmd = f"cd {remote_dir} && {base_cmd}" if stack != "static" else base_cmd
     output, code = await run_ssh_command(ip, cmd, key_path, timeout=DEPS_INSTALL_TIMEOUT)
     if code != 0:
-        if code != 0:
-            raise ProviderError("deploy", f"Dependency install failed (exit {code}): {output[-500:]}")
+        raise ProviderError("deploy", f"Dependency install failed (exit {code}): {output[-500:]}")
 
 
 def _default_start_command(stack: str) -> str:
