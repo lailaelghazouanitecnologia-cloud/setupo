@@ -1,4 +1,4 @@
-export type DashboardView = "inbox" | "instances" | "projects" | "deploy" | "secrets" | "plugins" | "modules" | "billing";
+export type DashboardView = "inbox" | "instances" | "projects" | "deploy" | "secrets" | "plugins" | "billing";
 
 export interface Instance {
   id: string;
