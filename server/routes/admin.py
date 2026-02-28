@@ -1,10 +1,13 @@
 """
 Admin API routes — user management, analytics, blockchain, fraud detection.
+All admin actions are audit-logged with the admin's identity.
 """
+import re
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Depends, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from server.deps import require_admin, AuthContext
 from core import analytics, blockchain
@@ -13,17 +16,29 @@ from core.errors import SetupoError
 logger = logging.getLogger("setupo.admin")
 router = APIRouter()
 
+_USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
+
+
+def _check_user_id(user_id: str):
+    if not _USER_ID_RE.match(user_id):
+        raise HTTPException(400, "Invalid user ID format")
+
+
+def _admin_id(auth: AuthContext) -> str:
+    """Extract admin identity for audit trail."""
+    return auth.user_id or "admin_token"
+
 
 # ── Request models ──
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str
+    new_password: str = Field(..., min_length=6, max_length=128)
 
 
 class UpdateUserRequest(BaseModel):
-    name: str | None = None
-    email: str | None = None
-    role: str | None = None
+    name: str | None = Field(None, min_length=1, max_length=64)
+    email: str | None = Field(None, min_length=3, max_length=254)
+    role: Literal["user", "admin", "disabled"] | None = None
     verified: bool | None = None
 
 
@@ -48,15 +63,19 @@ async def list_users(
     auth: AuthContext = Depends(require_admin),
 ):
     """List all users with search and pagination."""
-    return await analytics.admin_list_users(
-        search=search, role=role, sort=sort, order=order,
-        limit=limit, offset=offset,
-    )
+    try:
+        return await analytics.admin_list_users(
+            search=search, role=role, sort=sort, order=order,
+            limit=limit, offset=offset,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
 
 
 @router.get("/users/{user_id}")
 async def get_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Get full user details (no password)."""
+    _check_user_id(user_id)
     try:
         return {"user": await analytics.admin_get_user(user_id)}
     except SetupoError as e:
@@ -69,9 +88,12 @@ async def update_user(
     auth: AuthContext = Depends(require_admin),
 ):
     """Update user fields (admin only)."""
+    _check_user_id(user_id)
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     try:
-        user = await analytics.admin_update_user(user_id, updates)
+        user = await analytics.admin_update_user(
+            user_id, updates, admin_id=_admin_id(auth),
+        )
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "user": user}
@@ -83,8 +105,11 @@ async def reset_password(
     auth: AuthContext = Depends(require_admin),
 ):
     """Reset a user's password."""
+    _check_user_id(user_id)
     try:
-        await analytics.admin_reset_password(user_id, req.new_password)
+        await analytics.admin_reset_password(
+            user_id, req.new_password, admin_id=_admin_id(auth),
+        )
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
@@ -93,8 +118,11 @@ async def reset_password(
 @router.post("/users/{user_id}/disable")
 async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Disable a user account."""
+    _check_user_id(user_id)
     try:
-        await analytics.admin_disable_user(user_id)
+        await analytics.admin_disable_user(
+            user_id, admin_id=_admin_id(auth),
+        )
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
@@ -108,6 +136,7 @@ async def user_activity(
     auth: AuthContext = Depends(require_admin),
 ):
     """Get activity log for a specific user."""
+    _check_user_id(user_id)
     activity = await analytics.get_user_activity(user_id, limit=limit, offset=offset)
     return {"activity": activity, "count": len(activity)}
 
@@ -165,7 +194,7 @@ async def list_snapshots(
 @router.post("/fraud/scan")
 async def fraud_scan(auth: AuthContext = Depends(require_admin)):
     """Run comprehensive fraud detection scan."""
-    results = await analytics.run_fraud_scan()
+    results = await analytics.run_fraud_scan(admin_id=_admin_id(auth))
     return results
 
 
@@ -185,15 +214,23 @@ async def user_ledger(
     auth: AuthContext = Depends(require_admin),
 ):
     """Get a user's blockchain ledger."""
-    chain = await blockchain.get_chain(user_id, limit=limit, offset=offset)
-    length = await blockchain.get_chain_length(user_id)
+    _check_user_id(user_id)
+    try:
+        chain = await blockchain.get_chain(user_id, limit=limit, offset=offset)
+        length = await blockchain.get_chain_length(user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {"blocks": chain, "total": length}
 
 
 @router.post("/ledger/users/{user_id}/verify")
 async def verify_user_chain(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Verify integrity of a user's ledger chain."""
-    result = await blockchain.verify_chain(user_id)
+    _check_user_id(user_id)
+    try:
+        result = await blockchain.verify_chain(user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
     return result
 
 
@@ -207,7 +244,11 @@ async def verify_all_chains(auth: AuthContext = Depends(require_admin)):
 @router.get("/ledger/users/{user_id}/balance-proof")
 async def balance_proof(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Get cryptographic balance proof for a user."""
-    proof = await blockchain.get_balance_proof(user_id)
+    _check_user_id(user_id)
+    try:
+        proof = await blockchain.get_balance_proof(user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
     return proof
 
 

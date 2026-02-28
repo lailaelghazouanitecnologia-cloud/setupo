@@ -3,16 +3,33 @@ NSO Analytics — Platform-wide metrics, fraud detection, user behavior analysis
 
 Runs periodic analysis and produces snapshots stored in analytics_snapshots.
 Tracks user activity via activity_log for last-seen, session analysis, and
-behavioral anomaly detection.
+behavioral anomaly detection. Admin actions are logged immutably in activity_log.
 """
 import logging
+import re
 import secrets
 from datetime import datetime, timezone, timedelta
 
 from core import db
-from core.errors import NotFoundError
+from core.errors import NotFoundError, ValidationError
 
 logger = logging.getLogger("setupo.analytics")
+
+_USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
+_VALID_ROLES = frozenset({"user", "admin", "disabled"})
+_MAX_SEARCH_LEN = 100
+_ALLOWED_SORTS = {
+    "created_at": "created_at",
+    "email": "email",
+    "name": "name",
+    "balance": "balance",
+    "last_active": "last_active",
+}
+
+
+def _validate_user_id(user_id: str):
+    if not _USER_ID_RE.match(user_id):
+        raise ValidationError("Invalid user_id format")
 
 
 # ── Activity tracking ──
@@ -27,6 +44,12 @@ async def log_activity(
     metadata: dict | None = None,
 ):
     """Log a user activity event."""
+    action = action[:64]
+    resource_type = resource_type[:64]
+    resource_id = resource_id[:128]
+    ip = ip[:45]  # max IPv6 length
+    user_agent = user_agent[:256]
+
     await db.insert("activity_log", {
         "id": f"act_{secrets.token_hex(12)}",
         "user_id": user_id,
@@ -48,10 +71,34 @@ async def log_activity(
     await d.commit()
 
 
+async def _audit_admin_action(
+    admin_id: str,
+    action: str,
+    target_user_id: str = "",
+    details: dict | None = None,
+):
+    """Record an admin action in the audit trail (immutable in activity_log)."""
+    await db.insert("activity_log", {
+        "id": f"act_{secrets.token_hex(12)}",
+        "user_id": admin_id or "admin_system",
+        "action": f"admin.{action}",
+        "resource_type": "user",
+        "resource_id": target_user_id,
+        "ip": "",
+        "user_agent": "",
+        "metadata": details or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+
 async def get_user_activity(
     user_id: str, limit: int = 50, offset: int = 0,
 ) -> list[dict]:
     """Get activity log for a specific user."""
+    _validate_user_id(user_id)
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -62,6 +109,9 @@ async def get_user_activity(
 
 async def get_recent_activity(limit: int = 100, action: str = "") -> list[dict]:
     """Get platform-wide recent activity."""
+    limit = max(1, min(limit, 500))
+    action = action[:64]
+
     d = await db.get_db()
     if action:
         cursor = await d.execute(
@@ -87,6 +137,11 @@ async def admin_list_users(
     offset: int = 0,
 ) -> dict:
     """List users with search, filter, pagination for admin."""
+    # Sanitize inputs
+    search = search[:_MAX_SEARCH_LEN]
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
     d = await db.get_db()
     conditions = []
     params: list = []
@@ -96,12 +151,13 @@ async def admin_list_users(
         q = f"%{search}%"
         params.extend([q, q, q])
     if role:
+        if role not in _VALID_ROLES:
+            raise ValidationError(f"Invalid role filter: {role}")
         conditions.append("role = ?")
         params.append(role)
 
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-    allowed_sorts = {"created_at", "email", "name", "balance", "last_active"}
-    sort_col = sort if sort in allowed_sorts else "created_at"
+    sort_col = _ALLOWED_SORTS.get(sort, "created_at")
     sort_dir = "ASC" if order.lower() == "asc" else "DESC"
 
     cursor = await d.execute(
@@ -122,6 +178,8 @@ async def admin_list_users(
 
 async def admin_get_user(user_id: str) -> dict:
     """Get full user details for admin (no password)."""
+    _validate_user_id(user_id)
+
     user = await db.fetch_one("users", id=user_id)
     if not user:
         raise NotFoundError("User", user_id)
@@ -168,51 +226,102 @@ async def admin_get_user(user_id: str) -> dict:
     return safe
 
 
-async def admin_reset_password(user_id: str, new_password: str):
+async def admin_reset_password(user_id: str, new_password: str, admin_id: str = ""):
     """Admin resets a user's password (no current password needed)."""
+    _validate_user_id(user_id)
+
     from server.auth.jwt import hash_password
+    from core.users import _validate_password
 
     user = await db.fetch_one("users", id=user_id)
     if not user:
         raise NotFoundError("User", user_id)
 
-    from core.users import _validate_password
     _validate_password(new_password)
 
     pw_hash = hash_password(new_password)
     await db.update("users", user_id, {"password_hash": pw_hash})
-    logger.info("Admin reset password for user %s", user_id)
+
+    await _audit_admin_action(admin_id, "reset_password", user_id)
+    logger.info("Admin %s reset password for user %s", admin_id, user_id)
 
 
-async def admin_update_user(user_id: str, updates: dict) -> dict:
+async def admin_update_user(user_id: str, updates: dict, admin_id: str = "") -> dict:
     """Admin updates user fields (role, verified, name, email)."""
-    allowed = {"role", "verified", "name", "email", "balance"}
+    _validate_user_id(user_id)
+
+    allowed = {"role", "verified", "name", "email"}
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:
         return await admin_get_user(user_id)
+
+    # Validate individual fields
+    if "role" in filtered:
+        if filtered["role"] not in _VALID_ROLES:
+            raise ValidationError(f"Invalid role: {filtered['role']}. Must be one of: {', '.join(_VALID_ROLES)}")
+
+    if "name" in filtered:
+        name = str(filtered["name"]).strip()
+        if not name or len(name) > 64:
+            raise ValidationError("Name must be 1-64 characters")
+        filtered["name"] = name
+
+    if "email" in filtered:
+        from core.users import _validate_email
+        filtered["email"] = _validate_email(filtered["email"])
+        # Check uniqueness
+        d = await db.get_db()
+        cursor = await d.execute(
+            "SELECT id FROM users WHERE email = ? AND id != ?",
+            (filtered["email"], user_id),
+        )
+        if await cursor.fetchone():
+            from core.errors import ConflictError
+            raise ConflictError("Email already in use")
+
+    if "verified" in filtered:
+        filtered["verified"] = int(bool(filtered["verified"]))
 
     user = await db.fetch_one("users", id=user_id)
     if not user:
         raise NotFoundError("User", user_id)
 
     await db.update("users", user_id, filtered)
-    logger.info("Admin updated user %s: %s", user_id, list(filtered.keys()))
+
+    await _audit_admin_action(admin_id, "update_user", user_id, {
+        "fields": list(filtered.keys()),
+    })
+    logger.info("Admin %s updated user %s: %s", admin_id, user_id, list(filtered.keys()))
     return await admin_get_user(user_id)
 
 
-async def admin_disable_user(user_id: str):
-    """Disable a user account."""
+async def admin_disable_user(user_id: str, admin_id: str = ""):
+    """Disable a user account. Admin cannot disable themselves."""
+    _validate_user_id(user_id)
+
+    if admin_id and user_id == admin_id:
+        raise ValidationError("Cannot disable your own account")
+
     user = await db.fetch_one("users", id=user_id)
     if not user:
         raise NotFoundError("User", user_id)
+
+    if user.get("role") == "disabled":
+        raise ValidationError("User is already disabled")
+
     await db.update("users", user_id, {"role": "disabled"})
-    logger.info("Admin disabled user %s", user_id)
+
+    await _audit_admin_action(admin_id, "disable_user", user_id, {
+        "previous_role": user.get("role"),
+    })
+    logger.info("Admin %s disabled user %s", admin_id, user_id)
 
 
 # ── Revenue analytics ──
 
 async def revenue_summary(days: int = 30) -> dict:
     """Revenue breakdown for the last N days."""
+    days = max(1, min(days, 365))
     d = await db.get_db()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -287,6 +396,7 @@ async def revenue_summary(days: int = 30) -> dict:
 
 async def growth_summary(days: int = 30) -> dict:
     """User growth metrics."""
+    days = max(1, min(days, 365))
     d = await db.get_db()
     since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
@@ -345,7 +455,7 @@ async def growth_summary(days: int = 30) -> dict:
 
 # ── Fraud detection ──
 
-async def run_fraud_scan() -> dict:
+async def run_fraud_scan(admin_id: str = "") -> dict:
     """
     Run comprehensive fraud checks:
     1. Balance discrepancies (chain vs recorded)
@@ -357,6 +467,7 @@ async def run_fraud_scan() -> dict:
 
     results = {
         "scan_time": datetime.now(timezone.utc).isoformat(),
+        "triggered_by": admin_id or "system",
         "balance_discrepancies": [],
         "chain_violations": [],
         "suspicious_accounts": [],
@@ -430,7 +541,14 @@ async def run_fraud_scan() -> dict:
     results["total_issues"] = total_issues
     results["status"] = "clean" if total_issues == 0 else "issues_found"
 
-    logger.info("Fraud scan complete: %d issues found", total_issues)
+    # Audit the scan itself
+    if admin_id:
+        await _audit_admin_action(admin_id, "fraud_scan", details={
+            "total_issues": total_issues,
+            "status": results["status"],
+        })
+
+    logger.info("Fraud scan complete: %d issues found (by %s)", total_issues, admin_id or "system")
     return results
 
 
@@ -491,6 +609,7 @@ async def generate_snapshot() -> dict:
 
 async def get_snapshots(limit: int = 24) -> list[dict]:
     """Get recent analytics snapshots."""
+    limit = max(1, min(limit, 100))
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT * FROM analytics_snapshots ORDER BY created_at DESC LIMIT ?",

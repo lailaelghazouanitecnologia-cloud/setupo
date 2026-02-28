@@ -9,9 +9,11 @@ of the previous block, ensuring integrity.
 Fraud detection: if any row is modified, the chain breaks and the audit
 system flags the exact point of corruption.
 """
+import asyncio
 import hashlib
 import json
 import logging
+import re
 import secrets
 from datetime import datetime, timezone
 
@@ -20,27 +22,63 @@ from core.errors import SetupoError, ValidationError
 
 logger = logging.getLogger("setupo.blockchain")
 
+_USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
 
-# ── Block types ──
-BLOCK_TYPES = frozenset({
-    "wallet_topup",
-    "wallet_debit",
-    "wallet_grant",
-    "invoice_charge",
-    "invoice_refund",
-    "invoice_void",
-    "subscription_charge",
-    "subscription_credit",
-    "coupon_discount",
-    "credit_note_applied",
-    "credit_note_voided",
-    "payment_received",
-    "payment_failed",
-    "balance_adjustment",
-    "transfer_in",
-    "transfer_out",
-    "manual_correction",
-})
+# Per-user write locks to prevent concurrent chain corruption.
+_chain_locks: dict[str, asyncio.Lock] = {}
+_locks_lock = asyncio.Lock()
+
+
+async def _get_lock(user_id: str) -> asyncio.Lock:
+    async with _locks_lock:
+        if user_id not in _chain_locks:
+            _chain_locks[user_id] = asyncio.Lock()
+        return _chain_locks[user_id]
+
+
+def _validate_user_id(user_id: str):
+    if not _USER_ID_RE.match(user_id):
+        raise ValidationError("Invalid user_id format")
+
+
+# ── Block types with expected amount sign ──
+# positive = money in, negative = money out, zero = neutral
+BLOCK_SIGN: dict[str, int] = {
+    "wallet_topup":         1,
+    "wallet_debit":        -1,
+    "wallet_grant":         1,
+    "invoice_charge":      -1,
+    "invoice_refund":       1,
+    "invoice_void":         0,
+    "subscription_charge": -1,
+    "subscription_credit":  1,
+    "coupon_discount":      1,
+    "credit_note_applied":  1,
+    "credit_note_voided":   0,
+    "payment_received":     1,
+    "payment_failed":       0,
+    "balance_adjustment":   0,  # can be either
+    "transfer_in":          1,
+    "transfer_out":        -1,
+    "manual_correction":    0,  # can be either
+}
+
+BLOCK_TYPES = frozenset(BLOCK_SIGN.keys())
+
+
+def _validate_amount_sign(block_type: str, amount_cents: int):
+    """Ensure amount sign matches block type semantics."""
+    expected = BLOCK_SIGN.get(block_type, 0)
+    if expected == 0:
+        return  # neutral types accept any sign
+    if expected == 1 and amount_cents < 0:
+        raise ValidationError(
+            f"Block type '{block_type}' requires non-negative amount, got {amount_cents}"
+        )
+    if expected == -1 and amount_cents > 0:
+        raise ValidationError(
+            f"Block type '{block_type}' requires non-positive amount, got {amount_cents}"
+        )
 
 
 def _compute_hash(block: dict) -> str:
@@ -75,7 +113,7 @@ async def _get_last_block(user_id: str) -> dict | None:
 
 
 async def _get_genesis_or_create(user_id: str) -> dict:
-    """Get or create the genesis block for a user."""
+    """Get or create the genesis block for a user. Must be called under lock."""
     last = await _get_last_block(user_id)
     if last:
         return last
@@ -109,28 +147,47 @@ async def append_block(
     resource_id: str = "",
     data: dict | None = None,
 ) -> dict:
-    """Append a new block to a user's ledger chain."""
-    if block_type not in BLOCK_TYPES and block_type != "genesis":
+    """Append a new block to a user's ledger chain (serialized per user)."""
+    _validate_user_id(user_id)
+
+    if block_type not in BLOCK_TYPES:
         raise ValidationError(f"Invalid block type: {block_type}")
 
-    prev = await _get_genesis_or_create(user_id)
+    if not isinstance(amount_cents, int):
+        raise ValidationError("amount_cents must be an integer")
+    if not isinstance(balance_after_cents, int):
+        raise ValidationError("balance_after_cents must be an integer")
+    if balance_after_cents < 0:
+        raise ValidationError("balance_after_cents cannot be negative")
 
-    block = {
-        "id": f"blk_{secrets.token_hex(12)}",
-        "user_id": user_id,
-        "idx": prev["idx"] + 1,
-        "prev_hash": prev["hash"],
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "block_type": block_type,
-        "amount_cents": amount_cents,
-        "balance_after_cents": balance_after_cents,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "data": json.dumps(data or {}),
-        "nonce": secrets.token_hex(8),
-    }
-    block["hash"] = _compute_hash(block)
-    await db.insert("ledger_blocks", block)
+    _validate_amount_sign(block_type, amount_cents)
+
+    if len(resource_type) > 64:
+        raise ValidationError("resource_type too long")
+    if len(resource_id) > 128:
+        raise ValidationError("resource_id too long")
+
+    # Serialize writes per user to prevent concurrent chain corruption
+    lock = await _get_lock(user_id)
+    async with lock:
+        prev = await _get_genesis_or_create(user_id)
+
+        block = {
+            "id": f"blk_{secrets.token_hex(12)}",
+            "user_id": user_id,
+            "idx": prev["idx"] + 1,
+            "prev_hash": prev["hash"],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "block_type": block_type,
+            "amount_cents": amount_cents,
+            "balance_after_cents": balance_after_cents,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "data": json.dumps(data or {}),
+            "nonce": secrets.token_hex(8),
+        }
+        block["hash"] = _compute_hash(block)
+        await db.insert("ledger_blocks", block)
 
     logger.info(
         "Block #%d appended: %s %+d cents (bal=%d) user=%s",
@@ -142,6 +199,10 @@ async def append_block(
 
 async def get_chain(user_id: str, limit: int = 100, offset: int = 0) -> list[dict]:
     """Get a user's ledger chain, newest first."""
+    _validate_user_id(user_id)
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
+
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT * FROM ledger_blocks WHERE user_id = ? ORDER BY idx DESC LIMIT ? OFFSET ?",
@@ -153,6 +214,7 @@ async def get_chain(user_id: str, limit: int = 100, offset: int = 0) -> list[dic
 
 async def get_chain_length(user_id: str) -> int:
     """Get total number of blocks in a user's chain."""
+    _validate_user_id(user_id)
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT COUNT(*) FROM ledger_blocks WHERE user_id = ?",
@@ -167,6 +229,7 @@ async def verify_chain(user_id: str) -> dict:
     Verify the integrity of a user's entire ledger chain.
     Returns: {valid: bool, length: int, errors: [...]}
     """
+    _validate_user_id(user_id)
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT * FROM ledger_blocks WHERE user_id = ? ORDER BY idx ASC",
@@ -254,6 +317,8 @@ async def get_balance_proof(user_id: str) -> dict:
     Get cryptographic proof of current balance from the chain.
     Compares chain balance with user.balance and wallet balances.
     """
+    _validate_user_id(user_id)
+
     last_block = await _get_last_block(user_id)
     if not last_block:
         return {
