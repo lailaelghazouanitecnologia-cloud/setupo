@@ -9,7 +9,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 
 from server.config import settings
-from server.auth.jwt import decode_user_token
+from server.auth.jwt import decode_user_token, verify_password as _pbkdf2_verify
 from core import db
 
 logger = logging.getLogger("setupo.auth")
@@ -18,16 +18,7 @@ security = HTTPBearer(auto_error=False)
 
 _cached_admin_token: str | None = None
 
-PBKDF2_ITERATIONS = 100_000
 PBKDF2_MIN_LENGTH = 80
-
-
-def _pbkdf2_verify(password: str, stored: str) -> bool:
-    if ":" not in stored:
-        return False
-    salt, hash_hex = stored.split(":", 1)
-    dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
-    return hmac.compare_digest(dk.hex(), hash_hex)
 
 
 class LoginRequest(BaseModel):

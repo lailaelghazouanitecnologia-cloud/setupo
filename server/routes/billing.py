@@ -28,6 +28,7 @@ MAX_TOPUP_AMOUNT = 1000.0
 # ──────────────────────────────────────────────
 
 class TopUpRequest(BaseModel):
+    user_id: str
     amount: float
     reference: str = ""
 
@@ -711,7 +712,7 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
     if req.amount > MAX_TOPUP_AMOUNT:
         raise HTTPException(400, f"Maximum top-up is ${MAX_TOPUP_AMOUNT:.0f}")
 
-    user = await db.fetch_one("users", id=auth.user_id)
+    user = await db.fetch_one("users", id=req.user_id)
     if not user:
         raise HTTPException(404, "User not found")
 
@@ -720,15 +721,15 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
 
     await db.insert("transactions", {
         "id": txn_id,
-        "user_id": auth.user_id,
+        "user_id": req.user_id,
         "type": "topup",
         "amount": req.amount,
         "description": f"Balance top-up: ${req.amount:.2f}",
         "reference": req.reference,
     })
-    await db.update("users", auth.user_id, {"balance": new_balance})
+    await db.update("users", req.user_id, {"balance": new_balance})
 
-    logger.info("Top-up: %s +$%.2f (balance: $%.2f)", auth.user_id, req.amount, new_balance)
+    logger.info("Top-up: %s +$%.2f (balance: $%.2f)", req.user_id, req.amount, new_balance)
     return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
 
 

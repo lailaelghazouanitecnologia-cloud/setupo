@@ -819,10 +819,10 @@ export async function getTransactions() {
   return centralApi<{ transactions: Transaction[]; count: number }>("/api/billing/transactions");
 }
 
-export async function topUp(amount: number, reference = "") {
+export async function topUp(userId: string, amount: number, reference = "") {
   return centralApi<{ ok: boolean; balance: number; transaction_id: string }>("/api/billing/topup", {
     method: "POST",
-    body: JSON.stringify({ amount, reference }),
+    body: JSON.stringify({ user_id: userId, amount, reference }),
   });
 }
 

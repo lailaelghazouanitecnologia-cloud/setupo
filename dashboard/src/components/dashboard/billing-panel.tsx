@@ -10,7 +10,7 @@ import {
   BarChart3, Percent, Activity, Gift,
 } from "lucide-react";
 import {
-  getBalance, getTransactions, topUp,
+  getBalance, getTransactions, topUp, getMe,
   listBillingPlans, getSubscription, subscribe, cancelSubscription,
   pauseSubscription, resumeSubscription,
   createCheckout, createTopUpCheckout,
@@ -1161,6 +1161,11 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [useStripe, setUseStripe] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState("");
+
+  useEffect(() => {
+    getMe().then((me) => setCurrentUserId(me.id)).catch(() => {});
+  }, []);
 
   const presets = [10, 25, 50, 100];
 
@@ -1184,7 +1189,7 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
           onClose();
         }
       } else {
-        await topUp(num, reference.trim());
+        await topUp(currentUserId, num, reference.trim());
         onSuccess();
       }
     } catch (e: any) {

@@ -18,15 +18,16 @@ from email.mime.text import MIMEText
 
 from core import db
 from core.errors import NotFoundError, ValidationError
+from server.config import settings
 
 logger = logging.getLogger("setupo.email")
 
-# Config from env
-SMTP_HOST = os.environ.get("SMTP_HOST", "")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USER = os.environ.get("SMTP_USER", "")
-SMTP_PASS = os.environ.get("SMTP_PASS", "")
-SMTP_FROM = os.environ.get("SMTP_FROM", "nso@nso.dev")
+# Config from centralized settings
+SMTP_HOST = settings.SMTP_HOST
+SMTP_PORT = settings.SMTP_PORT
+SMTP_USER = settings.SMTP_USER
+SMTP_PASS = settings.SMTP_PASS
+SMTP_FROM = settings.SMTP_FROM
 SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "NSO Platform")
 
 # Token signing for verification/reset links
