@@ -1082,6 +1082,47 @@ export async function getRecentActivity(limit = 100, action = "") {
   return centralApi<{ activity: ActivityEntry[]; count: number }>(`/api/admin/analytics/activity?${q}`);
 }
 
+export interface CashflowPeriod {
+  period: string;
+  inflow_cents: number;
+  outflow_cents: number;
+  net_cents: number;
+  breakdown: {
+    invoices: { cents: number; count: number };
+    topups: { cents: number; count: number };
+    refunds: { cents: number; count: number };
+    wallet_debits: { cents: number; count: number };
+    ledger_in: { cents: number; count: number };
+    ledger_out: { cents: number; count: number };
+  };
+  signups: number;
+  subs_created: number;
+  subs_cancelled: number;
+}
+
+export interface CashflowResult {
+  granularity: string;
+  periods_requested: number;
+  periods_returned: number;
+  timeline: CashflowPeriod[];
+  totals: {
+    inflow_cents: number;
+    outflow_cents: number;
+    net_cents: number;
+    by_source: {
+      invoices_cents: number;
+      topups_cents: number;
+      refunds_cents: number;
+    };
+  };
+}
+
+export async function getCashflowAnalytics(granularity: string = "month", periods: number = 12) {
+  return centralApi<CashflowResult>(
+    `/api/admin/analytics/cashflow?granularity=${granularity}&periods=${periods}`,
+  );
+}
+
 export async function createAnalyticsSnapshot() {
   return centralApi<{ ok: boolean; snapshot: any }>("/api/admin/analytics/snapshot", { method: "POST" });
 }

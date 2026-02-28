@@ -172,6 +172,21 @@ async def recent_activity(
     return {"activity": activity, "count": len(activity)}
 
 
+@router.get("/analytics/cashflow")
+async def cashflow(
+    granularity: str = Query("month", regex="^(day|week|month|year)$"),
+    periods: int = Query(12, ge=1, le=365),
+    auth: AuthContext = Depends(require_admin),
+):
+    """Cashflow analysis: inflow vs outflow by day/week/month/year."""
+    try:
+        return await analytics.cashflow_analysis(
+            granularity=granularity, periods=periods,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
 @router.post("/analytics/snapshot")
 async def create_snapshot(auth: AuthContext = Depends(require_admin)):
     """Generate a full analytics snapshot now."""

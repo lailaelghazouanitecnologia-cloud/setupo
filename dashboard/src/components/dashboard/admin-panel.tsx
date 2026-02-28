@@ -4,7 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
   Users, TrendingUp, Shield, Search, ChevronRight,
   RefreshCw, AlertTriangle, CheckCircle, Key, Eye,
-  XCircle, BarChart3, Activity, Link2,
+  XCircle, BarChart3, Activity, Link2, ArrowDownUp,
 } from "lucide-react";
 import {
   getAdminOverview,
@@ -16,6 +16,7 @@ import {
   adminGetUserActivity,
   getRevenueAnalytics,
   getGrowthAnalytics,
+  getCashflowAnalytics,
   runFraudScan,
   getLedgerStats,
   getUserLedger,
@@ -25,12 +26,14 @@ import {
   type DashboardOverview,
   type RevenueSummary,
   type GrowthSummary,
+  type CashflowResult,
+  type CashflowPeriod,
   type FraudScanResult,
   type LedgerBlock,
   type ActivityEntry,
 } from "@/lib/api/client";
 
-type AdminTab = "overview" | "users" | "analytics" | "fraud" | "ledger";
+type AdminTab = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
 
 export function AdminPanel() {
   const [tab, setTab] = useState<AdminTab>("overview");
@@ -38,6 +41,7 @@ export function AdminPanel() {
   const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "users", label: "Users", icon: Users },
+    { id: "cashflow", label: "Cashflow", icon: ArrowDownUp },
     { id: "analytics", label: "Analytics", icon: TrendingUp },
     { id: "fraud", label: "Fraud", icon: Shield },
     { id: "ledger", label: "Ledger", icon: Link2 },
@@ -59,6 +63,7 @@ export function AdminPanel() {
       </div>
       {tab === "overview" && <OverviewTab />}
       {tab === "users" && <UsersTab />}
+      {tab === "cashflow" && <CashflowTab />}
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "fraud" && <FraudTab />}
       {tab === "ledger" && <LedgerTab />}
@@ -130,6 +135,223 @@ function OverviewTab() {
           <><Shield className="h-4 w-4" /> Fraud status: {data.fraud_status}</>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════
+   USERS TAB
+   ═══════════════════════════════════════ */
+/* ═══════════════════════════════════════
+   CASHFLOW TAB
+   ═══════════════════════════════════════ */
+function CashflowTab() {
+  const [data, setData] = useState<CashflowResult | null>(null);
+  const [granularity, setGranularity] = useState<string>("month");
+  const [periods, setPeriods] = useState(12);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getCashflowAnalytics(granularity, periods)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [granularity, periods]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const fmt = (cents: number) => {
+    const sign = cents < 0 ? "-" : "";
+    return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
+  };
+
+  const granOpts: { id: string; label: string; defaultPeriods: number }[] = [
+    { id: "day", label: "Daily", defaultPeriods: 30 },
+    { id: "week", label: "Weekly", defaultPeriods: 12 },
+    { id: "month", label: "Monthly", defaultPeriods: 12 },
+    { id: "year", label: "Yearly", defaultPeriods: 5 },
+  ];
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading cashflow...</div>;
+
+  return (
+    <div className="admin-cashflow">
+      {/* Granularity selector */}
+      <div className="admin-period-row">
+        <span className="admin-section-label">View by</span>
+        {granOpts.map((g) => (
+          <button
+            key={g.id}
+            className={`admin-period-btn ${granularity === g.id ? "active" : ""}`}
+            onClick={() => { setGranularity(g.id); setPeriods(g.defaultPeriods); }}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+
+      {data && (
+        <>
+          {/* Summary cards */}
+          <div className="admin-cards-grid sm">
+            <div className="admin-card sm">
+              <div className="admin-card-label">Total Inflow</div>
+              <div className="admin-card-value teal">{fmt(data.totals.inflow_cents)}</div>
+            </div>
+            <div className="admin-card sm">
+              <div className="admin-card-label">Total Outflow</div>
+              <div className="admin-card-value red">{fmt(data.totals.outflow_cents)}</div>
+            </div>
+            <div className="admin-card sm">
+              <div className="admin-card-label">Net</div>
+              <div className={`admin-card-value ${data.totals.net_cents >= 0 ? "teal" : "red"}`}>
+                {fmt(data.totals.net_cents)}
+              </div>
+            </div>
+            <div className="admin-card sm">
+              <div className="admin-card-label">From Invoices</div>
+              <div className="admin-card-value">{fmt(data.totals.by_source.invoices_cents)}</div>
+            </div>
+            <div className="admin-card sm">
+              <div className="admin-card-label">From Top-ups</div>
+              <div className="admin-card-value">{fmt(data.totals.by_source.topups_cents)}</div>
+            </div>
+            <div className="admin-card sm">
+              <div className="admin-card-label">Refunds</div>
+              <div className="admin-card-value red">{fmt(data.totals.by_source.refunds_cents)}</div>
+            </div>
+          </div>
+
+          {/* Dual bar chart — inflow vs outflow */}
+          {data.timeline.length > 0 && (
+            <div className="cf-chart">
+              <div className="admin-subsection-title">Inflow vs Outflow</div>
+              <div className="cf-bars">
+                {data.timeline.map((p) => {
+                  const maxVal = Math.max(
+                    ...data.timeline.map((x) => Math.max(x.inflow_cents, x.outflow_cents)),
+                    1,
+                  );
+                  const inPct = (p.inflow_cents / maxVal) * 100;
+                  const outPct = (p.outflow_cents / maxVal) * 100;
+                  return (
+                    <div
+                      key={p.period}
+                      className={`cf-bar-col ${expanded === p.period ? "expanded" : ""}`}
+                      onClick={() => setExpanded(expanded === p.period ? null : p.period)}
+                      title={`${p.period}: In ${fmt(p.inflow_cents)} / Out ${fmt(p.outflow_cents)}`}
+                    >
+                      <div className="cf-bar-pair">
+                        <div className="cf-bar in" style={{ height: `${Math.max(inPct, 2)}%` }} />
+                        <div className="cf-bar out" style={{ height: `${Math.max(outPct, 2)}%` }} />
+                      </div>
+                      <div className="cf-bar-label">{p.period.length > 7 ? p.period.slice(5) : p.period}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="cf-legend">
+                <span className="cf-legend-item"><span className="cf-dot in" /> Inflow</span>
+                <span className="cf-legend-item"><span className="cf-dot out" /> Outflow</span>
+              </div>
+            </div>
+          )}
+
+          {/* Expanded detail for selected period */}
+          {expanded && (() => {
+            const p = data.timeline.find((x) => x.period === expanded);
+            if (!p) return null;
+            return (
+              <div className="cf-detail">
+                <div className="cf-detail-title">
+                  {expanded}
+                  <span className={`cf-net ${p.net_cents >= 0 ? "positive" : "negative"}`}>
+                    Net: {fmt(p.net_cents)}
+                  </span>
+                </div>
+                <div className="cf-detail-grid">
+                  <div className="cf-detail-col">
+                    <div className="cf-detail-heading teal">Inflow — {fmt(p.inflow_cents)}</div>
+                    <div className="cf-detail-row">
+                      <span>Invoices</span>
+                      <span className="admin-mono">{fmt(p.breakdown.invoices.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.invoices.count}x</span>
+                    </div>
+                    <div className="cf-detail-row">
+                      <span>Wallet top-ups</span>
+                      <span className="admin-mono">{fmt(p.breakdown.topups.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.topups.count}x</span>
+                    </div>
+                    <div className="cf-detail-row">
+                      <span>Ledger inflow</span>
+                      <span className="admin-mono">{fmt(p.breakdown.ledger_in.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.ledger_in.count}x</span>
+                    </div>
+                  </div>
+                  <div className="cf-detail-col">
+                    <div className="cf-detail-heading red">Outflow — {fmt(p.outflow_cents)}</div>
+                    <div className="cf-detail-row">
+                      <span>Refunds</span>
+                      <span className="admin-mono">{fmt(p.breakdown.refunds.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.refunds.count}x</span>
+                    </div>
+                    <div className="cf-detail-row">
+                      <span>Wallet debits</span>
+                      <span className="admin-mono">{fmt(p.breakdown.wallet_debits.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.wallet_debits.count}x</span>
+                    </div>
+                    <div className="cf-detail-row">
+                      <span>Ledger outflow</span>
+                      <span className="admin-mono">{fmt(p.breakdown.ledger_out.cents)}</span>
+                      <span className="admin-muted">{p.breakdown.ledger_out.count}x</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="cf-detail-meta">
+                  <span>Signups: {p.signups}</span>
+                  <span>Subs created: {p.subs_created}</span>
+                  <span>Subs cancelled: {p.subs_cancelled}</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Full table */}
+          <div className="cf-table">
+            <div className="admin-subsection-title" style={{ marginTop: 16 }}>Timeline Detail</div>
+            <div className="admin-table">
+              <div className="admin-thead">
+                <div className="admin-th" style={{ flex: 1.2 }}>Period</div>
+                <div className="admin-th">Inflow</div>
+                <div className="admin-th">Outflow</div>
+                <div className="admin-th">Net</div>
+                <div className="admin-th">Signups</div>
+                <div className="admin-th">+Subs</div>
+                <div className="admin-th">-Subs</div>
+              </div>
+              {data.timeline.map((p) => (
+                <div
+                  key={p.period}
+                  className={`admin-trow ${expanded === p.period ? "active-row" : ""}`}
+                  onClick={() => setExpanded(expanded === p.period ? null : p.period)}
+                >
+                  <div className="admin-tcell admin-mono" style={{ flex: 1.2, fontWeight: 600 }}>{p.period}</div>
+                  <div className="admin-tcell admin-mono" style={{ color: "var(--color-teal)" }}>{fmt(p.inflow_cents)}</div>
+                  <div className="admin-tcell admin-mono" style={{ color: "var(--color-red)" }}>{fmt(p.outflow_cents)}</div>
+                  <div className="admin-tcell admin-mono" style={{ fontWeight: 600, color: p.net_cents >= 0 ? "var(--color-teal)" : "var(--color-red)" }}>
+                    {fmt(p.net_cents)}
+                  </div>
+                  <div className="admin-tcell">{p.signups}</div>
+                  <div className="admin-tcell">{p.subs_created}</div>
+                  <div className="admin-tcell">{p.subs_cancelled}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -704,3 +704,228 @@ async def get_dashboard_overview() -> dict:
         },
         "fraud_status": last_fraud_status,
     }
+
+
+# ── Cashflow analysis (day / week / month / year) ──
+
+_VALID_GRANULARITY = {"day", "week", "month", "year"}
+
+# SQLite date truncation expressions per granularity
+_DATE_TRUNC = {
+    "day":   "DATE(created_at)",
+    "week":  "DATE(created_at, 'weekday 0', '-6 days')",  # Monday-based weeks
+    "month": "STRFTIME('%Y-%m', created_at)",
+    "year":  "STRFTIME('%Y', created_at)",
+}
+
+_LEDGER_DATE_TRUNC = {
+    "day":   "DATE(timestamp)",
+    "week":  "DATE(timestamp, 'weekday 0', '-6 days')",
+    "month": "STRFTIME('%Y-%m', timestamp)",
+    "year":  "STRFTIME('%Y', timestamp)",
+}
+
+
+async def cashflow_analysis(
+    granularity: str = "month",
+    periods: int = 12,
+) -> dict:
+    """
+    Full cashflow breakdown: what enters and what leaves, grouped by period.
+
+    granularity: day | week | month | year
+    periods: how many periods back to show
+
+    Sources tracked:
+      IN:  invoice payments, wallet top-ups, payment_received ledger blocks
+      OUT: refunds, credit notes, wallet debits, subscription credits
+    """
+    if granularity not in _VALID_GRANULARITY:
+        raise ValidationError(f"Invalid granularity: {granularity}. Use: {', '.join(_VALID_GRANULARITY)}")
+    periods = max(1, min(periods, 365))
+
+    # Compute the date cutoff
+    if granularity == "day":
+        since = (datetime.now(timezone.utc) - timedelta(days=periods)).isoformat()
+    elif granularity == "week":
+        since = (datetime.now(timezone.utc) - timedelta(weeks=periods)).isoformat()
+    elif granularity == "month":
+        since = (datetime.now(timezone.utc) - timedelta(days=periods * 30)).isoformat()
+    else:  # year
+        since = (datetime.now(timezone.utc) - timedelta(days=periods * 365)).isoformat()
+
+    d = await db.get_db()
+    date_expr = _DATE_TRUNC[granularity]
+    ledger_date_expr = _LEDGER_DATE_TRUNC[granularity]
+
+    # ── INFLOW ──
+
+    # 1. Paid invoices (subscription + usage charges)
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, SUM(total_cents), COUNT(*) "
+        f"FROM billing_invoices "
+        f"WHERE payment_status = 'succeeded' AND created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    invoice_income = {r[0]: {"cents": r[1] or 0, "count": r[2]} for r in await cursor.fetchall()}
+
+    # 2. Wallet top-ups (real money deposited)
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, SUM(CAST(amount * 100 AS INTEGER)), COUNT(*) "
+        f"FROM billing_wallet_transactions "
+        f"WHERE transaction_type = 'inbound' AND created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    topup_income = {r[0]: {"cents": r[1] or 0, "count": r[2]} for r in await cursor.fetchall()}
+
+    # 3. Ledger inflow (payment_received, wallet_topup, etc.)
+    cursor = await d.execute(
+        f"SELECT {ledger_date_expr} as period, SUM(amount_cents), COUNT(*) "
+        f"FROM ledger_blocks "
+        f"WHERE amount_cents > 0 AND block_type != 'genesis' AND timestamp >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    ledger_in = {r[0]: {"cents": r[1] or 0, "count": r[2]} for r in await cursor.fetchall()}
+
+    # ── OUTFLOW ──
+
+    # 4. Refunds (credit notes of type refund)
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, SUM(total_cents), COUNT(*) "
+        f"FROM billing_credit_notes "
+        f"WHERE credit_type = 'refund' AND status = 'available' AND created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    refund_out = {r[0]: {"cents": r[1] or 0, "count": r[2]} for r in await cursor.fetchall()}
+
+    # 5. Wallet debits (credits consumed)
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, SUM(CAST(amount * 100 AS INTEGER)), COUNT(*) "
+        f"FROM billing_wallet_transactions "
+        f"WHERE transaction_type = 'outbound' AND created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    wallet_debits = {r[0]: {"cents": abs(r[1] or 0), "count": r[2]} for r in await cursor.fetchall()}
+
+    # 6. Ledger outflow
+    cursor = await d.execute(
+        f"SELECT {ledger_date_expr} as period, SUM(ABS(amount_cents)), COUNT(*) "
+        f"FROM ledger_blocks "
+        f"WHERE amount_cents < 0 AND timestamp >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    ledger_out = {r[0]: {"cents": r[1] or 0, "count": r[2]} for r in await cursor.fetchall()}
+
+    # ── EXTRA: New accounts per period ──
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, COUNT(*) "
+        f"FROM users WHERE created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    signups = {r[0]: r[1] for r in await cursor.fetchall()}
+
+    # ── EXTRA: Subscriptions created/cancelled per period ──
+    cursor = await d.execute(
+        f"SELECT {date_expr} as period, COUNT(*) "
+        f"FROM billing_subscriptions WHERE created_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    subs_created = {r[0]: r[1] for r in await cursor.fetchall()}
+
+    cursor = await d.execute(
+        f"SELECT {_DATE_TRUNC[granularity].replace('created_at', 'cancelled_at')} as period, COUNT(*) "
+        f"FROM billing_subscriptions WHERE cancelled_at IS NOT NULL AND cancelled_at >= ? "
+        f"GROUP BY period ORDER BY period",
+        (since,),
+    )
+    subs_cancelled = {r[0]: r[1] for r in await cursor.fetchall()}
+
+    # ── Build unified timeline ──
+    all_periods = sorted(set(
+        list(invoice_income) + list(topup_income) + list(refund_out) +
+        list(wallet_debits) + list(ledger_in) + list(ledger_out) + list(signups)
+    ))
+
+    timeline = []
+    totals_in = 0
+    totals_out = 0
+
+    for p in all_periods:
+        inv = invoice_income.get(p, {"cents": 0, "count": 0})
+        top = topup_income.get(p, {"cents": 0, "count": 0})
+        ref = refund_out.get(p, {"cents": 0, "count": 0})
+        wdb = wallet_debits.get(p, {"cents": 0, "count": 0})
+        lin = ledger_in.get(p, {"cents": 0, "count": 0})
+        lot = ledger_out.get(p, {"cents": 0, "count": 0})
+
+        period_in = inv["cents"] + top["cents"]
+        period_out = ref["cents"] + wdb["cents"]
+        net = period_in - period_out
+
+        totals_in += period_in
+        totals_out += period_out
+
+        timeline.append({
+            "period": p,
+            "inflow_cents": period_in,
+            "outflow_cents": period_out,
+            "net_cents": net,
+            "breakdown": {
+                "invoices": inv,
+                "topups": top,
+                "refunds": ref,
+                "wallet_debits": wdb,
+                "ledger_in": lin,
+                "ledger_out": lot,
+            },
+            "signups": signups.get(p, 0),
+            "subs_created": subs_created.get(p, 0),
+            "subs_cancelled": subs_cancelled.get(p, 0),
+        })
+
+    # ── Totals by source (all time in range) ──
+    cursor = await d.execute(
+        "SELECT SUM(total_cents) FROM billing_invoices "
+        "WHERE payment_status = 'succeeded' AND created_at >= ?",
+        (since,),
+    )
+    total_invoices = (await cursor.fetchone())[0] or 0
+
+    cursor = await d.execute(
+        "SELECT SUM(CAST(amount * 100 AS INTEGER)) FROM billing_wallet_transactions "
+        "WHERE transaction_type = 'inbound' AND created_at >= ?",
+        (since,),
+    )
+    total_topups = (await cursor.fetchone())[0] or 0
+
+    cursor = await d.execute(
+        "SELECT SUM(total_cents) FROM billing_credit_notes "
+        "WHERE credit_type = 'refund' AND status = 'available' AND created_at >= ?",
+        (since,),
+    )
+    total_refunds = (await cursor.fetchone())[0] or 0
+
+    return {
+        "granularity": granularity,
+        "periods_requested": periods,
+        "periods_returned": len(timeline),
+        "timeline": timeline,
+        "totals": {
+            "inflow_cents": totals_in,
+            "outflow_cents": totals_out,
+            "net_cents": totals_in - totals_out,
+            "by_source": {
+                "invoices_cents": total_invoices,
+                "topups_cents": total_topups,
+                "refunds_cents": total_refunds,
+            },
+        },
+    }
