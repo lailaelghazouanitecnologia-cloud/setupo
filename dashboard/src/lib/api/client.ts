@@ -481,6 +481,115 @@ export interface PaymentMethod {
   created_at: string;
 }
 
+export interface Coupon {
+  id: string;
+  code: string;
+  name: string;
+  coupon_type: string;
+  value: number;
+  currency: string;
+  frequency: string;
+  frequency_duration: number;
+  plan_codes: string[];
+  max_redemptions: number;
+  redemptions_count: number;
+  active: boolean;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface AppliedCoupon {
+  id: string;
+  user_id: string;
+  coupon_id: string;
+  subscription_id: string;
+  status: string;
+  amount_cents_used: number;
+  periods_remaining: number;
+  applied_at: string;
+  expires_at: string | null;
+}
+
+export interface CreditNote {
+  id: string;
+  user_id: string;
+  invoice_id: string | null;
+  number: string;
+  reason: string;
+  credit_type: string;
+  status: string;
+  total_cents: number;
+  balance_cents: number;
+  currency: string;
+  items: any[];
+  refund_status: string;
+  created_at: string;
+  voided_at: string | null;
+}
+
+export interface BillableMetric {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  aggregation_type: string;
+  field_name: string;
+  recurring: boolean;
+  filters: any[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaxRate {
+  id: string;
+  name: string;
+  code: string;
+  rate: number;
+  description: string;
+  applied_to: string;
+  region: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface BillingWallet {
+  id: string;
+  user_id: string;
+  name: string;
+  currency: string;
+  balance_cents: number;
+  consumed_cents: number;
+  rate_amount: number;
+  credits_balance: number;
+  credits_consumed: number;
+  status: string;
+  expiration_at: string | null;
+  priority: number;
+  created_at: string;
+  depleted_at: string | null;
+}
+
+export interface WalletTransaction {
+  id: string;
+  wallet_id: string;
+  transaction_type: string;
+  amount: number;
+  credit_amount: number;
+  source: string;
+  settled_at: string | null;
+  created_at: string;
+}
+
+export interface BillingEvent {
+  id: string;
+  event_type: string;
+  resource_type: string;
+  resource_id: string;
+  user_id: string;
+  data: Record<string, any>;
+  created_at: string;
+}
+
 export interface BillingOverview {
   balance: number;
   currency: string;
@@ -490,6 +599,11 @@ export interface BillingOverview {
   payment_methods: PaymentMethod[];
   transactions: Transaction[];
   usage: Record<string, number>;
+  applied_coupons: AppliedCoupon[];
+  credit_notes: CreditNote[];
+  credit_notes_balance_cents: number;
+  wallets: BillingWallet[];
+  wallet_balance_cents: number;
 }
 
 // ── Plans ──
@@ -502,10 +616,10 @@ export async function getSubscription() {
   return centralApi<{ subscription: BillingSubscription | null; plan: BillingPlan | null }>("/api/billing/subscription");
 }
 
-export async function subscribe(planCode: string) {
+export async function subscribe(planCode: string, trial = false) {
   return centralApi<{ ok: boolean; subscription: BillingSubscription }>("/api/billing/subscribe", {
     method: "POST",
-    body: JSON.stringify({ plan_code: planCode }),
+    body: JSON.stringify({ plan_code: planCode, trial }),
   });
 }
 
@@ -515,19 +629,159 @@ export async function cancelSubscription() {
   });
 }
 
-// ── Checkout (Stripe) ──
-export async function createCheckout(planCode: string, successUrl = "", cancelUrl = "") {
+export async function pauseSubscription() {
+  return centralApi<{ ok: boolean; subscription: BillingSubscription }>("/api/billing/pause", { method: "POST" });
+}
+
+export async function resumeSubscription() {
+  return centralApi<{ ok: boolean; subscription: BillingSubscription }>("/api/billing/resume", { method: "POST" });
+}
+
+// ── Checkout (Stripe + Google Pay) ──
+export async function createCheckout(planCode: string, successUrl = "", cancelUrl = "", paymentMethods?: string[]) {
   return centralApi<{ session_id?: string; url?: string; plan_code: string; subscription?: any; free?: boolean }>("/api/billing/checkout", {
     method: "POST",
-    body: JSON.stringify({ plan_code: planCode, success_url: successUrl, cancel_url: cancelUrl }),
+    body: JSON.stringify({ plan_code: planCode, success_url: successUrl, cancel_url: cancelUrl, payment_methods: paymentMethods }),
   });
 }
 
-export async function createTopUpCheckout(amountCents: number, successUrl = "", cancelUrl = "") {
+export async function createTopUpCheckout(amountCents: number, successUrl = "", cancelUrl = "", paymentMethods?: string[]) {
   return centralApi<{ session_id: string; url: string; amount_cents: number }>("/api/billing/topup/checkout", {
     method: "POST",
-    body: JSON.stringify({ amount_cents: amountCents, success_url: successUrl, cancel_url: cancelUrl }),
+    body: JSON.stringify({ amount_cents: amountCents, success_url: successUrl, cancel_url: cancelUrl, payment_methods: paymentMethods }),
   });
+}
+
+// ── Coupons ──
+export async function listCoupons() {
+  return centralApi<{ coupons: Coupon[]; count: number }>("/api/billing/coupons");
+}
+
+export async function createCoupon(data: {
+  code: string; name: string; coupon_type?: string; value: number;
+  frequency?: string; frequency_duration?: number; plan_codes?: string[];
+  max_redemptions?: number; expires_at?: string;
+}) {
+  return centralApi<{ ok: boolean; coupon: Coupon }>("/api/billing/coupons", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function deactivateCoupon(code: string) {
+  return centralApi<{ ok: boolean; coupon: Coupon }>(`/api/billing/coupons/${code}/deactivate`, { method: "POST" });
+}
+
+export async function applyCoupon(couponCode: string) {
+  return centralApi<{ ok: boolean; applied_coupon: AppliedCoupon }>("/api/billing/coupons/apply", {
+    method: "POST", body: JSON.stringify({ coupon_code: couponCode }),
+  });
+}
+
+export async function removeAppliedCoupon(appliedId: string) {
+  return centralApi<{ ok: boolean }>(`/api/billing/coupons/applied/${appliedId}`, { method: "DELETE" });
+}
+
+export async function listAppliedCoupons() {
+  return centralApi<{ applied_coupons: AppliedCoupon[]; count: number }>("/api/billing/coupons/applied");
+}
+
+// ── Credit Notes ──
+export async function listCreditNotes() {
+  return centralApi<{ credit_notes: CreditNote[]; count: number }>("/api/billing/credit-notes");
+}
+
+export async function createCreditNote(data: {
+  user_id: string; invoice_id?: string; total_cents: number; reason?: string; credit_type?: string;
+}) {
+  return centralApi<{ ok: boolean; credit_note: CreditNote }>("/api/billing/credit-notes", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function getCreditNote(cnId: string) {
+  return centralApi<{ credit_note: CreditNote }>(`/api/billing/credit-notes/${cnId}`);
+}
+
+export async function voidCreditNote(cnId: string) {
+  return centralApi<{ ok: boolean; credit_note: CreditNote }>(`/api/billing/credit-notes/${cnId}/void`, { method: "POST" });
+}
+
+// ── Billable Metrics ──
+export async function listBillableMetrics() {
+  return centralApi<{ metrics: BillableMetric[]; count: number }>("/api/billing/metrics");
+}
+
+export async function createBillableMetric(data: {
+  code: string; name: string; aggregation_type?: string; description?: string;
+  field_name?: string; recurring?: boolean;
+}) {
+  return centralApi<{ ok: boolean; metric: BillableMetric }>("/api/billing/metrics", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function deleteBillableMetric(code: string) {
+  return centralApi<{ ok: boolean }>(`/api/billing/metrics/${code}`, { method: "DELETE" });
+}
+
+// ── Usage ──
+export async function recordUsage(metric: string, units: number, properties?: Record<string, any>, transactionId?: string) {
+  return centralApi<{ ok: boolean; event_id: string }>("/api/billing/usage", {
+    method: "POST",
+    body: JSON.stringify({ metric, units, properties, transaction_id: transactionId }),
+  });
+}
+
+export async function getUsageSummary() {
+  return centralApi<{ usage: Record<string, number>; period_start: string | null; period_end: string | null }>("/api/billing/usage/summary");
+}
+
+// ── Tax Rates ──
+export async function listTaxRates() {
+  return centralApi<{ taxes: TaxRate[]; count: number }>("/api/billing/taxes");
+}
+
+export async function createTaxRate(data: {
+  name: string; code: string; rate: number; description?: string; applied_to?: string; region?: string;
+}) {
+  return centralApi<{ ok: boolean; tax: TaxRate }>("/api/billing/taxes", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+// ── Wallets ──
+export async function listBillingWallets() {
+  return centralApi<{ wallets: BillingWallet[]; count: number }>("/api/billing/wallets");
+}
+
+export async function createBillingWallet(data: {
+  name?: string; paid_credits?: number; granted_credits?: number; rate_amount?: number; expiration_at?: string;
+}) {
+  return centralApi<{ ok: boolean; wallet: BillingWallet }>("/api/billing/wallets", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function getBillingWallet(walletId: string) {
+  return centralApi<{ wallet: BillingWallet }>(`/api/billing/wallets/${walletId}`);
+}
+
+export async function topUpBillingWallet(walletId: string, paidCredits = 0, grantedCredits = 0) {
+  return centralApi<{ ok: boolean; wallet: BillingWallet }>(`/api/billing/wallets/${walletId}/topup`, {
+    method: "POST", body: JSON.stringify({ paid_credits: paidCredits, granted_credits: grantedCredits }),
+  });
+}
+
+export async function getWalletTransactions(walletId: string) {
+  return centralApi<{ transactions: WalletTransaction[]; count: number }>(`/api/billing/wallets/${walletId}/transactions`);
+}
+
+// ── Billing Events ──
+export async function listBillingEvents(eventType = "", limit = 50) {
+  const params = new URLSearchParams();
+  if (eventType) params.set("event_type", eventType);
+  params.set("limit", String(limit));
+  return centralApi<{ events: BillingEvent[]; count: number }>(`/api/billing/events/user?${params}`);
 }
 
 // ── Invoices ──
@@ -537,6 +791,10 @@ export async function listInvoices() {
 
 export async function getInvoice(invoiceId: string) {
   return centralApi<{ invoice: Invoice }>(`/api/billing/invoices/${invoiceId}`);
+}
+
+export async function generateInvoice() {
+  return centralApi<{ ok: boolean; invoice: Invoice }>("/api/billing/invoices/generate", { method: "POST" });
 }
 
 // ── Payment Methods ──
@@ -552,7 +810,7 @@ export async function setDefaultPaymentMethod(pmId: string) {
   return centralApi<{ ok: boolean; payment_method: PaymentMethod }>(`/api/billing/payment-methods/${pmId}/default`, { method: "POST" });
 }
 
-// ── Wallet ──
+// ── Wallet (legacy) ──
 export async function getBalance() {
   return centralApi<{ balance: number; currency: string }>("/api/billing/balance");
 }

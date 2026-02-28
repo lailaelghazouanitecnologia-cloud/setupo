@@ -1,7 +1,8 @@
 """
 nso-billing API routes.
 
-Plans, subscriptions, invoices, payment methods, Stripe checkout + webhooks, wallet top-up.
+Plans, subscriptions, coupons, credit notes, billable metrics, tax rates,
+wallets, invoices, payment methods, Stripe checkout + webhooks, billing events.
 """
 import hashlib
 import hmac
@@ -40,18 +41,84 @@ class ChargeRequest(BaseModel):
 
 class SubscribeRequest(BaseModel):
     plan_code: str
+    trial: bool = False
 
 
 class CheckoutRequest(BaseModel):
     plan_code: str
     success_url: str = ""
     cancel_url: str = ""
+    payment_methods: list[str] | None = None
 
 
 class TopUpCheckoutRequest(BaseModel):
     amount_cents: int
     success_url: str = ""
     cancel_url: str = ""
+    payment_methods: list[str] | None = None
+
+
+class CouponCreateRequest(BaseModel):
+    code: str
+    name: str
+    coupon_type: str = "percentage"
+    value: int = 0
+    frequency: str = "once"
+    frequency_duration: int = 0
+    plan_codes: list[str] | None = None
+    max_redemptions: int = 0
+    expires_at: str | None = None
+
+
+class ApplyCouponRequest(BaseModel):
+    coupon_code: str
+
+
+class CreditNoteRequest(BaseModel):
+    user_id: str = ""
+    invoice_id: str | None = None
+    total_cents: int = 0
+    reason: str = ""
+    credit_type: str = "refund"
+
+
+class BillableMetricRequest(BaseModel):
+    code: str
+    name: str
+    aggregation_type: str = "sum"
+    description: str = ""
+    field_name: str = ""
+    recurring: bool = False
+    filters: list | None = None
+
+
+class UsageEventRequest(BaseModel):
+    metric: str
+    units: float
+    properties: dict | None = None
+    transaction_id: str | None = None
+
+
+class TaxRateRequest(BaseModel):
+    name: str
+    code: str
+    rate: float
+    description: str = ""
+    applied_to: str = "all"
+    region: str = ""
+
+
+class WalletCreateRequest(BaseModel):
+    name: str = "Primary"
+    paid_credits: float = 0.0
+    granted_credits: float = 0.0
+    rate_amount: float = 1.0
+    expiration_at: str | None = None
+
+
+class WalletTopUpRequest(BaseModel):
+    paid_credits: float = 0.0
+    granted_credits: float = 0.0
 
 
 # ──────────────────────────────────────────────
@@ -101,11 +168,11 @@ async def subscribe(req: SubscribeRequest, auth: AuthContext = Depends(require_u
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
 
-    if plan["amount_cents"] > 0:
+    if plan["amount_cents"] > 0 and not req.trial:
         raise HTTPException(400, "Paid plans require checkout. Use POST /billing/checkout instead.")
 
     try:
-        sub = await billing.create_subscription(auth.user_id, req.plan_code)
+        sub = await billing.create_subscription(auth.user_id, req.plan_code, trial=req.trial)
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "subscription": sub}
@@ -121,6 +188,322 @@ async def cancel_subscription(auth: AuthContext = Depends(require_user)):
     return {"ok": True, "subscription": sub}
 
 
+@router.post("/pause")
+async def pause_subscription(auth: AuthContext = Depends(require_user)):
+    """Pause the current subscription."""
+    try:
+        sub = await billing.pause_subscription(auth.user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "subscription": sub}
+
+
+@router.post("/resume")
+async def resume_subscription(auth: AuthContext = Depends(require_user)):
+    """Resume a paused subscription."""
+    try:
+        sub = await billing.resume_subscription(auth.user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "subscription": sub}
+
+
+# ──────────────────────────────────────────────
+#  Coupons
+# ──────────────────────────────────────────────
+
+@router.get("/coupons")
+async def list_coupons(auth: AuthContext = Depends(require_admin)):
+    """List all coupons (admin only)."""
+    coupons = await billing.list_coupons(active_only=False)
+    return {"coupons": coupons, "count": len(coupons)}
+
+
+@router.post("/coupons")
+async def create_coupon(req: CouponCreateRequest, auth: AuthContext = Depends(require_admin)):
+    """Create a coupon (admin only)."""
+    try:
+        coupon = await billing.create_coupon(
+            code=req.code, name=req.name, coupon_type=req.coupon_type,
+            value=req.value, frequency=req.frequency,
+            frequency_duration=req.frequency_duration,
+            plan_codes=req.plan_codes, max_redemptions=req.max_redemptions,
+            expires_at=req.expires_at,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "coupon": coupon}
+
+
+@router.post("/coupons/{code}/deactivate")
+async def deactivate_coupon(code: str, auth: AuthContext = Depends(require_admin)):
+    """Deactivate a coupon (admin only)."""
+    try:
+        coupon = await billing.deactivate_coupon(code)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "coupon": coupon}
+
+
+@router.post("/coupons/apply")
+async def apply_coupon(req: ApplyCouponRequest, auth: AuthContext = Depends(require_user)):
+    """Apply a coupon code to the current user."""
+    sub = await billing.get_subscription(auth.user_id)
+    try:
+        applied = await billing.apply_coupon(
+            auth.user_id, req.coupon_code,
+            subscription_id=sub["id"] if sub else None,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "applied_coupon": applied}
+
+
+@router.delete("/coupons/applied/{applied_id}")
+async def remove_applied_coupon(applied_id: str, auth: AuthContext = Depends(require_user)):
+    """Remove an applied coupon."""
+    try:
+        await billing.remove_applied_coupon(auth.user_id, applied_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True}
+
+
+@router.get("/coupons/applied")
+async def list_applied_coupons(auth: AuthContext = Depends(require_user)):
+    """List user's active applied coupons."""
+    applied = await billing.list_applied_coupons(auth.user_id)
+    return {"applied_coupons": applied, "count": len(applied)}
+
+
+# ──────────────────────────────────────────────
+#  Credit Notes
+# ──────────────────────────────────────────────
+
+@router.get("/credit-notes")
+async def list_credit_notes(auth: AuthContext = Depends(require_user)):
+    """List user's credit notes."""
+    notes = await billing.list_credit_notes(auth.user_id)
+    return {"credit_notes": notes, "count": len(notes)}
+
+
+@router.post("/credit-notes")
+async def create_credit_note(req: CreditNoteRequest, auth: AuthContext = Depends(require_admin)):
+    """Create a credit note (admin only)."""
+    user_id = req.user_id
+    if not user_id:
+        raise HTTPException(400, "user_id is required")
+    try:
+        cn = await billing.create_credit_note(
+            user_id=user_id, invoice_id=req.invoice_id,
+            total_cents=req.total_cents, reason=req.reason,
+            credit_type=req.credit_type,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "credit_note": cn}
+
+
+@router.get("/credit-notes/{cn_id}")
+async def get_credit_note(cn_id: str, auth: AuthContext = Depends(require_user)):
+    """Get a credit note."""
+    try:
+        cn = await billing.get_credit_note(cn_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    if cn["user_id"] != auth.user_id and not auth.is_admin:
+        raise HTTPException(403, "Access denied")
+    return {"credit_note": cn}
+
+
+@router.post("/credit-notes/{cn_id}/void")
+async def void_credit_note(cn_id: str, auth: AuthContext = Depends(require_admin)):
+    """Void a credit note (admin only)."""
+    try:
+        cn = await billing.void_credit_note(cn_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "credit_note": cn}
+
+
+# ──────────────────────────────────────────────
+#  Billable Metrics
+# ──────────────────────────────────────────────
+
+@router.get("/metrics")
+async def list_billable_metrics(auth: AuthContext = Depends(require_admin)):
+    """List all billable metrics (admin only)."""
+    metrics = await billing.list_billable_metrics()
+    return {"metrics": metrics, "count": len(metrics)}
+
+
+@router.post("/metrics")
+async def create_billable_metric(req: BillableMetricRequest, auth: AuthContext = Depends(require_admin)):
+    """Create a billable metric (admin only)."""
+    try:
+        m = await billing.create_billable_metric(
+            code=req.code, name=req.name, aggregation_type=req.aggregation_type,
+            description=req.description, field_name=req.field_name,
+            recurring=req.recurring, filters=req.filters,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "metric": m}
+
+
+@router.patch("/metrics/{code}")
+async def update_billable_metric(code: str, updates: dict, auth: AuthContext = Depends(require_admin)):
+    """Update a billable metric (admin only)."""
+    try:
+        m = await billing.update_billable_metric(code, updates)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "metric": m}
+
+
+@router.delete("/metrics/{code}")
+async def delete_billable_metric(code: str, auth: AuthContext = Depends(require_admin)):
+    """Delete a billable metric (admin only)."""
+    try:
+        await billing.delete_billable_metric(code)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True}
+
+
+# ──────────────────────────────────────────────
+#  Usage Events
+# ──────────────────────────────────────────────
+
+@router.post("/usage")
+async def record_usage(req: UsageEventRequest, auth: AuthContext = Depends(require_user)):
+    """Record a usage event for the current user."""
+    event_id = await billing.record_usage(
+        auth.user_id, req.metric, req.units,
+        properties=req.properties, transaction_id=req.transaction_id,
+    )
+    return {"ok": True, "event_id": event_id}
+
+
+@router.get("/usage/summary")
+async def get_usage_summary(auth: AuthContext = Depends(require_user)):
+    """Get usage summary for the current billing period."""
+    sub = await billing.get_subscription(auth.user_id)
+    if not sub:
+        return {"usage": {}, "period_start": None, "period_end": None}
+
+    from datetime import datetime, timezone
+    usage = await billing.get_usage_summary(
+        auth.user_id, sub["current_period_start"],
+        datetime.now(timezone.utc).isoformat(),
+    )
+    return {
+        "usage": usage,
+        "period_start": sub["current_period_start"],
+        "period_end": sub["current_period_end"],
+    }
+
+
+# ──────────────────────────────────────────────
+#  Tax Rates
+# ──────────────────────────────────────────────
+
+@router.get("/taxes")
+async def list_tax_rates(auth: AuthContext = Depends(require_admin)):
+    """List tax rates (admin only)."""
+    taxes = await billing.list_tax_rates(active_only=False)
+    return {"taxes": taxes, "count": len(taxes)}
+
+
+@router.post("/taxes")
+async def create_tax_rate(req: TaxRateRequest, auth: AuthContext = Depends(require_admin)):
+    """Create a tax rate (admin only)."""
+    try:
+        tax = await billing.create_tax_rate(
+            name=req.name, code=req.code, rate=req.rate,
+            description=req.description, applied_to=req.applied_to, region=req.region,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "tax": tax}
+
+
+@router.patch("/taxes/{code}")
+async def update_tax_rate(code: str, updates: dict, auth: AuthContext = Depends(require_admin)):
+    """Update a tax rate (admin only)."""
+    try:
+        tax = await billing.update_tax_rate(code, updates)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "tax": tax}
+
+
+# ──────────────────────────────────────────────
+#  Wallets
+# ──────────────────────────────────────────────
+
+@router.get("/wallets")
+async def list_wallets(auth: AuthContext = Depends(require_user)):
+    """List user's wallets."""
+    wallets = await billing.list_wallets(auth.user_id)
+    return {"wallets": wallets, "count": len(wallets)}
+
+
+@router.post("/wallets")
+async def create_wallet(req: WalletCreateRequest, auth: AuthContext = Depends(require_user)):
+    """Create a prepaid wallet."""
+    try:
+        wallet = await billing.create_wallet(
+            auth.user_id, name=req.name,
+            paid_credits=req.paid_credits, granted_credits=req.granted_credits,
+            rate_amount=req.rate_amount, expiration_at=req.expiration_at,
+        )
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "wallet": wallet}
+
+
+@router.get("/wallets/{wallet_id}")
+async def get_wallet(wallet_id: str, auth: AuthContext = Depends(require_user)):
+    """Get a wallet."""
+    try:
+        wallet = await billing.get_wallet(wallet_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    if wallet["user_id"] != auth.user_id and not auth.is_admin:
+        raise HTTPException(403, "Access denied")
+    return {"wallet": wallet}
+
+
+@router.post("/wallets/{wallet_id}/topup")
+async def top_up_wallet(wallet_id: str, req: WalletTopUpRequest, auth: AuthContext = Depends(require_user)):
+    """Top up a wallet with credits."""
+    try:
+        wallet = await billing.get_wallet(wallet_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    if wallet["user_id"] != auth.user_id and not auth.is_admin:
+        raise HTTPException(403, "Access denied")
+    try:
+        wallet = await billing.top_up_wallet(wallet_id, req.paid_credits, req.granted_credits)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "wallet": wallet}
+
+
+@router.get("/wallets/{wallet_id}/transactions")
+async def wallet_transactions(wallet_id: str, auth: AuthContext = Depends(require_user)):
+    """List transactions for a wallet."""
+    try:
+        wallet = await billing.get_wallet(wallet_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    if wallet["user_id"] != auth.user_id and not auth.is_admin:
+        raise HTTPException(403, "Access denied")
+    txns = await billing.get_wallet_transactions(wallet_id)
+    return {"transactions": txns, "count": len(txns)}
+
+
 # ──────────────────────────────────────────────
 #  Stripe Checkout
 # ──────────────────────────────────────────────
@@ -133,6 +516,7 @@ async def create_checkout(req: CheckoutRequest, auth: AuthContext = Depends(requ
     try:
         result = await billing.create_checkout_session(
             auth.user_id, req.plan_code, success_url, cancel_url,
+            payment_methods=req.payment_methods,
         )
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
@@ -152,6 +536,7 @@ async def create_topup_checkout(req: TopUpCheckoutRequest, auth: AuthContext = D
     try:
         result = await billing.create_topup_checkout(
             auth.user_id, req.amount_cents, success_url, cancel_url,
+            payment_methods=req.payment_methods,
         )
     except SetupoError as e:
         raise HTTPException(e.status_code, e.message)
@@ -166,7 +551,6 @@ async def stripe_webhook(request: Request):
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
     if webhook_secret and sig:
-        # Verify webhook signature
         try:
             _verify_stripe_signature(body, sig, webhook_secret)
         except Exception as e:
@@ -218,6 +602,16 @@ async def get_invoice(invoice_id: str, auth: AuthContext = Depends(require_user)
     if inv["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
     return {"invoice": inv}
+
+
+@router.post("/invoices/generate")
+async def generate_invoice(auth: AuthContext = Depends(require_user)):
+    """Generate a draft invoice for the current billing period."""
+    try:
+        inv = await billing.generate_invoice(auth.user_id)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "invoice": inv}
 
 
 @router.post("/invoices/{invoice_id}/finalize")
@@ -272,7 +666,7 @@ async def set_default_pm(pm_id: str, auth: AuthContext = Depends(require_user)):
 
 
 # ──────────────────────────────────────────────
-#  Wallet (balance + transactions)
+#  Wallet (legacy balance + transactions)
 # ──────────────────────────────────────────────
 
 @router.get("/balance")
@@ -360,6 +754,38 @@ async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_ad
 
     logger.info("Charge: %s -$%.2f (balance: $%.2f)", req.user_id, req.amount, new_balance)
     return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
+
+
+# ──────────────────────────────────────────────
+#  Billing Events (audit trail)
+# ──────────────────────────────────────────────
+
+@router.get("/events")
+async def list_billing_events(
+    event_type: str = "", limit: int = 50,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List billing events (admin: all, user: own)."""
+    events = await billing.list_billing_events(
+        user_id=None if auth.is_admin else auth.user_id,
+        event_type=event_type or None,
+        limit=min(limit, 200),
+    )
+    return {"events": events, "count": len(events)}
+
+
+@router.get("/events/user")
+async def list_user_billing_events(
+    event_type: str = "", limit: int = 50,
+    auth: AuthContext = Depends(require_user),
+):
+    """List user's own billing events."""
+    events = await billing.list_billing_events(
+        user_id=auth.user_id,
+        event_type=event_type or None,
+        limit=min(limit, 100),
+    )
+    return {"events": events, "count": len(events)}
 
 
 # ──────────────────────────────────────────────

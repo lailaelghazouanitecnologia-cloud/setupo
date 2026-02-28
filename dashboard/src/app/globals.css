@@ -1564,6 +1564,187 @@
   .billing-topup-submit:hover { opacity: 0.9; }
   .billing-topup-submit:disabled { opacity: 0.5; cursor: wait; }
 
+  /* ── Billing: Status banner ── */
+  .billing-status-banner {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 12px; border-radius: 6px; font-size: 12px;
+    background: var(--card); border: 1px solid var(--border);
+  }
+  .billing-status-banner[data-status="paused"] { border-color: #eab308; background: rgba(234, 179, 8, 0.06); }
+  .billing-status-banner[data-status="past_due"] { border-color: #ef4444; background: rgba(239, 68, 68, 0.06); }
+  .billing-status-banner[data-status="trialing"] { border-color: #3b82f6; background: rgba(59, 130, 246, 0.06); }
+  .billing-status-banner[data-status="cancelled"] { border-color: var(--muted-foreground); }
+
+  .billing-inline-btn {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: 500;
+    background: var(--card); border: 1px solid var(--border);
+    color: var(--foreground); cursor: pointer; transition: all 0.15s;
+  }
+  .billing-inline-btn:hover { background: var(--accent); }
+
+  .billing-proration-note {
+    margin-top: 12px; padding: 8px 12px; border-radius: 6px;
+    font-size: 11px; color: var(--muted-foreground);
+    background: var(--card); border: 1px solid var(--border);
+  }
+
+  .billing-plan-current-actions {
+    display: flex; gap: 6px;
+  }
+  .billing-plan-btn.secondary {
+    background: var(--card); color: var(--foreground); border: 1px solid var(--border);
+  }
+  .billing-plan-btn.secondary:hover { background: var(--accent); }
+
+  /* ── Billing: Sub-tabs (invoices/credit notes) ── */
+  .billing-sub-tabs {
+    display: flex; gap: 2px; margin-bottom: 12px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 3px;
+  }
+  .billing-sub-tab {
+    flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px;
+    padding: 6px 10px; border-radius: 4px; font-size: 12px; font-weight: 500;
+    background: transparent; border: none; color: var(--muted-foreground);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .billing-sub-tab:hover { color: var(--foreground); }
+  .billing-sub-tab.active {
+    background: var(--accent); color: var(--foreground); font-weight: 600;
+  }
+
+  /* ── Billing: Credit Notes ── */
+  .billing-credit-notes-list { display: flex; flex-direction: column; gap: 6px; }
+  .billing-cn-card {
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--card); overflow: hidden;
+  }
+  .billing-cn-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; gap: 8px;
+  }
+  .billing-cn-left { display: flex; align-items: center; gap: 6px; }
+  .billing-cn-number { font-size: 12px; font-weight: 600; font-family: monospace; }
+  .billing-cn-center { display: flex; align-items: center; gap: 6px; }
+  .billing-cn-status {
+    font-size: 10px; font-weight: 600; padding: 2px 6px;
+    border-radius: 4px; text-transform: uppercase;
+  }
+  .billing-cn-status.available { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+  .billing-cn-status.consumed { background: rgba(107, 114, 128, 0.1); color: var(--muted-foreground); }
+  .billing-cn-status.voided { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+  .billing-cn-type { font-size: 10px; color: var(--muted-foreground); text-transform: capitalize; }
+  .billing-cn-right { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+  .billing-cn-amounts { display: flex; flex-direction: column; align-items: flex-end; }
+  .billing-cn-total { font-size: 13px; font-weight: 600; font-family: monospace; }
+  .billing-cn-remaining { font-size: 10px; color: var(--muted-foreground); }
+  .billing-cn-date { font-size: 10px; color: var(--muted-foreground); }
+  .billing-cn-reason { padding: 6px 12px 10px; font-size: 11px; color: var(--muted-foreground); border-top: 1px solid var(--border); }
+
+  /* ── Billing: Coupons ── */
+  .billing-coupon-form {
+    padding: 14px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); margin-bottom: 16px;
+  }
+  .billing-coupon-form-header { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .billing-coupon-input-row { display: flex; gap: 8px; align-items: flex-end; }
+  .billing-success {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px; border-radius: 6px; font-size: 12px;
+    background: rgba(34, 197, 94, 0.08); color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.2);
+  }
+  .billing-coupon-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .billing-coupon-badge {
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 8px; border-radius: 4px; font-size: 11px;
+    background: rgba(34, 197, 94, 0.06); border: 1px solid rgba(34, 197, 94, 0.2);
+    color: #22c55e;
+  }
+  .billing-coupon-periods { color: var(--muted-foreground); font-size: 10px; }
+  .billing-applied-list { display: flex; flex-direction: column; gap: 6px; }
+  .billing-applied-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--card);
+  }
+  .billing-applied-info { display: flex; align-items: center; gap: 8px; }
+  .billing-applied-id { font-size: 12px; font-weight: 600; }
+  .billing-applied-meta { font-size: 10px; color: var(--muted-foreground); margin-top: 2px; }
+
+  /* ── Billing: Usage ── */
+  .billing-usage-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+  .billing-usage-item {
+    padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: 6px; background: var(--card);
+  }
+  .billing-usage-label { font-size: 11px; text-transform: capitalize; color: var(--muted-foreground); margin-bottom: 4px; }
+  .billing-usage-bar-container {
+    width: 100%; height: 4px; background: var(--accent);
+    border-radius: 2px; overflow: hidden; margin-bottom: 4px;
+  }
+  .billing-usage-bar {
+    height: 100%; border-radius: 2px; transition: width 0.3s;
+  }
+  .billing-usage-bar[data-level="ok"] { background: #22c55e; }
+  .billing-usage-bar[data-level="warn"] { background: #eab308; }
+  .billing-usage-bar[data-level="danger"] { background: #ef4444; }
+  .billing-usage-value { font-size: 11px; font-weight: 600; font-family: monospace; }
+
+  .billing-usage-period { font-size: 11px; color: var(--muted-foreground); margin-bottom: 10px; }
+
+  .billing-usage-detail-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+  .billing-usage-detail-card {
+    padding: 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--card);
+  }
+  .billing-usage-detail-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .billing-usage-detail-name { font-size: 12px; font-weight: 600; text-transform: capitalize; }
+  .billing-usage-detail-pct { font-size: 11px; font-weight: 600; font-family: monospace; }
+  .billing-usage-detail-pct.warn { color: #eab308; }
+  .billing-usage-detail-pct.danger { color: #ef4444; }
+  .billing-usage-detail-stats { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10px; color: var(--muted-foreground); margin-top: 6px; }
+  .billing-usage-overage { color: #ef4444; font-weight: 600; }
+
+  /* ── Billing: Wallets ── */
+  .billing-wallets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
+  .billing-wallet-card {
+    padding: 12px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--card);
+  }
+  .billing-wallet-card.inactive { opacity: 0.6; }
+  .billing-wallet-header { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+  .billing-wallet-name { font-size: 12px; font-weight: 600; flex: 1; }
+  .billing-wallet-status {
+    font-size: 9px; font-weight: 600; padding: 1px 5px;
+    border-radius: 3px; text-transform: uppercase;
+  }
+  .billing-wallet-status.active { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+  .billing-wallet-status.terminated { background: rgba(107, 114, 128, 0.1); color: var(--muted-foreground); }
+  .billing-wallet-balance { font-size: 18px; font-weight: 700; font-family: monospace; margin-bottom: 4px; }
+  .billing-wallet-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10px; color: var(--muted-foreground); }
+  .billing-wallet-actions { margin-top: 8px; }
+  .billing-wallet-topup-inline { display: flex; gap: 4px; align-items: center; }
+
+  /* ── Billing: Events ── */
+  .billing-events-list { display: flex; flex-direction: column; gap: 2px; }
+  .billing-event-row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 10px; border-radius: 4px; font-size: 11px;
+  }
+  .billing-event-row:hover { background: var(--accent); }
+  .billing-event-type {
+    font-weight: 500; text-transform: capitalize;
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .billing-event-detail { font-family: monospace; color: var(--muted-foreground); }
+  .billing-event-date { font-size: 10px; color: var(--muted-foreground); white-space: nowrap; }
+
+  /* ── Billing: Invoice item types ── */
+  .billing-invoice-item.discount { color: #22c55e; }
+  .billing-invoice-item.tax { color: var(--muted-foreground); font-style: italic; }
+
 /* ── Shadows ── */
 @layer utilities {
   .shadow-minimal { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04); }
