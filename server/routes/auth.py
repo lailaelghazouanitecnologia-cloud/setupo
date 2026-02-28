@@ -8,6 +8,7 @@ from server.auth.middleware import LoginRequest, LoginResponse, verify_password,
 from server.deps import require_user, require_admin, AuthContext
 from server.routes.notifications import create_notification
 from core import users
+from core import email as email_service
 from core.errors import SetupoError
 
 logger = logging.getLogger("setupo.auth")
@@ -48,6 +49,23 @@ class ChangePasswordRequest(BaseModel):
     new_password: str
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
 @router.post("/register", response_model=RegisterResponse)
 async def register(req: RegisterRequest):
     try:
@@ -63,6 +81,12 @@ async def register(req: RegisterRequest):
         f"Your account is ready, {display_name}. Deploy your first app or claim a free subdomain.",
         "success",
     )
+
+    # Send verification email (non-blocking)
+    try:
+        await email_service.send_verification_email(user["id"], user["email"])
+    except Exception as e:
+        logger.warning("Verification email failed for %s: %s", user["email"], e)
 
     return RegisterResponse(token=token, email=user["email"], role=user["role"], user_id=user["id"])
 
@@ -115,3 +139,59 @@ async def change_password(req: ChangePasswordRequest, auth: AuthContext = Depend
 async def list_all_users(auth: AuthContext = Depends(require_admin)):
     all_users = await users.list_users()
     return {"users": all_users, "count": len(all_users)}
+
+
+# ── Email verification ────────────────────────────────────────
+
+@router.post("/verify-email")
+async def verify_email(req: VerifyEmailRequest):
+    """Verify email address using token from verification email."""
+    try:
+        user_id = await email_service.confirm_verification(req.token)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+    user = await users.get_user(user_id)
+
+    # Send welcome email
+    try:
+        await email_service.send_welcome(user["email"], user["name"])
+    except Exception as e:
+        logger.warning("Welcome email failed for %s: %s", user["email"], e)
+
+    return {"ok": True, "user_id": user_id, "email": user["email"]}
+
+
+@router.post("/resend-verification")
+async def resend_verification(req: ResendVerificationRequest):
+    """Resend verification email. Silent if email not found (security)."""
+    user = await users.get_user_by_email(req.email)
+    if user and not user.get("verified"):
+        try:
+            await email_service.send_verification_email(user["id"], user["email"])
+        except Exception as e:
+            logger.warning("Resend verification failed for %s: %s", req.email, e)
+    # Always return ok (don't reveal if email exists)
+    return {"ok": True, "message": "If the email exists, a verification link has been sent."}
+
+
+# ── Password reset ────────────────────────────────────────────
+
+@router.post("/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Send password reset email. Silent if email not found (security)."""
+    try:
+        await email_service.send_reset_email(req.email)
+    except Exception as e:
+        logger.warning("Reset email failed for %s: %s", req.email, e)
+    return {"ok": True, "message": "If the email exists, a reset link has been sent."}
+
+
+@router.post("/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    """Reset password using token from reset email."""
+    try:
+        user_id = await email_service.confirm_reset(req.token, req.new_password)
+    except SetupoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"ok": True, "user_id": user_id}

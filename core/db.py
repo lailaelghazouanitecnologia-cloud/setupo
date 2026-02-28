@@ -472,6 +472,20 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
         CREATE INDEX IF NOT EXISTS idx_snapshots_type ON analytics_snapshots(snapshot_type);
         CREATE INDEX IF NOT EXISTS idx_snapshots_created ON analytics_snapshots(created_at);
+
+        CREATE TABLE IF NOT EXISTS email_tokens (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            token_hash TEXT NOT NULL,
+            purpose TEXT NOT NULL,
+            used INTEGER DEFAULT 0,
+            expires_at TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_email_tokens_hash ON email_tokens(token_hash);
+        CREATE INDEX IF NOT EXISTS idx_email_tokens_user ON email_tokens(user_id);
     """)
 
     try:

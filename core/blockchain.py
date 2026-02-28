@@ -83,8 +83,13 @@ def _validate_amount_sign(block_type: str, amount_cents: int):
 
 def _compute_hash(block: dict) -> str:
     """Compute SHA-256 hash for a block."""
+    # Normalize data: always use the JSON string form for consistent hashing
+    data = block["data"]
+    if isinstance(data, (dict, list)):
+        data = json.dumps(data, sort_keys=True, separators=(",", ":"))
+
     payload = json.dumps({
-        "index": block["index"],
+        "index": block.get("idx", block.get("index", 0)),
         "prev_hash": block["prev_hash"],
         "timestamp": block["timestamp"],
         "block_type": block["block_type"],
@@ -93,7 +98,7 @@ def _compute_hash(block: dict) -> str:
         "balance_after_cents": block["balance_after_cents"],
         "resource_type": block["resource_type"],
         "resource_id": block["resource_id"],
-        "data": block["data"],
+        "data": data,
         "nonce": block["nonce"],
     }, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
@@ -129,7 +134,7 @@ async def _get_genesis_or_create(user_id: str) -> dict:
         "balance_after_cents": 0,
         "resource_type": "user",
         "resource_id": user_id,
-        "data": json.dumps({"event": "chain_created"}),
+        "data": json.dumps({"event": "chain_created"}, sort_keys=True, separators=(",", ":")),
         "nonce": secrets.token_hex(8),
     }
     genesis["hash"] = _compute_hash(genesis)
@@ -183,7 +188,7 @@ async def append_block(
             "balance_after_cents": balance_after_cents,
             "resource_type": resource_type,
             "resource_id": resource_id,
-            "data": json.dumps(data or {}),
+            "data": json.dumps(data or {}, sort_keys=True, separators=(",", ":")),
             "nonce": secrets.token_hex(8),
         }
         block["hash"] = _compute_hash(block)
