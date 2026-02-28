@@ -16,66 +16,236 @@ const NsoLogo = ({ size = 28 }: { size?: number }) => (
 function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
   return (
     <div className="landing-page">
+      {/* ── Nav ── */}
       <nav className="landing-nav">
-        <div className="landing-nav-left">
-          <NsoLogo size={22} />
-          <span className="landing-nav-brand">NSO</span>
-        </div>
-        <div className="landing-nav-right">
-          <button className="landing-nav-link" onClick={() => onNavigate("login")}>Sign in</button>
-          <button className="landing-btn-primary" onClick={() => onNavigate("register")}>Get started</button>
+        <div className="landing-nav-inner">
+          <div className="landing-nav-left">
+            <NsoLogo size={16} />
+            <span className="landing-nav-brand">NSO</span>
+          </div>
+          <div className="landing-nav-right">
+            <div className="landing-nav-links">
+              <button className="landing-nav-link" onClick={() => document.getElementById("capabilities")?.scrollIntoView({ behavior: "smooth" })}>
+                Platform
+              </button>
+              <span className="landing-slash">/</span>
+              <button className="landing-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>
+                How it works
+              </button>
+            </div>
+            <span className="landing-slash" style={{ margin: "0 16px" }} />
+            <button className="landing-nav-link" onClick={() => onNavigate("login")}>
+              Sign in
+            </button>
+            <span className="landing-slash" />
+            <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")} style={{ marginLeft: 2 }}>
+              Get started
+            </button>
+          </div>
         </div>
       </nav>
 
-      <section className="landing-hero">
-        <div className="landing-hero-badge">Deploy anywhere</div>
-        <h1 className="landing-hero-title">Infrastructure for modern apps</h1>
-        <p className="landing-hero-sub">
-          Deploy, manage, and scale your applications with zero configuration.
-          Get a free <code className="code-inline">yourname.nso.dev</code> subdomain instantly.
-        </p>
-        <div className="landing-hero-actions">
-          <button className="landing-btn-primary landing-btn-lg" onClick={() => onNavigate("register")}>
-            Start building
-          </button>
-          <button className="landing-btn-secondary landing-btn-lg" onClick={() => onNavigate("login")}>
-            Sign in
-          </button>
-        </div>
-      </section>
+      <main>
+        {/* ── Hero ── */}
+        <section className="landing-hero">
+          <div className="landing-container">
+            <div className="landing-hero-top">
+              <div className="landing-hero-badge">
+                <span className="landing-hero-badge-dot" />
+                Free subdomains &mdash; yourname.nso.dev
+              </div>
+              <h1 className="landing-hero-title">Deploy and manage cloud infrastructure</h1>
+              <p className="landing-hero-sub">
+                Launch VPS instances, package workspaces as .zar modules, manage secrets, and deploy &mdash; all from a single control plane. No SSH required.
+              </p>
+              <div className="landing-hero-actions">
+                <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")}>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                  Start building
+                </button>
+                <button className="landing-btn landing-btn-secondary" onClick={() => onNavigate("login")}>
+                  Sign in
+                </button>
+              </div>
+            </div>
+            <div className="landing-terminal">
+              <div className="landing-terminal-bar">
+                <span className="landing-terminal-dot" />
+                <span className="landing-terminal-dot" />
+                <span className="landing-terminal-dot" />
+                <span className="landing-terminal-title">~/projects/api</span>
+              </div>
+              <div className="landing-terminal-body">
+                <div><span className="t-prompt">$</span> <span className="t-cmd">nso ship</span> <span className="t-flag">--workspace</span> <span className="t-arg">backend</span></div>
+                <div><span className="t-out">packing workspace...</span> <span className="t-ok">done</span></div>
+                <div><span className="t-out">pushing .zar to R2 storage</span></div>
+                <div><span className="t-out">deploying to instance inst_a3f21e4...</span> <span className="t-ok">live</span></div>
+                <div style={{ height: 6 }} />
+                <div><span className="t-prompt">$</span> <span className="t-cmd">nso inst ls</span></div>
+                <div><span className="t-out">inst_a3f21e4  staging   running  192.168.1.10</span></div>
+                <div><span className="t-out">inst_b7c44f2  prod      running  192.168.1.20</span></div>
+                <div style={{ height: 6 }} />
+                <div><span className="t-prompt">$</span> <span className="t-cmd">nso exec</span> <span className="t-flag">--instance</span> <span className="t-arg">staging</span> <span className="t-cmd">&quot;systemctl status app&quot;</span></div>
+                <div><span className="t-out">active (running) since 2min ago</span> <span className="t-ok">healthy</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <section className="landing-features">
-        <div className="landing-feature-card">
-          <div className="landing-feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/>
-            </svg>
+        {/* ── Capabilities ── */}
+        <section className="landing-capabilities" id="capabilities">
+          <div className="landing-container">
+            <div className="landing-cap-layout">
+              <div className="landing-cap-intro">
+                <div className="landing-s-label">Platform</div>
+                <h2 className="landing-s-title">Everything you need to ship fast</h2>
+                <p>NSO replaces the patchwork of tools you use to manage infrastructure. Instances, workspaces, secrets, deploys &mdash; all in one place.</p>
+              </div>
+              <div className="landing-cap-list">
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">01</span>
+                  <div>
+                    <h3 className="landing-cap-h">Instant VPS Provisioning</h3>
+                    <p className="landing-cap-p">Launch cloud instances in seconds with cloud-init provisioning. Pre-configured with nginx, SSL, Python, Node.js, and all the tooling you need.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">Vultr</span>
+                    <span className="landing-tag">Debian</span>
+                    <span className="landing-tag">cloud-init</span>
+                  </div>
+                </div>
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">02</span>
+                  <div>
+                    <h3 className="landing-cap-h">.zar Package System</h3>
+                    <p className="landing-cap-p">Package workspaces into .zar archives. Push to R2 storage, deploy to any instance. Branch, version, and roll back with confidence.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">R2</span>
+                    <span className="landing-tag">versioning</span>
+                    <span className="landing-tag">rollback</span>
+                  </div>
+                </div>
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">03</span>
+                  <div>
+                    <h3 className="landing-cap-h">Remote Execution</h3>
+                    <p className="landing-cap-p">Execute commands on remote instances via HTTP relay. No SSH keys to manage. Stream output, manage systemd services, browse files.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">HTTP</span>
+                    <span className="landing-tag">no SSH</span>
+                  </div>
+                </div>
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">04</span>
+                  <div>
+                    <h3 className="landing-cap-h">Secrets Management</h3>
+                    <p className="landing-cap-p">Manage environment variables and secrets through the API. Auto-grouped into buckets: auth, providers, storage, system, and custom.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">env vars</span>
+                    <span className="landing-tag">buckets</span>
+                  </div>
+                </div>
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">05</span>
+                  <div>
+                    <h3 className="landing-cap-h">Plugin Ecosystem</h3>
+                    <p className="landing-cap-p">Extend your projects with plugins for monitoring, backups, CI/CD, logging, DNS management, and cron jobs. Install and configure from the dashboard.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">modular</span>
+                    <span className="landing-tag">extensible</span>
+                  </div>
+                </div>
+                <div className="landing-cap-item">
+                  <span className="landing-cap-num">06</span>
+                  <div>
+                    <h3 className="landing-cap-h">Free Subdomains</h3>
+                    <p className="landing-cap-p">Every user gets a free *.nso.dev subdomain. Automatic DNS configuration via Cloudflare. SSL certificates provisioned automatically.</p>
+                  </div>
+                  <div className="landing-cap-tags">
+                    <span className="landing-tag">DNS</span>
+                    <span className="landing-tag">SSL</span>
+                    <span className="landing-tag">Cloudflare</span>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <h3 className="landing-feature-title">Instant VPS</h3>
-          <p className="landing-feature-desc">Launch cloud instances in seconds with pre-configured environments.</p>
-        </div>
-        <div className="landing-feature-card">
-          <div className="landing-feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-            </svg>
-          </div>
-          <h3 className="landing-feature-title">.zar Modules</h3>
-          <p className="landing-feature-desc">Package and deploy modules as .zar archives. Real-time updates from our marketplace.</p>
-        </div>
-        <div className="landing-feature-card">
-          <div className="landing-feature-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-            </svg>
-          </div>
-          <h3 className="landing-feature-title">Free Subdomain</h3>
-          <p className="landing-feature-desc">Every project gets a free <code className="code-inline">*.nso.dev</code> domain, ready to use.</p>
-        </div>
-      </section>
+        </section>
 
+        {/* ── How it works ── */}
+        <section className="landing-how" id="how">
+          <div className="landing-container">
+            <div className="landing-s-label">How it works</div>
+            <h2 className="landing-s-title">Three steps to production</h2>
+            <div className="landing-how-grid">
+              <div className="landing-how-card">
+                <div className="landing-how-num">01</div>
+                <h3>Create</h3>
+                <p>Create an instance from the dashboard or CLI. NSO provisions the VPS, configures nginx, installs dependencies, and sets up SSL automatically.</p>
+                <div className="landing-how-code">
+                  <span className="t-prompt">$</span> <span className="t-cmd">nso inst create</span> <span className="t-flag">--type</span> <span className="t-arg">setup</span>
+                </div>
+              </div>
+              <div className="landing-how-card">
+                <div className="landing-how-num">02</div>
+                <h3>Ship</h3>
+                <p>Pack your workspace into a .zar archive, push it to cloud storage, and deploy to the instance. All in a single command.</p>
+                <div className="landing-how-code">
+                  <span className="t-prompt">$</span> <span className="t-cmd">nso ship</span> <span className="t-flag">--workspace</span> <span className="t-arg">api</span>
+                </div>
+              </div>
+              <div className="landing-how-card">
+                <div className="landing-how-num">03</div>
+                <h3>Manage</h3>
+                <p>Monitor, execute commands, manage secrets, and roll back deployments from the dashboard. No SSH needed &mdash; everything goes through the agent.</p>
+                <div className="landing-how-code">
+                  <span className="t-prompt">$</span> <span className="t-cmd">nso exec</span> <span className="t-flag">--remote</span> <span className="t-arg">prod</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ── CTA ── */}
+        <section className="landing-cta">
+          <div className="landing-container">
+            <div className="landing-cta-card">
+              <div className="landing-cta-inner">
+                <div>
+                  <h2>Get started in minutes</h2>
+                  <p>Create an account and launch your first instance. Free subdomain included.</p>
+                </div>
+                <div className="landing-cta-actions">
+                  <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")}>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    Create account
+                  </button>
+                  <button className="landing-btn landing-btn-secondary" onClick={() => onNavigate("login")}>
+                    Sign in
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {/* ── Footer ── */}
       <footer className="landing-footer">
-        <span>NSO &mdash; Network Service Orchestration</span>
+        <div className="landing-container">
+          <div className="landing-footer-inner">
+            <div className="landing-footer-links">
+              <button onClick={() => document.getElementById("capabilities")?.scrollIntoView({ behavior: "smooth" })}>Platform</button>
+              <button onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
+            </div>
+            <span className="landing-footer-copy">&copy; 2026 NSO</span>
+          </div>
+        </div>
       </footer>
     </div>
   );
