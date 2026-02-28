@@ -27,7 +27,7 @@ RESERVED_SUBDOMAINS = frozenset({
 
 USER_FIELDS = (
     "id", "email", "name", "role", "balance",
-    "verified", "subdomain", "created_at",
+    "verified", "subdomain", "last_active", "created_at",
 )
 
 

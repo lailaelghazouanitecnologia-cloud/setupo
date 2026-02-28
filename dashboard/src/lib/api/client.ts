@@ -932,3 +932,190 @@ export async function pluginBackupsList(projectId: string) {
     `/api/projects/${projectId}/p/backups/list`,
   );
 }
+
+// ═══════════════════════════════════════════
+//  ADMIN — Users, Analytics, Blockchain
+// ═══════════════════════════════════════════
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  balance: number;
+  verified: boolean;
+  subdomain: string | null;
+  last_active: string | null;
+  created_at: string;
+  subscription?: { plan_code: string; status: string } | null;
+  invoice_count?: number;
+  total_paid_cents?: number;
+  wallet_balance_cents?: number;
+  activity_count?: number;
+  project_count?: number;
+}
+
+export interface DashboardOverview {
+  users: { total: number; new_7d: number; dau: number };
+  revenue: { total_cents: number; mrr_cents: number };
+  subscriptions: { active: number; plan_distribution: Record<string, number> };
+  infrastructure: { active_instances: number; total_projects: number };
+  fraud_status: string;
+}
+
+export interface RevenueSummary {
+  period_days: number;
+  total_revenue_cents: number;
+  paid_invoices: number;
+  wallet_topups_cents: number;
+  refund_cents: number;
+  refund_count: number;
+  net_revenue_cents: number;
+  by_plan: Record<string, { count: number; revenue_cents: number }>;
+  daily_trend: { date: string; revenue_cents: number; count: number }[];
+}
+
+export interface GrowthSummary {
+  period_days: number;
+  total_users: number;
+  new_users: number;
+  active_users: number;
+  churned_users: number;
+  churn_rate: number;
+  daily_signups: { date: string; count: number }[];
+  plan_distribution: Record<string, number>;
+}
+
+export interface FraudScanResult {
+  scan_time: string;
+  status: string;
+  total_issues: number;
+  balance_discrepancies: any[];
+  chain_violations: any[];
+  suspicious_accounts: any[];
+  anomalies: any[];
+}
+
+export interface LedgerBlock {
+  id: string;
+  user_id: string;
+  idx: number;
+  prev_hash: string;
+  hash: string;
+  timestamp: string;
+  block_type: string;
+  amount_cents: number;
+  balance_after_cents: number;
+  resource_type: string;
+  resource_id: string;
+  data: any;
+  nonce: string;
+}
+
+export interface ActivityEntry {
+  id: string;
+  user_id: string;
+  action: string;
+  resource_type: string;
+  resource_id: string;
+  ip: string;
+  created_at: string;
+}
+
+// ── Dashboard overview ──
+export async function getAdminOverview() {
+  return centralApi<DashboardOverview>("/api/admin/overview");
+}
+
+// ── User management ──
+export async function adminListUsers(params: {
+  search?: string; role?: string; sort?: string; order?: string; limit?: number; offset?: number;
+} = {}) {
+  const q = new URLSearchParams();
+  if (params.search) q.set("search", params.search);
+  if (params.role) q.set("role", params.role);
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  return centralApi<{ users: AdminUser[]; total: number }>(`/api/admin/users?${q}`);
+}
+
+export async function adminGetUser(userId: string) {
+  return centralApi<{ user: AdminUser }>(`/api/admin/users/${userId}`);
+}
+
+export async function adminUpdateUser(userId: string, data: { name?: string; email?: string; role?: string; verified?: boolean }) {
+  return centralApi<{ ok: boolean; user: AdminUser }>(`/api/admin/users/${userId}`, {
+    method: "PATCH", body: JSON.stringify(data),
+  });
+}
+
+export async function adminResetPassword(userId: string, newPassword: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/users/${userId}/reset-password`, {
+    method: "POST", body: JSON.stringify({ new_password: newPassword }),
+  });
+}
+
+export async function adminDisableUser(userId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/users/${userId}/disable`, { method: "POST" });
+}
+
+export async function adminGetUserActivity(userId: string, limit = 50) {
+  return centralApi<{ activity: ActivityEntry[]; count: number }>(
+    `/api/admin/users/${userId}/activity?limit=${limit}`,
+  );
+}
+
+// ── Analytics ──
+export async function getRevenueAnalytics(days = 30) {
+  return centralApi<RevenueSummary>(`/api/admin/analytics/revenue?days=${days}`);
+}
+
+export async function getGrowthAnalytics(days = 30) {
+  return centralApi<GrowthSummary>(`/api/admin/analytics/growth?days=${days}`);
+}
+
+export async function getRecentActivity(limit = 100, action = "") {
+  const q = new URLSearchParams({ limit: String(limit) });
+  if (action) q.set("action", action);
+  return centralApi<{ activity: ActivityEntry[]; count: number }>(`/api/admin/analytics/activity?${q}`);
+}
+
+export async function createAnalyticsSnapshot() {
+  return centralApi<{ ok: boolean; snapshot: any }>("/api/admin/analytics/snapshot", { method: "POST" });
+}
+
+export async function getAnalyticsSnapshots(limit = 24) {
+  return centralApi<{ snapshots: any[]; count: number }>(`/api/admin/analytics/snapshots?limit=${limit}`);
+}
+
+// ── Fraud detection ──
+export async function runFraudScan() {
+  return centralApi<FraudScanResult>("/api/admin/fraud/scan", { method: "POST" });
+}
+
+// ── Blockchain ledger ──
+export async function getLedgerStats() {
+  return centralApi<any>("/api/admin/ledger/stats");
+}
+
+export async function getUserLedger(userId: string, limit = 100) {
+  return centralApi<{ blocks: LedgerBlock[]; total: number }>(
+    `/api/admin/ledger/users/${userId}?limit=${limit}`,
+  );
+}
+
+export async function verifyUserChain(userId: string) {
+  return centralApi<{ valid: boolean; length: number; errors: any[] }>(
+    `/api/admin/ledger/users/${userId}/verify`, { method: "POST" },
+  );
+}
+
+export async function getBalanceProof(userId: string) {
+  return centralApi<any>(`/api/admin/ledger/users/${userId}/balance-proof`);
+}
+
+export async function getLedgerDiscrepancies() {
+  return centralApi<{ discrepancies: any[]; count: number }>("/api/admin/ledger/discrepancies");
+}
