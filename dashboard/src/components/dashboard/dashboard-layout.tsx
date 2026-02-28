@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, Component, type ErrorInfo, type Rea
 import {
   Mail, Server, FolderKanban, Key, Puzzle,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet, CreditCard, UserCog, Sun, Moon, ShieldCheck,
+  Bell, Wallet, CreditCard, UserCog, Sun, Moon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -15,7 +15,6 @@ import { SecretsPanel } from "./secrets-panel";
 import { PluginsPanel } from "./plugins-panel";
 import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
-import { AdminPanel } from "./admin-panel";
 import { SettingsPanel } from "./settings-panel";
 import type { DashboardView } from "@/types/dashboard";
 
@@ -110,7 +109,6 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "plugins", label: "Plugins", icon: Puzzle },
   { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "admin", label: "Admin", icon: ShieldCheck },
   { id: "settings", label: "Settings", icon: UserCog },
 ];
 
@@ -122,7 +120,6 @@ const viewTitles: Record<DashboardView, string> = {
   secrets: "Secrets",
   plugins: "Plugins",
   billing: "Billing",
-  admin: "Admin",
   settings: "Settings",
 };
 
@@ -325,7 +322,6 @@ export function DashboardLayout() {
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
           {activeView === "plugins" && <PanelErrorBoundary name="Plugins"><PluginsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
-          {activeView === "admin" && <PanelErrorBoundary name="Admin"><AdminPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
         </div>
       </div>

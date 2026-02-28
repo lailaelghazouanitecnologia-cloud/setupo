@@ -35,7 +35,7 @@ class Settings:
     PORT = int(os.environ.get("SETUPO_PORT", "8000"))
     CORS_ORIGINS = os.environ.get(
         "SETUPO_CORS_ORIGINS",
-        "https://nso.dev,http://localhost:3000,http://localhost:8000"
+        "https://nso.dev,https://sonfazt.nso.dev,http://localhost:3000,http://localhost:3001,http://localhost:8000"
     ).split(",")
 
     ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "admin@setupo.dev")

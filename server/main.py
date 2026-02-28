@@ -2,6 +2,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -9,6 +10,25 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.errors import SetupoError
 from server.config import settings
+
+
+class AdminHostMiddleware(BaseHTTPMiddleware):
+    """
+    Restrict /api/admin/* routes to requests from sonfazt.nso.dev.
+    In dev mode (localhost), admin routes are always accessible.
+    """
+
+    ADMIN_HOSTS = {"sonfazt.nso.dev", "localhost", "127.0.0.1"}
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/admin"):
+            host = request.headers.get("host", "").split(":")[0]
+            if host not in self.ADMIN_HOSTS:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
+                )
+        return await call_next(request)
 from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin
 
 logging.basicConfig(
@@ -33,6 +53,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(AdminHostMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
