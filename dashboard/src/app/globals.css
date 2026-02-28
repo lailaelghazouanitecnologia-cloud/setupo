@@ -1744,7 +1744,6 @@
   /* ── Billing: Invoice item types ── */
   .billing-invoice-item.discount { color: #22c55e; }
   .billing-invoice-item.tax { color: var(--muted-foreground); font-style: italic; }
-}
 
 /* Admin CSS moved to dashboard-admin/src/app/globals.css */
 
