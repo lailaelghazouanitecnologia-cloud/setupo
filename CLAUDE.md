@@ -5,7 +5,7 @@
 | Detail | Value |
 |--------|-------|
 | Main VPS | 65.20.102.242 (nso.dev) |
-| Test VPS | 65.20.103.88 (Rust HTTP on :3000) |
+| Test VPS | 65.20.103.88 |
 | Provider | Vultr (VPS) + Cloudflare (DNS + R2) |
 | Repo | github.com/lailaelghazouanitecnologia-cloud/setupo |
 | Project ID | `proj_0f71067738c73681` |
@@ -68,8 +68,8 @@
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                   NSO CLIENT (future)                            │
-│  Rust TUI binary — downloadable from dashboard                  │
+│                   NSO CLIENT (Python CLI)                        │
+│  cli/ — Python CLI (rich TUI)                                   │
 │  Commands: nso login, nso ship, nso exec, nso inst              │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -639,7 +639,7 @@ setupo/
 - **Payments**: Stripe (checkout, webhooks)
 - **Email**: SMTP (verification, password reset, notifications)
 - **Deploy**: cloud-init (bootstrap), systemd, nginx reverse proxy
-- **Future CLI**: Rust (tokio, ratatui)
+- **CLI**: Python (rich, httpx)
 
 ## Common Commands
 
