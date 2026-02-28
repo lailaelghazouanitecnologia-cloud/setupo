@@ -550,12 +550,17 @@ async def stripe_webhook(request: Request):
     sig = request.headers.get("stripe-signature", "")
     webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
 
-    if webhook_secret and sig:
-        try:
-            _verify_stripe_signature(body, sig, webhook_secret)
-        except Exception as e:
-            logger.warning("Stripe webhook signature verification failed: %s", e)
-            raise HTTPException(400, "Invalid signature")
+    if not webhook_secret:
+        logger.error("STRIPE_WEBHOOK_SECRET not configured — rejecting webhook")
+        raise HTTPException(500, "Webhook not configured")
+    if not sig:
+        raise HTTPException(400, "Missing stripe-signature header")
+
+    try:
+        _verify_stripe_signature(body, sig, webhook_secret)
+    except Exception as e:
+        logger.warning("Stripe webhook signature verification failed: %s", e)
+        raise HTTPException(400, "Invalid signature")
 
     import json
     try:
@@ -699,8 +704,8 @@ async def list_transactions(auth: AuthContext = Depends(require_user)):
 
 
 @router.post("/topup")
-async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_user)):
-    """Top up wallet balance (simulated — for real payments use /topup/checkout)."""
+async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
+    """Top up wallet balance (admin only — for real payments use /topup/checkout)."""
     if req.amount <= 0:
         raise HTTPException(400, "Amount must be positive")
     if req.amount > MAX_TOPUP_AMOUNT:

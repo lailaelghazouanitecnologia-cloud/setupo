@@ -24,6 +24,7 @@ async def init_db():
     logger.info("Opening database at %s", path)
     _db = await aiosqlite.connect(path)
     _db.row_factory = aiosqlite.Row
+    await _db.execute("PRAGMA foreign_keys = ON")
     await _migrate(_db)
 
 
@@ -533,7 +534,31 @@ def _serialize_value(v):
     return v
 
 
+import re as _re
+_SAFE_IDENT = _re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def _validate_identifier(name: str, kind: str = "identifier"):
+    """Validate SQL identifier to prevent injection via table/column names."""
+    if not _SAFE_IDENT.match(name):
+        raise ValueError(f"Invalid SQL {kind}: {name!r}")
+
+
+def _validate_order_by(order_by: str):
+    """Validate ORDER BY clause — only allows 'column ASC/DESC' patterns."""
+    for part in order_by.split(","):
+        tokens = part.strip().split()
+        if not tokens or len(tokens) > 2:
+            raise ValueError(f"Invalid ORDER BY: {order_by!r}")
+        _validate_identifier(tokens[0], "column")
+        if len(tokens) == 2 and tokens[1].upper() not in ("ASC", "DESC"):
+            raise ValueError(f"Invalid ORDER BY direction: {tokens[1]!r}")
+
+
 async def insert(table: str, data: dict):
+    _validate_identifier(table, "table")
+    for k in data:
+        _validate_identifier(k, "column")
     db = await get_db()
     cols = ", ".join(data.keys())
     placeholders = ", ".join(["?"] * len(data))
@@ -543,6 +568,9 @@ async def insert(table: str, data: dict):
 
 
 async def update(table: str, id_val: str, data: dict):
+    _validate_identifier(table, "table")
+    for k in data:
+        _validate_identifier(k, "column")
     db = await get_db()
     sets = [f"{k} = ?" for k in data]
     vals = [_serialize_value(v) for v in data.values()]
@@ -552,6 +580,9 @@ async def update(table: str, id_val: str, data: dict):
 
 
 async def fetch_one(table: str, **where) -> dict | None:
+    _validate_identifier(table, "table")
+    for k in where:
+        _validate_identifier(k, "column")
     db = await get_db()
     conditions = " AND ".join(f"{k} = ?" for k in where)
     cursor = await db.execute(f"SELECT * FROM {table} WHERE {conditions}", list(where.values()))
@@ -562,6 +593,10 @@ async def fetch_one(table: str, **where) -> dict | None:
 
 
 async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> list[dict]:
+    _validate_identifier(table, "table")
+    _validate_order_by(order_by)
+    for k in where:
+        _validate_identifier(k, "column")
     db = await get_db()
     if where:
         conditions = " AND ".join(f"{k} = ?" for k in where)
@@ -576,12 +611,16 @@ async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> l
 
 
 async def delete(table: str, id_val: str):
+    _validate_identifier(table, "table")
     db = await get_db()
     await db.execute(f"DELETE FROM {table} WHERE id = ?", (id_val,))
     await db.commit()
 
 
 async def delete_where(table: str, **where):
+    _validate_identifier(table, "table")
+    for k in where:
+        _validate_identifier(k, "column")
     db = await get_db()
     conditions = " AND ".join(f"{k} = ?" for k in where)
     await db.execute(f"DELETE FROM {table} WHERE {conditions}", list(where.values()))

@@ -13,9 +13,13 @@ logger = logging.getLogger("setupo.users")
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 SUBDOMAIN_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")
 
-MIN_PASSWORD_LENGTH = 6
+MIN_PASSWORD_LENGTH = 8
+MAX_PASSWORD_LENGTH = 128
 MAX_NAME_LENGTH = 64
 MAX_EMAIL_LENGTH = 254
+
+# Dummy hash for constant-time auth on non-existent users
+_DUMMY_HASH = hash_password("dummy-never-matches-placeholder")
 
 RESERVED_SUBDOMAINS = frozenset({
     "www", "api", "admin", "app", "mail", "ftp", "ns1", "ns2",
@@ -47,6 +51,8 @@ def _validate_email(email: str) -> str:
 def _validate_password(password: str):
     if len(password) < MIN_PASSWORD_LENGTH:
         raise ValidationError(f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    if len(password) > MAX_PASSWORD_LENGTH:
+        raise ValidationError(f"Password must be under {MAX_PASSWORD_LENGTH} characters")
 
 
 def _validate_name(name: str) -> str:
@@ -104,6 +110,8 @@ async def authenticate(email: str, password: str) -> dict:
     email = _validate_email(email)
     user = await db.fetch_one("users", email=email)
     if not user:
+        # Constant-time: run dummy hash to prevent timing oracle
+        verify_password(password, _DUMMY_HASH)
         raise AuthError("Invalid email or password")
     if not verify_password(password, user["password_hash"]):
         logger.warning("Failed login: %s", email)
@@ -150,6 +158,7 @@ async def update_profile(user_id: str, name: str | None = None, email: str | Non
             except ConflictError:
                 raise
             updates["email"] = new_email
+            updates["verified"] = 0  # Require re-verification on email change
 
     if not updates:
         return _sanitize_user(user)

@@ -51,7 +51,7 @@ def user_id():
 async def test_user(fresh_db):
     """Create a test user and return their data."""
     from core import users
-    user = await users.create_user("test@example.com", "password123", "Test User")
+    user = await users.create_user("test@example.com", "password1234", "Test User")
     return user
 
 

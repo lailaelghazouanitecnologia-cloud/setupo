@@ -6,6 +6,7 @@ fraud alerts, deploy status, and welcome messages.
 """
 import hashlib
 import hmac
+import html as html_lib
 import logging
 import os
 import secrets
@@ -164,19 +165,15 @@ async def confirm_verification(token: str) -> str:
     if not user_id:
         raise ValidationError("Invalid or expired verification link")
 
-    # Check single-use
+    # Atomic single-use check + mark (prevents TOCTOU race)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     d = await db.get_db()
     cursor = await d.execute(
-        "SELECT * FROM email_tokens WHERE token_hash = ? AND purpose = 'verify' AND used = 0",
+        "UPDATE email_tokens SET used = 1 WHERE token_hash = ? AND purpose = 'verify' AND used = 0",
         (token_hash,),
     )
-    row = await cursor.fetchone()
-    if not row:
+    if cursor.rowcount == 0:
         raise ValidationError("Verification link already used or expired")
-
-    # Mark token as used
-    await d.execute("UPDATE email_tokens SET used = 1 WHERE token_hash = ?", (token_hash,))
 
     # Mark user as verified
     await d.execute("UPDATE users SET verified = 1 WHERE id = ?", (user_id,))
@@ -228,22 +225,20 @@ async def confirm_reset(token: str, new_password: str) -> str:
     if not user_id:
         raise ValidationError("Invalid or expired reset link")
 
-    if len(new_password) < 6:
-        raise ValidationError("Password must be at least 6 characters")
+    if len(new_password) < 8:
+        raise ValidationError("Password must be at least 8 characters")
+    if len(new_password) > 128:
+        raise ValidationError("Password must be under 128 characters")
 
-    # Single-use check
+    # Atomic single-use check + mark (prevents TOCTOU race)
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     d = await db.get_db()
     cursor = await d.execute(
-        "SELECT * FROM email_tokens WHERE token_hash = ? AND purpose = 'reset' AND used = 0",
+        "UPDATE email_tokens SET used = 1 WHERE token_hash = ? AND purpose = 'reset' AND used = 0",
         (token_hash,),
     )
-    row = await cursor.fetchone()
-    if not row:
+    if cursor.rowcount == 0:
         raise ValidationError("Reset link already used or expired")
-
-    # Mark used
-    await d.execute("UPDATE email_tokens SET used = 1 WHERE token_hash = ?", (token_hash,))
 
     # Invalidate all other reset tokens for this user
     await d.execute(
@@ -264,6 +259,7 @@ async def confirm_reset(token: str, new_password: str) -> str:
 
 async def send_welcome(email: str, name: str):
     """Send welcome email after verification."""
+    name = html_lib.escape(name)
     html = _wrap_html(f"Welcome, {name}!", f"""
     <p style="color:#52525b;line-height:1.6;">
       Your account is verified and ready to go. Here's how to get started:
@@ -280,9 +276,10 @@ async def send_welcome(email: str, name: str):
 
 async def send_invoice_notification(email: str, name: str, invoice: dict):
     """Notify user about a new invoice."""
+    name = html_lib.escape(name)
     amount = f"${invoice.get('total_cents', 0) / 100:.2f}"
-    number = invoice.get("number", "N/A")
-    status = invoice.get("payment_status", "pending")
+    number = html_lib.escape(str(invoice.get("number", "N/A")))
+    status = html_lib.escape(str(invoice.get("payment_status", "pending")))
 
     html = _wrap_html("New Invoice", f"""
     <p style="color:#52525b;">Hi {name}, you have a new invoice:</p>
@@ -318,6 +315,9 @@ async def send_fraud_alert(admin_email: str, details: dict):
 
 async def send_deploy_notification(email: str, name: str, workspace: str, status: str, version: str = ""):
     """Notify about deploy status."""
+    name = html_lib.escape(name)
+    workspace = html_lib.escape(workspace)
+    version = html_lib.escape(version)
     is_success = status == "success"
     emoji = "deployed" if is_success else "failed"
     color = "#16a34a" if is_success else "#dc2626"

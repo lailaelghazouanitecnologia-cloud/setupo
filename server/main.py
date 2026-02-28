@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from core import db
 from core.errors import SetupoError
 from server.config import settings
+from server.ratelimit import RateLimitMiddleware
 
 
 class AdminHostMiddleware(BaseHTTPMiddleware):
@@ -53,13 +54,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(AdminHostMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 

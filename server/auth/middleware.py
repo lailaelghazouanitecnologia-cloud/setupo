@@ -76,7 +76,7 @@ def load_admin_token() -> str:
     with open(token_path, "w") as f:
         f.write(_cached_admin_token)
     os.chmod(token_path, 0o600)
-    logger.warning("Generated new admin token: %s...", _cached_admin_token[:16])
+    logger.warning("Generated new admin token — saved to %s", token_path)
     return _cached_admin_token
 
 
@@ -156,5 +156,6 @@ async def resolve_auth(
         if project:
             return AuthContext(project_id=project["id"])
 
-    logger.warning("Invalid token from %s on %s", request.client.host, request.url.path)
+    client_ip = getattr(request.client, "host", "unknown") if request.client else "unknown"
+    logger.warning("Invalid token from %s on %s", client_ip, request.url.path)
     raise HTTPException(401, "Invalid token or API key")

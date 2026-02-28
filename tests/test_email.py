@@ -127,16 +127,16 @@ async def test_reset_password_flow(fresh_db, test_user):
     })
 
     # Reset password
-    user_id = await email_service.confirm_reset(token, "newpassword123")
+    user_id = await email_service.confirm_reset(token, "newpassword1234")
     assert user_id == test_user["id"]
 
     # Old password should fail
     from core.errors import AuthError
     with pytest.raises(AuthError):
-        await users.authenticate(test_user["email"], "password123")
+        await users.authenticate(test_user["email"], "password1234")
 
     # New password should work
-    user = await users.authenticate(test_user["email"], "newpassword123")
+    user = await users.authenticate(test_user["email"], "newpassword1234")
     assert user["email"] == test_user["email"]
 
 

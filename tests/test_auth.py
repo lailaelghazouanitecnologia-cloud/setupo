@@ -61,7 +61,7 @@ def test_decode_tampered_token():
 
 @pytest.mark.asyncio
 async def test_create_user(fresh_db):
-    user = await users.create_user("new@test.com", "pass123", "New User")
+    user = await users.create_user("new@test.com", "pass1234", "New User")
     assert user["email"] == "new@test.com"
     assert user["name"] == "New User"
     assert user["role"] == "user"
@@ -70,15 +70,15 @@ async def test_create_user(fresh_db):
 
 @pytest.mark.asyncio
 async def test_create_user_duplicate_email(fresh_db):
-    await users.create_user("dup@test.com", "pass123")
+    await users.create_user("dup@test.com", "pass1234")
     with pytest.raises(ConflictError):
-        await users.create_user("dup@test.com", "pass456")
+        await users.create_user("dup@test.com", "pass45678")
 
 
 @pytest.mark.asyncio
 async def test_create_user_invalid_email(fresh_db):
     with pytest.raises(ValidationError):
-        await users.create_user("not-an-email", "pass123")
+        await users.create_user("not-an-email", "pass1234")
 
 
 @pytest.mark.asyncio
@@ -90,7 +90,7 @@ async def test_create_user_short_password(fresh_db):
 @pytest.mark.asyncio
 async def test_create_user_default_name(fresh_db):
     """If no name, defaults to email username."""
-    user = await users.create_user("auto@domain.com", "pass123")
+    user = await users.create_user("auto@domain.com", "pass1234")
     assert user["name"] == "auto"
 
 
@@ -98,14 +98,14 @@ async def test_create_user_default_name(fresh_db):
 
 @pytest.mark.asyncio
 async def test_authenticate_success(fresh_db):
-    await users.create_user("auth@test.com", "correct123", "Auth")
-    user = await users.authenticate("auth@test.com", "correct123")
+    await users.create_user("auth@test.com", "correct1234", "Auth")
+    user = await users.authenticate("auth@test.com", "correct1234")
     assert user["email"] == "auth@test.com"
 
 
 @pytest.mark.asyncio
 async def test_authenticate_wrong_password(fresh_db):
-    await users.create_user("auth2@test.com", "correct123")
+    await users.create_user("auth2@test.com", "correct1234")
     with pytest.raises(AuthError):
         await users.authenticate("auth2@test.com", "wrong")
 
@@ -113,7 +113,7 @@ async def test_authenticate_wrong_password(fresh_db):
 @pytest.mark.asyncio
 async def test_authenticate_nonexistent(fresh_db):
     with pytest.raises(AuthError):
-        await users.authenticate("ghost@test.com", "pass123")
+        await users.authenticate("ghost@test.com", "pass1234")
 
 
 # ── Profile updates ───────────────────────────────────────────
@@ -132,12 +132,12 @@ async def test_update_profile_email(test_user):
 
 @pytest.mark.asyncio
 async def test_change_password(test_user):
-    await users.change_password(test_user["id"], "password123", "newpass123")
+    await users.change_password(test_user["id"], "password1234", "newpass1234")
     # Old password should fail
     with pytest.raises(AuthError):
-        await users.authenticate(test_user["email"], "password123")
+        await users.authenticate(test_user["email"], "password1234")
     # New password should work
-    user = await users.authenticate(test_user["email"], "newpass123")
+    user = await users.authenticate(test_user["email"], "newpass1234")
     assert user["email"] == test_user["email"]
 
 
