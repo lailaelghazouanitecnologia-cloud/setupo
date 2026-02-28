@@ -6,7 +6,7 @@
 #   {{CF_API_TOKEN}}   → Cloudflare API token
 #   {{ADMIN_EMAIL}}    → admin email for certbot
 #   {{ADMIN_PASSWORD}} → admin password for dashboard + agent
-#   {{GIT_BRANCH}}     → branch to checkout (default: main)
+#   {{GIT_BRANCH}}     → branch to checkout (default: master)
 
 bootcmd:
   # Flush Vultr default iptables FIRST (before anything else)
@@ -45,12 +45,14 @@ write_files:
     content: |
       VULTR_API_KEY={{VULTR_API_KEY}}
       CF_API_TOKEN={{CF_API_TOKEN}}
+      CF_NSO_ZONE_ID={{CF_NSO_ZONE_ID}}
+      NSO_BASE_DOMAIN={{DOMAIN}}
       SETUPO_HOST=0.0.0.0
       SETUPO_PORT=8000
       SETUPO_DATA_DIR=/opt/setupo/data
       SETUPO_CONFIG_DIR=/opt/setupo/config
       SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
-      SETUPO_CORS_ORIGINS=https://{{DOMAIN}},http://localhost:3000
+      SETUPO_CORS_ORIGINS=https://{{DOMAIN}},https://sonfazt.{{DOMAIN}},http://localhost:3000
       SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
       R2_ENDPOINT={{R2_ENDPOINT}}
       R2_ACCESS_KEY_ID={{R2_ACCESS_KEY_ID}}
@@ -101,6 +103,7 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
+  # ── Main site nginx (nso.dev) ──
   - path: /etc/nginx/sites-available/setupo
     permissions: "0644"
     content: |
@@ -159,6 +162,48 @@ write_files:
           }
       }
 
+  # ── Admin panel nginx (sonfazt.nso.dev) ──
+  - path: /etc/nginx/sites-available/sonfazt
+    permissions: "0644"
+    content: |
+      server {
+          listen 80;
+          server_name sonfazt.{{DOMAIN}};
+
+          # Admin API routes
+          location /api/admin/ {
+              proxy_pass http://setupo_api;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_read_timeout 300s;
+          }
+
+          # Auth endpoint (needed for admin login)
+          location /api/auth/ {
+              proxy_pass http://setupo_api;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+          }
+
+          # Block all other API routes from admin subdomain
+          location /api/ {
+              return 403;
+          }
+
+          # Admin dashboard (static HTML/CSS/JS)
+          location / {
+              root /opt/setupo/dashboard-admin/static;
+              index index.html;
+              try_files $uri $uri/ /index.html;
+          }
+
+          location ~ /\. { deny all; }
+      }
+
 runcmd:
   # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
   - ufw default deny incoming
@@ -188,13 +233,19 @@ runcmd:
   # ── Data dirs ─────────────────────────────────────────────
   - mkdir -p /opt/setupo/data /opt/setupo/config /opt/setupo/workspaces /var/log/setupo /opt/app
 
-  # ── Build dashboard (Next.js static export) ──────────────
+  # ── Build main dashboard (Next.js static export) ──────────
   - cd /opt/setupo/dashboard && npm install && npm run build
   - mkdir -p /opt/setupo/dashboard/static
   - cp -r /opt/setupo/dashboard/out/* /opt/setupo/dashboard/static/
 
-  # ── Activate nginx config ───────────────────────────────────
+  # ── Build admin dashboard (Next.js static export) ─────────
+  - cd /opt/setupo/dashboard-admin && npm install && npm run build
+  - mkdir -p /opt/setupo/dashboard-admin/static
+  - cp -r /opt/setupo/dashboard-admin/out/* /opt/setupo/dashboard-admin/static/
+
+  # ── Activate nginx configs ────────────────────────────────
   - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
+  - ln -sf /etc/nginx/sites-available/sonfazt /etc/nginx/sites-enabled/sonfazt
   - rm -f /etc/nginx/sites-enabled/default
   - nginx -t && systemctl restart nginx
 
@@ -208,6 +259,11 @@ runcmd:
   - systemctl enable setupo
   - systemctl start setupo
 
+  # ── SSL certificates (certbot) ────────────────────────────
+  - sleep 5
+  - certbot --nginx -d {{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} --redirect || true
+  - certbot --nginx -d sonfazt.{{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} --redirect || true
+
   # ── Diagnostics ──────────────────────────────────────────
   - sleep 3
   - 'echo "=== Agent ===" > /var/log/setupo/boot-diag.txt'
@@ -216,3 +272,5 @@ runcmd:
   - 'systemctl status setupo --no-pager >> /var/log/setupo/boot-diag.txt 2>&1 || true'
   - 'echo "=== Nginx ===" >> /var/log/setupo/boot-diag.txt'
   - 'nginx -t >> /var/log/setupo/boot-diag.txt 2>&1 || true'
+  - 'echo "=== SSL ===" >> /var/log/setupo/boot-diag.txt'
+  - 'certbot certificates >> /var/log/setupo/boot-diag.txt 2>&1 || true'

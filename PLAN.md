@@ -4,7 +4,7 @@
 
 ### Infrastructure
 - **Main VPS**: 65.20.102.242 (nso.dev) — API + Agent + Dashboard
-- **Test VPS**: 65.20.103.88 — Agent + Rust HTTP server on :3000
+- **Test VPS**: 65.20.103.88 — Agent
 - **Provider**: Vultr (VPS), Cloudflare (DNS + R2 storage)
 - **Domain**: nso.dev (user subdomains: username.project.nso.dev)
 - **Project**: `proj_0f71067738c73681` (mesh-test)
@@ -103,12 +103,12 @@
 - [ ] "Download CLI" option in user dropdown
 - [ ] User dashboard (billing panel, module browser, project management)
 
-### Phase 6 — NSO Client (Rust TUI)
-- [ ] Rust binary with TUI (ratatui or similar)
-- [ ] Auth: login, token storage
-- [ ] Core commands: ship, exec, inst ls/create/rm
+### Phase 6 — NSO Client (Python CLI) ✅
+- [x] Python CLI with rich TUI
+- [x] Auth: login, token storage
+- [x] Core commands: ship, exec, inst ls/create/rm, versions, branch, merge
 - [ ] Downloadable from dashboard
-- [ ] Cross-platform builds (Linux, macOS, Windows)
+- [ ] Package as standalone binary (PyInstaller)
 
 ### Phase 7 — Mesh Network (future)
 - [ ] WireGuard overlay between NSO instances
@@ -125,4 +125,4 @@
 - **Storage**: Cloudflare R2 (S3v4 HMAC signing, no boto3)
 - **Providers**: Vultr (VPS), Cloudflare (DNS)
 - **Deploy**: cloud-init (bootstrap), systemd, nginx reverse proxy
-- **Future CLI**: Rust (tokio, ratatui)
+- **CLI**: Python (rich, httpx)

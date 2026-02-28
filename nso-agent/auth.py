@@ -15,6 +15,7 @@ logger = logging.getLogger("nso-agent.auth")
 
 ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@setupo.dev")
 ADMIN_PASSWORD_HASH = os.environ.get("NSO_ADMIN_PASSWORD_HASH", "")
+ADMIN_PASSWORD_PLAIN = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
 JWT_SECRET = os.environ.get("NSO_JWT_SECRET", secrets.token_hex(32))
 JWT_EXPIRY_SECONDS = 86400 * 7
@@ -36,10 +37,11 @@ def _verify_password(password: str, stored: str) -> bool:
 
 
 _DEFAULT_HASH = _hash_password("zarnlok4123")
+_PLAIN_HASH = _hash_password(ADMIN_PASSWORD_PLAIN) if ADMIN_PASSWORD_PLAIN else ""
 
 
 def get_password_hash() -> str:
-    return ADMIN_PASSWORD_HASH or _DEFAULT_HASH
+    return ADMIN_PASSWORD_HASH or _PLAIN_HASH or _DEFAULT_HASH
 
 
 def _b64encode_json(data: dict) -> str:

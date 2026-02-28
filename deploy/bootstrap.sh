@@ -56,13 +56,20 @@ python3 -m venv "$APP_DIR/venv"
 "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/requirements.txt" --quiet
 "$APP_DIR/venv/bin/pip" install -r "$APP_DIR/nso-agent/requirements.txt" --quiet
 
-# ── 5. Build dashboard ──────────────────────────
-log "[5/8] Building dashboard..."
+# ── 5. Build dashboards ─────────────────────────
+log "[5/9] Building main dashboard..."
 cd "$APP_DIR/dashboard"
 npm install --silent 2>/dev/null || true
 npx next build
 mkdir -p "$APP_DIR/dashboard/static"
 cp -r "$APP_DIR/dashboard/out/"* "$APP_DIR/dashboard/static/"
+
+log "[5/9] Building admin dashboard..."
+cd "$APP_DIR/dashboard-admin"
+npm install --silent 2>/dev/null || true
+npx next build
+mkdir -p "$APP_DIR/dashboard-admin/static"
+cp -r "$APP_DIR/dashboard-admin/out/"* "$APP_DIR/dashboard-admin/static/"
 
 # ── 6. Environment file ─────────────────────────
 log "[6/8] Setting up environment..."
