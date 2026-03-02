@@ -7,7 +7,8 @@ import {
   Send, RotateCcw, Power, FileText, Loader, Globe,
 } from "lucide-react";
 import {
-  listProjects, listInstances, createInstance, deleteInstance,
+  listProjects, createProject as apiCreateProject,
+  listInstances, createInstance, deleteInstance,
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
 } from "@/lib/api/client";
@@ -393,17 +394,33 @@ function InstancesTab() {
     );
   }
 
-  // Error state
+  // Error state — special handling for "no projects"
   if (error) {
+    const isNoProjects = error.includes("No projects");
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-title">Error</div>
-        <div className="panel-empty-sub">{error}</div>
-        <button className="panel-btn" onClick={fetchData}>
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>Retry</span>
-        </button>
+        <div className="panel-empty-title">{isNoProjects ? "No project yet" : "Error"}</div>
+        <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage instances." : error}</div>
+        {isNoProjects ? (
+          <button className="panel-btn" onClick={async () => {
+            try {
+              await apiCreateProject("main");
+              setError("");
+              fetchData();
+            } catch (e: any) {
+              setError(e.message || "Failed to create project");
+            }
+          }}>
+            <Plus className="h-3.5 w-3.5" />
+            <span>Create project</span>
+          </button>
+        ) : (
+          <button className="panel-btn" onClick={fetchData}>
+            <RefreshCw className="h-3.5 w-3.5" />
+            <span>Retry</span>
+          </button>
+        )}
       </div>
     );
   }

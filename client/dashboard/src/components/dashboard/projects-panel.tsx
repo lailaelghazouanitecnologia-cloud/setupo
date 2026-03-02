@@ -7,7 +7,7 @@ import {
   Package,
 } from "lucide-react";
 import {
-  listProjects, listWorkspaces, createWorkspace,
+  listProjects, createProject as apiCreateProject, listWorkspaces, createWorkspace,
   deleteWorkspace as apiDeleteWorkspace, getWorkspaceFiles,
   listFiles, zarVersions,
 } from "@/lib/api/client";
@@ -46,6 +46,8 @@ export function ProjectsPanel() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
   const [newName, setNewName] = useState("");
   const [newStack, setNewStack] = useState("node");
   const [selected, setSelected] = useState<Workspace | null>(null);
@@ -91,6 +93,19 @@ export function ProjectsPanel() {
       setSelectedFiles([]);
     }
   }, [selectedProject?.id]);
+
+  const handleCreateProject = async () => {
+    const name = newProjectName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
+    if (!name) return;
+    try {
+      await apiCreateProject(name);
+      setNewProjectName("");
+      setCreatingProject(false);
+      fetchProjects();
+    } catch (e: any) {
+      setError(e.message || "Create project failed");
+    }
+  };
 
   const handleCreate = async () => {
     const name = newName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
@@ -229,7 +244,36 @@ export function ProjectsPanel() {
         <div className="panel-empty">
           <FolderTree className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
           <div className="panel-empty-title">No projects</div>
-          <div className="panel-empty-sub">Create a project first via the API or CLI.</div>
+          <div className="panel-empty-sub">Create a project to get started.</div>
+          {creatingProject ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 300 }}>
+              <input
+                className="proj-input"
+                type="text"
+                placeholder="Project name (e.g. my-app)"
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreateProject();
+                  if (e.key === "Escape") { setCreatingProject(false); setNewProjectName(""); }
+                }}
+                autoFocus
+              />
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="panel-btn-sm" onClick={handleCreateProject} disabled={!newProjectName.trim()}>
+                  Create
+                </button>
+                <button className="panel-btn-sm" onClick={() => { setCreatingProject(false); setNewProjectName(""); }}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button className="panel-btn" onClick={() => setCreatingProject(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              <span>Create project</span>
+            </button>
+          )}
         </div>
       ) : workspaces.length === 0 && !loading ? (
         <div className="panel-empty">

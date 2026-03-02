@@ -213,6 +213,13 @@ export async function listProjects() {
   return centralApi<{ projects: any[] }>("/api/projects");
 }
 
+export async function createProject(name: string, description = "") {
+  return centralApi<{ project: any; api_key: string; message: string }>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify({ name, description }),
+  });
+}
+
 export async function listWorkspaces(projectId: string) {
   return centralApi<{ workspaces: any[] }>(`/api/projects/${projectId}/workspaces`);
 }
