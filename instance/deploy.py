@@ -32,7 +32,7 @@ MAX_LOG_LINES = 500
 
 INSTALL_COMMANDS = {
     "node": "npm install --production 2>&1",
-    "python": "pip install -r requirements.txt 2>&1",
+    "python": "/opt/nso/venv/bin/pip install -r requirements.txt 2>&1",
     "go": "go build ./... 2>&1",
     "rust": "cargo build --release 2>&1",
     "docker": "docker compose up -d --build 2>&1",
