@@ -34,7 +34,12 @@ INSTANCE_CONFIGS = {
 }
 
 
-def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
+def get_cloud_init(
+    instance_type: str,
+    domain: str | None = None,
+    git_url: str | None = None,
+    git_branch: str = "main",
+) -> str:
     config = INSTANCE_CONFIGS.get(instance_type, INSTANCE_CONFIGS["custom"])
     template_name = config.get("cloud_init")
 
@@ -60,6 +65,8 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
         "{{R2_BUCKET}}": settings.R2_BUCKET,
         "{{ADMIN_PASSWORD}}": settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD,
         "{{JWT_SECRET}}": secrets.token_hex(32),
+        "{{APP_GIT_URL}}": git_url or "",
+        "{{APP_GIT_BRANCH}}": git_branch or "main",
     }
     for placeholder, value in replacements.items():
         content = content.replace(placeholder, value)

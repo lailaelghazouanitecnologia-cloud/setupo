@@ -361,6 +361,41 @@ runcmd:
   # ── Apply SSL nginx configs (uses our own templates, not certbot's) ──
   - /opt/nso/deploy/setup-ssl.sh || true
 
+  # ── Deploy user app (if source provided) ─────────────────
+  - |
+    APP_GIT_URL="{{APP_GIT_URL}}"
+    APP_GIT_BRANCH="{{APP_GIT_BRANCH}}"
+    APP_DIR="/opt/app"
+
+    if [ -n "$APP_GIT_URL" ]; then
+      echo "[nso] Cloning app repo: $APP_GIT_URL (branch: $APP_GIT_BRANCH)" | tee /var/log/nso/app-deploy.log
+      git clone -b "$APP_GIT_BRANCH" "$APP_GIT_URL" "$APP_DIR" >> /var/log/nso/app-deploy.log 2>&1 || \
+        git clone "$APP_GIT_URL" "$APP_DIR" >> /var/log/nso/app-deploy.log 2>&1
+
+      cd "$APP_DIR"
+
+      # Auto-detect stack and install
+      if [ -f "package.json" ]; then
+        echo "[nso] Detected Node.js project — running npm install" >> /var/log/nso/app-deploy.log
+        npm install >> /var/log/nso/app-deploy.log 2>&1
+        # Build if build script exists
+        node -e "const p=require('./package.json'); process.exit(p.scripts&&p.scripts.build?0:1)" 2>/dev/null && \
+          npm run build >> /var/log/nso/app-deploy.log 2>&1 || true
+      fi
+
+      if [ -f "requirements.txt" ]; then
+        echo "[nso] Detected Python project — installing deps" >> /var/log/nso/app-deploy.log
+        python3 -m venv "$APP_DIR/venv" >> /var/log/nso/app-deploy.log 2>&1
+        "$APP_DIR/venv/bin/pip" install -r requirements.txt >> /var/log/nso/app-deploy.log 2>&1
+      fi
+
+      if [ -f "Dockerfile" ]; then
+        echo "[nso] Detected Dockerfile — available for docker build" >> /var/log/nso/app-deploy.log
+      fi
+
+      echo "[nso] App deployed to $APP_DIR" >> /var/log/nso/app-deploy.log
+    fi
+
   # ── Diagnostics ──────────────────────────────────────────
   - sleep 3
   - 'echo "=== Agent ===" > /var/log/nso/boot-diag.txt'
@@ -371,3 +406,5 @@ runcmd:
   - 'nginx -t >> /var/log/nso/boot-diag.txt 2>&1 || true'
   - 'echo "=== SSL ===" >> /var/log/nso/boot-diag.txt'
   - 'certbot certificates >> /var/log/nso/boot-diag.txt 2>&1 || true'
+  - 'echo "=== App ===" >> /var/log/nso/boot-diag.txt'
+  - 'cat /var/log/nso/app-deploy.log >> /var/log/nso/boot-diag.txt 2>&1 || true'

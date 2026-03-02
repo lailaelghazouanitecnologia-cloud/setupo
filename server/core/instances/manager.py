@@ -42,17 +42,28 @@ async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
 async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instance:
     instance_id = _gen_id()
 
+    # Store source info in metadata
+    metadata: dict = {}
+    if req.source_type:
+        metadata["source_type"] = req.source_type
+    if req.git_url:
+        metadata["git_url"] = req.git_url
+        metadata["git_branch"] = req.git_branch
+    if req.zar_name:
+        metadata["zar_name"] = req.zar_name
+
     instance = Instance(
         id=instance_id,
         project_id=project_id,
         type=req.type,
         provider=Provider.VULTR,
-        label=req.label or f"nso-{req.type.value}",
+        label=req.label or f"nso-{instance_id[:8]}",
         region=req.region,
         plan=req.plan,
         domain=req.domain,
         workspace=req.workspace,
         state=InstanceState.CREATING,
+        metadata=metadata,
         created_at=datetime.now(timezone.utc),
     )
 
@@ -72,13 +83,13 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         "ssh_key_id": None,
         "workspace": instance.workspace,
         "error": None,
-        "metadata": instance.metadata,
+        "metadata": metadata,
         "created_at": instance.created_at,
         "ready_at": None,
     })
 
     asyncio.create_task(_provision_instance(project_id, instance_id, req))
-    logger.info("Created instance %s (type=%s) for project %s", instance_id, req.type.value, project_id)
+    logger.info("Created instance %s (source=%s) for project %s", instance_id, req.source_type or "empty", project_id)
     return instance
 
 
@@ -94,7 +105,12 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
             "state": InstanceState.INSTALLING.value,
         })
 
-        user_data = get_cloud_init(req.type.value, domain=req.domain)
+        user_data = get_cloud_init(
+            req.type.value,
+            domain=req.domain,
+            git_url=req.git_url,
+            git_branch=req.git_branch,
+        )
 
         vps = await vultr.create_instance(
             region=req.region,

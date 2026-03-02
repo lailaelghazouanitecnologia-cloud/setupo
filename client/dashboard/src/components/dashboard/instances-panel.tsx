@@ -29,6 +29,12 @@ interface Instance {
   provider_id: string;
   ip: string | null;
   created_at: string;
+  metadata?: {
+    source_type?: string;
+    git_url?: string;
+    git_branch?: string;
+    zar_name?: string;
+  };
 }
 
 /* ═══════════════════════════════════════════
@@ -59,11 +65,6 @@ const PLANS = [
   { id: "vc2-6c-16gb", cpu: 6, ram: "16 GB", disk: "320 GB", price: "$80/mo" },
 ] as const;
 
-const INSTANCE_TYPES = [
-  { id: "setup", label: "Setup", desc: "Production server — nginx, SSL, deploy-ready" },
-  { id: "dev", label: "Dev", desc: "Development env — extended tooling" },
-  { id: "custom", label: "Custom", desc: "Bare server — user-defined config" },
-] as const;
 
 const SERVICES = [
   { name: "nso", display: "NSO API", description: "Main REST API server" },
@@ -105,12 +106,17 @@ interface CreateFormProps {
   onCancel: () => void;
 }
 
+type SourceType = "repository" | "zar" | "empty";
+
 function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps) {
   const [label, setLabel] = useState("");
-  const [type, setType] = useState("setup");
   const [region, setRegion] = useState("mad");
   const [plan, setPlan] = useState("vc2-1c-1gb");
   const [domain, setDomain] = useState("");
+  const [sourceType, setSourceType] = useState<SourceType>("empty");
+  const [gitUrl, setGitUrl] = useState("");
+  const [gitBranch, setGitBranch] = useState("main");
+  const [zarName, setZarName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -132,8 +138,11 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
     if (!PLANS.some((p) => p.id === plan)) {
       return "Invalid plan selected";
     }
-    if (!INSTANCE_TYPES.some((t) => t.id === type)) {
-      return "Invalid instance type";
+    if (sourceType === "repository" && !gitUrl.trim()) {
+      return "Git URL is required for repository source";
+    }
+    if (sourceType === "zar" && !zarName.trim()) {
+      return "Package name is required for .zar source";
     }
     return null;
   };
@@ -150,11 +159,14 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
 
     try {
       await createInstance(projectId, {
-        type,
         label: sanitizedLabel || undefined,
         region,
         plan,
         domain: domain.trim() || undefined,
+        source_type: sourceType === "empty" ? undefined : sourceType,
+        git_url: sourceType === "repository" ? gitUrl.trim() : undefined,
+        git_branch: sourceType === "repository" ? gitBranch.trim() || "main" : undefined,
+        zar_name: sourceType === "zar" ? zarName.trim() : undefined,
       });
       onCreated();
     } catch (e: any) {
@@ -193,37 +205,79 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         </div>
       )}
 
-      {/* Row 1: Label + Type */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Label</label>
+      {/* Row 1: Label */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Label</label>
+        <input
+          className="proj-input"
+          type="text"
+          placeholder="my-server (optional)"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+          style={{ width: "100%" }}
+          autoFocus
+        />
+      </div>
+
+      {/* Row 2: Source selector */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Source</label>
+        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+          {(["repository", "zar", "empty"] as SourceType[]).map((st) => (
+            <button
+              key={st}
+              className={`scope-chip ${sourceType === st ? "active" : ""}`}
+              onClick={() => setSourceType(st)}
+              type="button"
+            >
+              {st === "repository" && <FolderOpen className="h-3 w-3" />}
+              {st === "zar" && <FileText className="h-3 w-3" />}
+              {st === "empty" && <Server className="h-3 w-3" />}
+              <span>{st === "repository" ? "Repository" : st === "zar" ? ".zar" : "Empty"}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Source-specific fields */}
+        {sourceType === "repository" && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <input
+                className="proj-input"
+                type="text"
+                placeholder="https://github.com/user/repo.git"
+                value={gitUrl}
+                onChange={(e) => setGitUrl(e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <input
+                className="proj-input"
+                type="text"
+                placeholder="branch (main)"
+                value={gitBranch}
+                onChange={(e) => setGitBranch(e.target.value)}
+                style={{ width: "100%" }}
+              />
+            </div>
+          </div>
+        )}
+
+        {sourceType === "zar" && (
           <input
             className="proj-input"
             type="text"
-            placeholder="my-server (optional)"
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
+            placeholder="workspace name"
+            value={zarName}
+            onChange={(e) => setZarName(e.target.value)}
             style={{ width: "100%" }}
-            autoFocus
           />
-        </div>
-        <div style={{ minWidth: 140 }}>
-          <label style={labelStyle}>Type</label>
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger style={{ width: "100%" }}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {INSTANCE_TYPES.map((t) => (
-                <SelectItem key={t.id} value={t.id}>{t.label} — {t.desc}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+        )}
       </div>
 
-      {/* Row 2: Region + Plan */}
+      {/* Row 3: Region + Plan */}
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Region</label>
@@ -255,7 +309,7 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         </div>
       </div>
 
-      {/* Row 3: Domain (optional) */}
+      {/* Row 4: Domain (optional) */}
       <div style={{ marginBottom: 12 }}>
         <label style={labelStyle}>Domain (optional)</label>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -283,6 +337,8 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         fontFamily: "monospace",
       }}>
         {selectedRegion?.city} · {selectedPlan?.cpu}vCPU · {selectedPlan?.ram} · {selectedPlan?.price}
+        {sourceType === "repository" && gitUrl ? ` · ${gitUrl.split("/").pop()?.replace(".git", "") || "repo"}` : ""}
+        {sourceType === "zar" && zarName ? ` · ${zarName}.zar` : ""}
       </div>
 
       {/* Actions */}
@@ -501,7 +557,9 @@ function InstancesTab() {
                 {inst.label || inst.domain || inst.id}
               </div>
               <div className="proj-card-meta">
-                {inst.ip || "installing..."} — {inst.type} / {inst.plan} / {inst.region}
+                {inst.ip || "installing..."} — {inst.plan} / {inst.region}
+                {inst.metadata?.source_type === "repository" ? " · repo" : ""}
+                {inst.metadata?.source_type === "zar" ? ` · ${inst.metadata.zar_name || "zar"}` : ""}
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -566,7 +624,11 @@ function InstancesTab() {
             {[
               { label: "Name", value: selected.label || "—" },
               { label: "IP", value: selected.ip || "—" },
-              { label: "Type", value: selected.type },
+              { label: "Source", value: selected.metadata?.source_type === "repository"
+                ? (selected.metadata.git_url?.split("/").pop()?.replace(".git", "") || "repo")
+                : selected.metadata?.source_type === "zar"
+                ? (selected.metadata.zar_name || "zar")
+                : "—" },
               { label: "Plan", value: selected.plan },
               { label: "Region", value: selected.region },
               { label: "Created", value: selected.created_at?.split("T")[0] || "—" },
