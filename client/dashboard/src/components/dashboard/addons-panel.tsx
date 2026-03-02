@@ -8,7 +8,8 @@ import {
   Clock, ChevronDown, ChevronUp, RefreshCw,
   Link2, ShoppingBag, Zap, Github, Database,
   Cloud, MessageSquare, Container, BarChart3,
-  HeartPulse, Shield, Table,
+  HeartPulse, Shield, Table, Mail, Timer,
+  Star, ExternalLink, Check,
 } from "lucide-react";
 import {
   listProjects, listAddons, installAddon, uninstallAddon, updateAddon,
@@ -42,6 +43,8 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
   "uptime-monitor": HeartPulse,
   "ssl-manager": Shield,
   "database-viewer": Table,
+  "email-service": Mail,
+  "scheduled-tasks": Timer,
 };
 
 const TAB_CONFIG: { id: AddonTab; label: string; icon: typeof Puzzle }[] = [
@@ -310,35 +313,212 @@ function ConnectorDetailView({ addon, projectId }: { addon: AddonInfo; projectId
 }
 
 // ═══════════════════════════════════════════
-//  MARKETPLACE DETAIL VIEW
+//  MARKETPLACE SHOWCASE
 // ═══════════════════════════════════════════
 
-function MarketplaceDetailView({ addon }: { addon: AddonInfo }) {
+const CATEGORY_COLORS: Record<string, string> = {
+  analytics: "var(--color-teal)",
+  monitoring: "var(--color-green)",
+  security: "var(--color-yellow)",
+  tools: "var(--color-blue)",
+  messaging: "var(--color-purple, #a78bfa)",
+  automation: "var(--color-orange, #fb923c)",
+};
+
+function MarketplaceCard({ addon, onInstall, onUninstall, busy }: {
+  addon: AddonInfo;
+  onInstall: () => void;
+  onUninstall: () => void;
+  busy: boolean;
+}) {
+  const Icon = ADDON_ICONS[addon.addon_id] || Package;
+  const schema = addon.config || {};
+  const highlights: string[] = schema.highlights || [];
+  const tagline: string = schema.tagline || "";
+  const pricing: string = schema.pricing || "free";
+  const featured: boolean = schema.featured || false;
+  const catColor = CATEGORY_COLORS[addon.category] || "var(--color-teal)";
+
   return (
-    <div className="plugin-detail">
-      <div className="plugin-detail-header">
-        <span>App Details</span>
-      </div>
-      <div className="plugin-detail-list">
-        <div className="plugin-detail-row">
-          <span className="plugin-detail-row-name">Version</span>
-          <span className="plugin-detail-row-meta">{addon.version}</span>
+    <div style={{
+      border: `1px solid ${featured ? "oklch(0.22 0.03 200 / 60%)" : "var(--border)"}`,
+      borderRadius: 10,
+      padding: 0,
+      overflow: "hidden",
+      transition: "all 0.12s",
+      background: featured ? "oklch(0.12 0.01 200 / 30%)" : "transparent",
+    }}>
+      {/* Header band */}
+      <div style={{
+        padding: "16px 16px 12px",
+        display: "flex", alignItems: "flex-start", gap: 12,
+      }}>
+        <div style={{
+          width: 40, height: 40, borderRadius: 10,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          background: "oklch(0.18 0.02 200 / 50%)",
+          flexShrink: 0,
+        }}>
+          <Icon style={{ width: 20, height: 20, color: catColor }} />
         </div>
-        <div className="plugin-detail-row">
-          <span className="plugin-detail-row-name">Author</span>
-          <span className="plugin-detail-row-meta">{addon.author}</span>
-        </div>
-        <div className="plugin-detail-row">
-          <span className="plugin-detail-row-name">Category</span>
-          <span className="plugin-detail-row-meta">{addon.category}</span>
-        </div>
-        {addon.installed_at && (
-          <div className="plugin-detail-row">
-            <span className="plugin-detail-row-name">Installed</span>
-            <span className="plugin-detail-row-meta">{new Date(addon.installed_at).toLocaleDateString()}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+            <span style={{ fontSize: "var(--font-md)", fontWeight: 600 }}>{addon.name}</span>
+            {featured && <Star style={{ width: 12, height: 12, color: "var(--color-yellow)", fill: "var(--color-yellow)" }} />}
           </div>
+          {tagline && (
+            <div style={{ fontSize: "var(--font-xs)", color: catColor, marginBottom: 4, fontWeight: 500 }}>
+              {tagline}
+            </div>
+          )}
+          <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", lineHeight: 1.45 }}>
+            {addon.description}
+          </div>
+        </div>
+      </div>
+
+      {/* Highlights */}
+      {highlights.length > 0 && (
+        <div style={{
+          padding: "0 16px 12px",
+          display: "flex", flexWrap: "wrap", gap: 6,
+        }}>
+          {highlights.map((h) => (
+            <span key={h} style={{
+              display: "inline-flex", alignItems: "center", gap: 4,
+              fontSize: "var(--font-xxs)", color: "var(--muted-foreground)",
+              background: "oklch(0.18 0.01 200 / 40%)",
+              padding: "2px 8px", borderRadius: 4,
+            }}>
+              <Check style={{ width: 9, height: 9, color: "var(--color-green)" }} />
+              {h}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div style={{
+        padding: "10px 16px",
+        borderTop: "1px solid var(--border)",
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span className="plugin-category">{addon.category}</span>
+          <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)" }}>
+            {pricing === "free" ? "Gratis" : pricing}
+          </span>
+          <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)" }}>
+            v{addon.version}
+          </span>
+        </div>
+        {addon.installed ? (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: "var(--font-xxs)", color: "var(--color-green)", display: "flex", alignItems: "center", gap: 3 }}>
+              <Check style={{ width: 10, height: 10 }} /> Instalado
+            </span>
+            <button
+              className="plugin-action"
+              onClick={onUninstall}
+              disabled={busy}
+              style={{ fontSize: "var(--font-xxs)", padding: "3px 8px", color: "var(--color-red)" }}
+            >
+              {busy ? <Loader style={{ width: 10, height: 10 }} className="animate-spin" /> : <Trash2 style={{ width: 10, height: 10 }} />}
+            </button>
+          </div>
+        ) : (
+          <button
+            className="plugin-action"
+            onClick={onInstall}
+            disabled={busy}
+            style={{ fontSize: "var(--font-xxs)", padding: "3px 10px" }}
+          >
+            {busy ? (
+              <Loader style={{ width: 10, height: 10 }} className="animate-spin" />
+            ) : (
+              <><Download style={{ width: 10, height: 10 }} /> Instalar</>
+            )}
+          </button>
         )}
       </div>
+    </div>
+  );
+}
+
+function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninstall }: {
+  addons: AddonInfo[];
+  projectId: string;
+  actionId: string | null;
+  onInstall: (id: string, type: string) => void;
+  onUninstall: (id: string, type: string) => void;
+}) {
+  const featured = addons.filter((a) => a.config?.featured);
+  const rest = addons.filter((a) => !a.config?.featured);
+
+  // Group by category
+  const categories = new Map<string, AddonInfo[]>();
+  for (const a of rest) {
+    const cat = a.category || "other";
+    if (!categories.has(cat)) categories.set(cat, []);
+    categories.get(cat)!.push(a);
+  }
+
+  return (
+    <div>
+      {/* Featured apps */}
+      {featured.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{
+            fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--muted-foreground)",
+            textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10,
+            display: "flex", alignItems: "center", gap: 6,
+          }}>
+            <Star style={{ width: 12, height: 12, color: "var(--color-yellow)" }} />
+            Destacados
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+            {featured.map((a) => (
+              <MarketplaceCard
+                key={a.addon_id}
+                addon={a}
+                busy={actionId === a.addon_id}
+                onInstall={() => onInstall(a.addon_id, a.addon_type)}
+                onUninstall={() => onUninstall(a.addon_id, a.addon_type)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Rest by category */}
+      {Array.from(categories.entries()).map(([cat, apps]) => (
+        <div key={cat} style={{ marginBottom: 20 }}>
+          <div style={{
+            fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--muted-foreground)",
+            textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 10,
+          }}>
+            {cat}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 12 }}>
+            {apps.map((a) => (
+              <MarketplaceCard
+                key={a.addon_id}
+                addon={a}
+                busy={actionId === a.addon_id}
+                onInstall={() => onInstall(a.addon_id, a.addon_type)}
+                onUninstall={() => onUninstall(a.addon_id, a.addon_type)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {addons.length === 0 && (
+        <div className="panel-empty">
+          <ShoppingBag className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+          <div className="panel-empty-title">No hay apps disponibles</div>
+        </div>
+      )}
     </div>
   );
 }
@@ -430,8 +610,6 @@ function AddonCard({
       {expanded && addon.installed && addon.enabled && (
         addon.addon_type === "connector" ? (
           <ConnectorDetailView addon={addon} projectId={projectId} />
-        ) : addon.addon_type === "marketplace" ? (
-          <MarketplaceDetailView addon={addon} />
         ) : (
           <PluginDetailView addonId={addon.addon_id} projectId={projectId} />
         )
@@ -570,7 +748,17 @@ export function AddonsPanel() {
           <Loader className="h-4 w-4 animate-spin" />
           <span style={{ fontSize: "var(--font-xs)" }}>Loading {emptyLabel}...</span>
         </div>
+      ) : activeTab === "marketplace" ? (
+        /* ── Marketplace: showcase layout ── */
+        <MarketplaceShowcase
+          addons={addons}
+          projectId={projectId}
+          actionId={actionId}
+          onInstall={handleInstall}
+          onUninstall={handleUninstall}
+        />
       ) : (
+        /* ── Connectors & Plugins: install/manage layout ── */
         <>
           {installed.length > 0 && (
             <div style={{ marginBottom: 20 }}>

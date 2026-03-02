@@ -102,41 +102,97 @@ DEFAULT_PLUGINS = [
 ]
 
 # Default marketplace apps — admin-curated applications
+# These are showcase apps offered by the platform to users.
+# config_schema doubles as metadata for the marketplace presentation.
 DEFAULT_MARKETPLACE = [
     {
         "addon_id": "analytics-dashboard",
         "name": "Analytics Dashboard",
-        "description": "Real-time visitor analytics and performance metrics for your deployed apps.",
+        "description": "Real-time visitor analytics and performance metrics for your deployed apps. Track page views, unique visitors, referrers, and geographic distribution.",
         "category": "analytics",
         "icon": "bar-chart",
         "addon_type": "marketplace",
         "author": "nso",
+        "config_schema": {
+            "tagline": "Understand your traffic",
+            "pricing": "free",
+            "highlights": ["Real-time visitors", "Geographic heatmap", "Referrer tracking", "Export CSV"],
+            "featured": True,
+        },
     },
     {
         "addon_id": "uptime-monitor",
         "name": "Uptime Monitor",
-        "description": "24/7 HTTP health checks with email and Slack alerts on downtime.",
+        "description": "24/7 HTTP health checks every 60 seconds with email and Slack alerts on downtime. Track response times and availability history.",
         "category": "monitoring",
         "icon": "heart-pulse",
         "addon_type": "marketplace",
         "author": "nso",
+        "config_schema": {
+            "tagline": "Never miss downtime",
+            "pricing": "free",
+            "highlights": ["60s check interval", "Email + Slack alerts", "Response time graphs", "30-day history"],
+            "featured": True,
+        },
     },
     {
         "addon_id": "ssl-manager",
         "name": "SSL Manager",
-        "description": "Automatic Let's Encrypt certificate provisioning and renewal.",
+        "description": "Automatic Let's Encrypt certificate provisioning and renewal. Zero-config HTTPS for all your domains with wildcard support.",
         "category": "security",
         "icon": "shield",
         "addon_type": "marketplace",
         "author": "nso",
+        "config_schema": {
+            "tagline": "HTTPS everywhere",
+            "pricing": "free",
+            "highlights": ["Auto-renewal", "Wildcard certs", "Zero config", "Let's Encrypt"],
+            "featured": False,
+        },
     },
     {
         "addon_id": "database-viewer",
         "name": "Database Viewer",
-        "description": "Browse and query SQLite and Postgres databases directly from the dashboard.",
+        "description": "Browse and query SQLite and Postgres databases directly from the dashboard. Visual table explorer, SQL editor, and export tools.",
         "category": "tools",
         "icon": "table",
         "addon_type": "marketplace",
         "author": "nso",
+        "config_schema": {
+            "tagline": "Explore your data",
+            "pricing": "free",
+            "highlights": ["Visual table browser", "SQL editor", "Export to CSV/JSON", "Query history"],
+            "featured": False,
+        },
+    },
+    {
+        "addon_id": "email-service",
+        "name": "Email Service",
+        "description": "Transactional email sending with templates, delivery tracking, and bounce handling. Send from your own domain.",
+        "category": "messaging",
+        "icon": "mail",
+        "addon_type": "marketplace",
+        "author": "nso",
+        "config_schema": {
+            "tagline": "Reliable email delivery",
+            "pricing": "free",
+            "highlights": ["Custom templates", "Delivery tracking", "Bounce handling", "Domain verification"],
+            "featured": False,
+        },
+    },
+    {
+        "addon_id": "scheduled-tasks",
+        "name": "Scheduled Tasks",
+        "description": "Visual cron job manager with retry logic, execution logs, and failure notifications. No more editing crontabs manually.",
+        "category": "automation",
+        "icon": "timer",
+        "addon_type": "marketplace",
+        "author": "nso",
+        "config_schema": {
+            "tagline": "Automate everything",
+            "pricing": "free",
+            "highlights": ["Visual scheduler", "Retry logic", "Execution logs", "Failure alerts"],
+            "featured": False,
+        },
     },
 ]
