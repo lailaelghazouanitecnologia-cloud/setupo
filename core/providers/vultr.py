@@ -21,10 +21,13 @@ class VultrProvider(CloudProvider):
     @property
     def client(self) -> httpx.AsyncClient:
         if self._client is None or self._client.is_closed:
+            # Force IPv4 — Vultr API key may not authorize IPv6 addresses
+            transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
             self._client = httpx.AsyncClient(
                 base_url=BASE,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 timeout=REQUEST_TIMEOUT,
+                transport=transport,
             )
         return self._client
 

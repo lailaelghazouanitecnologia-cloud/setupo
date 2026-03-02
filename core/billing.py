@@ -768,7 +768,7 @@ async def remove_applied_coupon(user_id: str, applied_coupon_id: str):
 
 async def list_applied_coupons(user_id: str) -> list[dict]:
     """List user's active applied coupons."""
-    return await db.fetch_all("billing_applied_coupons", user_id=user_id, status="active")
+    return await db.fetch_all("billing_applied_coupons", order_by="applied_at DESC", user_id=user_id, status="active")
 
 
 async def _calculate_coupon_discount(user_id: str, subtotal_cents: int) -> tuple[int, list[dict]]:

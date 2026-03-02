@@ -152,7 +152,7 @@ async def list_plugins(project_id: str = Depends(require_project)):
     await _ensure_catalog_seeded()
 
     catalog = await db.fetch_all("plugin_catalog", order_by="created_at ASC", published=True)
-    installed = await db.fetch_all("plugins", project_id=project_id)
+    installed = await db.fetch_all("plugins", order_by="installed_at DESC", project_id=project_id)
     installed_map = {p["plugin_id"]: p for p in installed}
 
     plugins = []

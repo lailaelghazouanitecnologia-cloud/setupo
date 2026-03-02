@@ -57,7 +57,7 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   setToken: (token) => {
     if (token) {
       localStorage.setItem("nso_api_token", token);
-      localStorage.setItem("nso_token", token);
+      // Don't overwrite nso_token (agent JWT) — it's set separately by login()
     } else {
       localStorage.removeItem("nso_api_token");
       localStorage.removeItem("nso_token");
