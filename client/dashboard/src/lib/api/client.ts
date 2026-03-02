@@ -27,8 +27,15 @@ export async function apiCall<T>(
 
   if (!resp.ok) {
     const text = await resp.text();
-    // Auto-logout on 401 from central API only (not agent endpoints)
-    if (resp.status === 401 && typeof window !== "undefined" && path.startsWith("/api/")) {
+    // Auto-logout on 401 from authenticated API calls only
+    // Skip login/register (they're public) and agent endpoints
+    if (
+      resp.status === 401 &&
+      typeof window !== "undefined" &&
+      path.startsWith("/api/") &&
+      !path.startsWith("/api/auth/login") &&
+      !path.startsWith("/api/auth/register")
+    ) {
       localStorage.removeItem("nso_token");
       localStorage.removeItem("nso_api_token");
       localStorage.removeItem("nso_email");
