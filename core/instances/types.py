@@ -51,7 +51,7 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
         "{{VULTR_API_KEY}}": settings.VULTR_API_KEY,
         "{{CF_API_TOKEN}}": settings.CF_API_TOKEN,
         "{{ADMIN_EMAIL}}": settings.ADMIN_EMAIL,
-        "{{GIT_BRANCH}}": "master",
+        "{{GIT_BRANCH}}": "claude/adoring-knuth-p6az5",
         "{{CF_NSO_ZONE_ID}}": getattr(settings, 'CF_NSO_ZONE_ID', ''),
         "{{R2_ENDPOINT}}": settings.R2_ENDPOINT,
         "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,
