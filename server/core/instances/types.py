@@ -63,6 +63,7 @@ def get_cloud_init(
         "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,
         "{{R2_SECRET_ACCESS_KEY}}": settings.R2_SECRET_ACCESS_KEY,
         "{{R2_BUCKET}}": settings.R2_BUCKET,
+        "{{R2_READY_BUCKET}}": settings.R2_READY_BUCKET,
         "{{ADMIN_PASSWORD}}": settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD,
         "{{JWT_SECRET}}": secrets.token_hex(32),
         "{{APP_GIT_URL}}": git_url or "",

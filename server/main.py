@@ -30,7 +30,7 @@ class AdminHostMiddleware(BaseHTTPMiddleware):
                     content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
                 )
         return await call_next(request)
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin, ready
 from server.routes.addons import catalog as addons_catalog, connectors as addons_connectors, marketplace as addons_marketplace
 
 logging.basicConfig(
@@ -92,6 +92,8 @@ app.include_router(addons_catalog.router, prefix="/api/projects/{project_id}/add
 app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/addons/connectors", tags=["addons-connectors"])
 app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(ready.admin_router, prefix="/api/ready", tags=["ready"])
+app.include_router(ready.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
 
 
 if os.environ.get("NSO_SERVE_STATIC"):

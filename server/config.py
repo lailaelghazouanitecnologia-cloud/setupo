@@ -29,6 +29,7 @@ class Settings:
     R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
     R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
     R2_BUCKET = os.environ.get("R2_BUCKET", "nso")
+    R2_READY_BUCKET = os.environ.get("R2_READY_BUCKET", "nso-ready")
     R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "")
 
     HOST = os.environ.get("NSO_HOST", "0.0.0.0")
@@ -87,6 +88,17 @@ class Settings:
         from server.core.models import R2Config
         return R2Config(
             bucket=cls.R2_BUCKET,
+            endpoint=cls.R2_ENDPOINT,
+            access_key_id=cls.R2_ACCESS_KEY_ID,
+            secret_access_key=cls.R2_SECRET_ACCESS_KEY,
+            public_url=cls.R2_PUBLIC_URL,
+        )
+
+    @classmethod
+    def r2_ready_config(cls):
+        from server.core.models import R2Config
+        return R2Config(
+            bucket=cls.R2_READY_BUCKET,
             endpoint=cls.R2_ENDPOINT,
             access_key_id=cls.R2_ACCESS_KEY_ID,
             secret_access_key=cls.R2_SECRET_ACCESS_KEY,

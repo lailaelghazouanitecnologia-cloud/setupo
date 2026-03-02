@@ -179,6 +179,69 @@ write_files:
       }
 
   # ── Post-SSL nginx configs (written by setup script after certbot) ──
+  # ── R2 download helper (for nso-ready pre-built images) ──
+  - path: /opt/nso/deploy/r2-download.py
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env python3
+      """Download a file from R2 using AWS4-HMAC-SHA256 signing."""
+      import hashlib, hmac, os, sys, urllib.request
+      from datetime import datetime, timezone
+      from urllib.parse import quote
+
+      def download(endpoint, bucket, key, access_key, secret_key, output):
+          now = datetime.now(timezone.utc)
+          date_stamp = now.strftime("%Y%m%d")
+          amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+          host = endpoint.replace("https://", "").replace("http://", "")
+          empty_hash = hashlib.sha256(b"").hexdigest()
+          region, service = "auto", "s3"
+
+          headers_to_sign = {"host": host, "x-amz-content-sha256": empty_hash, "x-amz-date": amz_date}
+          signed_keys = sorted(headers_to_sign.keys())
+          signed_headers = ";".join(signed_keys)
+          canonical_headers = "".join(f"{k}:{headers_to_sign[k]}\n" for k in signed_keys)
+          canonical = f"GET\n/{bucket}/{quote(key, safe='/')}\n\n{canonical_headers}\n{signed_headers}\n{empty_hash}"
+          scope = f"{date_stamp}/{region}/{service}/aws4_request"
+          sts = f"AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{hashlib.sha256(canonical.encode()).hexdigest()}"
+
+          def _hmac(k, m):
+              return hmac.new(k, m.encode(), hashlib.sha256).digest()
+          sk = _hmac(_hmac(_hmac(_hmac(f"AWS4{secret_key}".encode(), date_stamp), region), service), "aws4_request")
+          sig = hmac.new(sk, sts.encode(), hashlib.sha256).hexdigest()
+          auth = f"AWS4-HMAC-SHA256 Credential={access_key}/{scope}, SignedHeaders={signed_headers}, Signature={sig}"
+
+          url = f"{endpoint}/{bucket}/{quote(key, safe='/')}"
+          req = urllib.request.Request(url, headers={
+              "Authorization": auth, "x-amz-content-sha256": empty_hash, "x-amz-date": amz_date,
+          })
+          try:
+              with urllib.request.urlopen(req, timeout=120) as resp:
+                  with open(output, "wb") as f:
+                      while True:
+                          chunk = resp.read(65536)
+                          if not chunk:
+                              break
+                          f.write(chunk)
+              return True
+          except Exception as e:
+              print(f"R2 download failed: {e}", file=sys.stderr)
+              return False
+
+      if __name__ == "__main__":
+          if len(sys.argv) < 3:
+              print("Usage: r2-download.py <bucket> <key> <output>")
+              sys.exit(1)
+          bucket, key, output = sys.argv[1], sys.argv[2], sys.argv[3]
+          ep = os.environ.get("R2_ENDPOINT", "")
+          ak = os.environ.get("R2_ACCESS_KEY_ID", "")
+          sk = os.environ.get("R2_SECRET_ACCESS_KEY", "")
+          if not all([ep, ak, sk]):
+              print("R2 credentials not set", file=sys.stderr)
+              sys.exit(1)
+          ok = download(ep, bucket, key, ak, sk, output)
+          sys.exit(0 if ok else 1)
+
   - path: /opt/nso/deploy/setup-ssl.sh
     permissions: "0755"
     content: |
@@ -307,34 +370,65 @@ runcmd:
   - ufw allow 8081/tcp
   - ufw --force enable
 
-  # ── Clone repo (specific branch) ────────────────────────
-  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo
-  - cp -r /opt/nso/repo/* /opt/nso/
-  - cp -r /opt/nso/repo/.* /opt/nso/ 2>/dev/null || true
-  - rm -rf /opt/nso/repo
-
-  # ── Python virtual env ────────────────────────────────────
-  - python3 -m venv /opt/nso/venv
-  - /opt/nso/venv/bin/pip install --upgrade pip
-  - /opt/nso/venv/bin/pip install -r /opt/nso/requirements.txt
-  - /opt/nso/venv/bin/pip install -r /opt/nso/instance/requirements.txt
-
-  # ── Node.js (for dashboard build) ─────────────────────────
-  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-  - apt-get install -y nodejs
-
   # ── Data dirs ─────────────────────────────────────────────
-  - mkdir -p /opt/nso/data /opt/nso/config /opt/nso/workspaces /var/log/nso /opt/app
+  - mkdir -p /opt/nso/data /opt/nso/config /opt/nso/workspaces /var/log/nso /opt/app /opt/nso/deploy
 
-  # ── Build main dashboard (Next.js static export) ──────────
-  - cd /opt/nso/client/dashboard && npm install && npm run build
-  - mkdir -p /opt/nso/client/dashboard/static
-  - cp -r /opt/nso/client/dashboard/out/* /opt/nso/client/dashboard/static/
+  # ── Try nso-ready pre-built image first, fallback to git clone ──
+  - |
+    set -e
+    export R2_ENDPOINT="{{R2_ENDPOINT}}"
+    export R2_ACCESS_KEY_ID="{{R2_ACCESS_KEY_ID}}"
+    export R2_SECRET_ACCESS_KEY="{{R2_SECRET_ACCESS_KEY}}"
+    R2_READY_BUCKET="{{R2_READY_BUCKET}}"
+    NSO_READY=0
 
-  # ── Build admin dashboard (Next.js static export) ─────────
-  - cd /opt/nso/client/admin && npm install && npm run build
-  - mkdir -p /opt/nso/client/admin/static
-  - cp -r /opt/nso/client/admin/out/* /opt/nso/client/admin/static/
+    echo "[nso] Checking for pre-built system image..." | tee /var/log/nso/boot.log
+
+    if python3 /opt/nso/deploy/r2-download.py "$R2_READY_BUCKET" "system/latest.zar" "/tmp/nso-system.zar" 2>>/var/log/nso/boot.log; then
+      echo "[nso] Pre-built image found — extracting..." | tee -a /var/log/nso/boot.log
+      cd /opt/nso
+      tar xzf /tmp/nso-system.zar --strip-components=0 2>>/var/log/nso/boot.log || true
+
+      # Move files/ contents to /opt/nso/
+      if [ -d "/opt/nso/files" ]; then
+        cp -r /opt/nso/files/* /opt/nso/ 2>/dev/null || true
+        rm -rf /opt/nso/files
+      fi
+      rm -f /tmp/nso-system.zar
+      NSO_READY=1
+      echo "[nso] Pre-built image extracted successfully" | tee -a /var/log/nso/boot.log
+    else
+      echo "[nso] No pre-built image available — cloning from git..." | tee -a /var/log/nso/boot.log
+
+      git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo || \
+        git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo
+      cp -r /opt/nso/repo/* /opt/nso/
+      cp -r /opt/nso/repo/.* /opt/nso/ 2>/dev/null || true
+      rm -rf /opt/nso/repo
+    fi
+
+    # Python venv (always needed — venv is platform-specific)
+    python3 -m venv /opt/nso/venv
+    /opt/nso/venv/bin/pip install --upgrade pip
+    /opt/nso/venv/bin/pip install -r /opt/nso/requirements.txt
+    /opt/nso/venv/bin/pip install -r /opt/nso/instance/requirements.txt
+
+    # Build dashboards only if NOT from nso-ready (nso-ready includes pre-built static)
+    if [ "$NSO_READY" = "0" ]; then
+      echo "[nso] Building dashboards from source..." | tee -a /var/log/nso/boot.log
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+
+      cd /opt/nso/client/dashboard && npm install && npm run build
+      mkdir -p /opt/nso/client/dashboard/static
+      cp -r /opt/nso/client/dashboard/out/* /opt/nso/client/dashboard/static/
+
+      cd /opt/nso/client/admin && npm install && npm run build
+      mkdir -p /opt/nso/client/admin/static
+      cp -r /opt/nso/client/admin/out/* /opt/nso/client/admin/static/
+    else
+      echo "[nso] Using pre-built dashboards from nso-ready" | tee -a /var/log/nso/boot.log
+    fi
 
   # ── Activate nginx configs ────────────────────────────────
   - ln -sf /etc/nginx/sites-available/nso /etc/nginx/sites-enabled/nso
