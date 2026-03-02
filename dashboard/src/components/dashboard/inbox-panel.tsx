@@ -46,7 +46,7 @@ export function InboxPanel() {
   const load = useCallback(async () => {
     try {
       const res = await listNotifications();
-      setItems(res.notifications);
+      setItems(res.notifications || []);
       setError("");
     } catch (err: any) {
       setError(err.message || "Failed to load notifications");

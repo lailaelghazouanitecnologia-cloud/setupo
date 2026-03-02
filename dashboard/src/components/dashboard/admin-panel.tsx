@@ -371,7 +371,7 @@ function UsersTab() {
   const load = useCallback(() => {
     setLoading(true);
     adminListUsers({ search, limit: pageSize, offset: page * pageSize })
-      .then((r) => { setUsers(r.users); setTotal(r.total); })
+      .then((r) => { setUsers(r.users || []); setTotal(r.total || 0); })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [search, page]);
@@ -463,7 +463,7 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    adminGetUserActivity(user.id, 30).then((r) => setActivity(r.activity)).catch(() => {});
+    adminGetUserActivity(user.id, 30).then((r) => setActivity(r.activity || [])).catch(() => {});
   }, [user.id]);
 
   const handleResetPw = async () => {
@@ -778,12 +778,12 @@ function FraudTab() {
             </span>
           </div>
 
-          {result.balance_discrepancies.length > 0 && (
+          {(result.balance_discrepancies || []).length > 0 && (
             <div className="admin-fraud-section">
               <div className="admin-fraud-section-title">
-                <AlertTriangle className="h-3.5 w-3.5" /> Balance Discrepancies ({result.balance_discrepancies.length})
+                <AlertTriangle className="h-3.5 w-3.5" /> Balance Discrepancies ({(result.balance_discrepancies || []).length})
               </div>
-              {result.balance_discrepancies.map((d: any, i: number) => (
+              {(result.balance_discrepancies || []).map((d: any, i: number) => (
                 <div key={i} className="admin-fraud-item">
                   <span className="admin-mono">{d.user_id?.slice(0, 16)}</span>
                   <span>Chain: ${(d.chain_balance_cents / 100).toFixed(2)}</span>
@@ -796,12 +796,12 @@ function FraudTab() {
             </div>
           )}
 
-          {result.chain_violations.length > 0 && (
+          {(result.chain_violations || []).length > 0 && (
             <div className="admin-fraud-section">
               <div className="admin-fraud-section-title">
-                <XCircle className="h-3.5 w-3.5" /> Chain Integrity Violations ({result.chain_violations.length})
+                <XCircle className="h-3.5 w-3.5" /> Chain Integrity Violations ({(result.chain_violations || []).length})
               </div>
-              {result.chain_violations.map((v: any, i: number) => (
+              {(result.chain_violations || []).map((v: any, i: number) => (
                 <div key={i} className="admin-fraud-item">
                   <span className="admin-mono">{v.user_id?.slice(0, 16)}</span>
                   <span>{v.errors?.length} error(s) in {v.chain_length} blocks</span>
@@ -810,12 +810,12 @@ function FraudTab() {
             </div>
           )}
 
-          {result.suspicious_accounts.length > 0 && (
+          {(result.suspicious_accounts || []).length > 0 && (
             <div className="admin-fraud-section">
               <div className="admin-fraud-section-title">
-                <Eye className="h-3.5 w-3.5" /> Suspicious Accounts ({result.suspicious_accounts.length})
+                <Eye className="h-3.5 w-3.5" /> Suspicious Accounts ({(result.suspicious_accounts || []).length})
               </div>
-              {result.suspicious_accounts.map((s: any, i: number) => (
+              {(result.suspicious_accounts || []).map((s: any, i: number) => (
                 <div key={i} className="admin-fraud-item">
                   <span>{s.email}</span>
                   <span className="admin-mono">${s.balance?.toFixed(2)}</span>
@@ -825,12 +825,12 @@ function FraudTab() {
             </div>
           )}
 
-          {result.anomalies.length > 0 && (
+          {(result.anomalies || []).length > 0 && (
             <div className="admin-fraud-section">
               <div className="admin-fraud-section-title">
-                <Activity className="h-3.5 w-3.5" /> Anomalies ({result.anomalies.length})
+                <Activity className="h-3.5 w-3.5" /> Anomalies ({(result.anomalies || []).length})
               </div>
-              {result.anomalies.map((a: any, i: number) => (
+              {(result.anomalies || []).map((a: any, i: number) => (
                 <div key={i} className="admin-fraud-item">
                   <span className="admin-mono">{a.user_id?.slice(0, 16)}</span>
                   <span className="admin-muted">{a.reason}</span>
@@ -864,8 +864,8 @@ function LedgerTab() {
   const loadChain = () => {
     if (!userId.trim()) return;
     getUserLedger(userId.trim()).then((r) => {
-      setChain(r.blocks);
-      setChainTotal(r.total);
+      setChain(r.blocks || []);
+      setChainTotal(r.total || 0);
       setVerification(null);
       setProof(null);
     }).catch(() => {});

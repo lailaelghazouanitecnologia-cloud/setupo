@@ -318,7 +318,7 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
-                params={"target_dir": "/opt/app", "restart_service": "nso-app"},
+                params={"target_dir": "/opt/app", "restart_service": ""},
                 json={"snapshot": req.snapshot},
             )
     except httpx.ConnectError:

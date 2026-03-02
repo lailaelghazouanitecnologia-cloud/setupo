@@ -57,30 +57,18 @@ class PanelErrorBoundary extends Component<
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 24, color: "var(--foreground)" }}>
-          <div style={{ color: "var(--color-red)", fontWeight: 600, marginBottom: 8 }}>
-            {this.props.name} crashed
+        <div style={{ padding: 32, color: "var(--foreground)", textAlign: "center" }}>
+          <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.5 }}>&#9888;</div>
+          <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 15 }}>
+            Something went wrong
           </div>
-          <pre style={{
-            background: "rgba(239,68,68,0.08)",
-            padding: 12,
-            borderRadius: 8,
-            fontSize: 12,
-            fontFamily: "monospace",
-            overflow: "auto",
-            maxHeight: 200,
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}>
-            {this.state.error.message}
-            {"\n\n"}
-            {this.state.error.stack}
-          </pre>
+          <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>
+            There was a problem loading this section. Try again or reload the page.
+          </div>
           <button
             onClick={() => this.setState({ error: null })}
             style={{
-              marginTop: 12,
-              padding: "6px 14px",
+              padding: "8px 20px",
               background: "var(--sidebar-bg)",
               border: "1px solid var(--border)",
               borderRadius: 6,

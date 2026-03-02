@@ -196,7 +196,11 @@ export function DeployPanel() {
       // Refresh versions after mutating actions
       if (["push", "ship"].includes(action)) {
         zarVersions(projectId, selectedWs, branch)
-          .then((r) => { setVersions(r.versions || []); setBranches(r.branches || []); })
+          .then((r) => {
+            setVersions(r.versions || []);
+            const br = r.branches;
+            setBranches(Array.isArray(br) ? br : typeof br === "object" && br ? Object.keys(br) : []);
+          })
           .catch(() => {});
       }
       // Refresh deploy status after deploy/ship/rollback
