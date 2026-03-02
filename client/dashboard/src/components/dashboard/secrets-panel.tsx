@@ -194,14 +194,13 @@ export function SecretsPanel() {
             const items = grouped[bucketName] || [];
             const isCollapsed = collapsed.has(bucketName);
             return (
-              <div key={bucketName} style={{ borderRadius: 8, overflow: "hidden" }}>
+              <div key={bucketName} style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
                 {/* Bucket header */}
                 <button
                   onClick={() => toggleCollapse(bucketName)}
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 8,
-                    padding: "8px 14px",
-                    background: "linear-gradient(180deg, var(--sidebar-bg) 0%, rgba(0,0,0,0.15) 100%)",
+                    padding: "8px 14px", background: "var(--sidebar-bg)",
                     border: "none", borderBottom: isCollapsed ? "none" : "1px solid var(--border)",
                     cursor: "pointer", color: "var(--foreground)",
                   }}

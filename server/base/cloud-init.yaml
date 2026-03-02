@@ -103,23 +103,20 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # ── Main site nginx (nso.dev) ──
+  # ── HTTP-only nginx (used before certbot, overwritten after SSL) ──
   - path: /etc/nginx/sites-available/nso
     permissions: "0644"
     content: |
       upstream nso_api {
           server 127.0.0.1:8000;
       }
-
       upstream nso_agent {
           server 127.0.0.1:8081;
       }
-
       server {
           listen 80;
           server_name {{DOMAIN}} *.{{DOMAIN}};
-
-          # API
+          location /.well-known/acme-challenge/ { root /var/www/html; }
           location /api/ {
               proxy_pass http://nso_api;
               proxy_set_header Host $host;
@@ -128,16 +125,8 @@ write_files:
               proxy_set_header X-Forwarded-Proto $scheme;
               proxy_read_timeout 300s;
           }
-
-          location /docs {
-              proxy_pass http://nso_api;
-          }
-
-          location /openapi.json {
-              proxy_pass http://nso_api;
-          }
-
-          # WebSocket
+          location /docs { proxy_pass http://nso_api; }
+          location /openapi.json { proxy_pass http://nso_api; }
           location /ws/ {
               proxy_pass http://nso_api;
               proxy_http_version 1.1;
@@ -146,15 +135,11 @@ write_files:
               proxy_set_header Host $host;
               proxy_read_timeout 86400s;
           }
-
-          # Agent endpoints (auth, files, exec, metrics)
           location /agent/ {
               proxy_pass http://nso_agent/;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
           }
-
-          # Dashboard (static HTML/CSS/JS)
           location / {
               root /opt/nso/client/dashboard/static;
               index index.html;
@@ -162,15 +147,13 @@ write_files:
           }
       }
 
-  # ── Admin panel nginx (sonfazt.nso.dev) ──
   - path: /etc/nginx/sites-available/sonfazt
     permissions: "0644"
     content: |
       server {
           listen 80;
           server_name sonfazt.{{DOMAIN}};
-
-          # Admin API routes
+          location /.well-known/acme-challenge/ { root /var/www/html; }
           location /api/admin/ {
               proxy_pass http://nso_api;
               proxy_set_header Host $host;
@@ -179,8 +162,6 @@ write_files:
               proxy_set_header X-Forwarded-Proto $scheme;
               proxy_read_timeout 300s;
           }
-
-          # Auth endpoint (needed for admin login)
           location /api/auth/ {
               proxy_pass http://nso_api;
               proxy_set_header Host $host;
@@ -188,21 +169,133 @@ write_files:
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
               proxy_set_header X-Forwarded-Proto $scheme;
           }
-
-          # Block all other API routes from admin subdomain
-          location /api/ {
-              return 403;
-          }
-
-          # Admin dashboard (static HTML/CSS/JS)
+          location /api/ { return 403; }
           location / {
               root /opt/nso/client/admin/static;
               index index.html;
               try_files $uri $uri/ /index.html;
           }
-
           location ~ /\. { deny all; }
       }
+
+  # ── Post-SSL nginx configs (written by setup script after certbot) ──
+  - path: /opt/nso/deploy/setup-ssl.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # NSO SSL setup — runs after certbot to write correct HTTPS configs
+      set -e
+      DOMAIN="{{DOMAIN}}"
+      CERT_DIR="/etc/letsencrypt/live"
+
+      # Wait for certs
+      if [ ! -f "$CERT_DIR/$DOMAIN/fullchain.pem" ]; then
+        echo "No cert for $DOMAIN, skipping HTTPS setup"
+        exit 0
+      fi
+
+      # ── Write main site config with SSL ──
+      cat > /etc/nginx/sites-available/nso << 'NGINX_MAIN'
+      upstream nso_api { server 127.0.0.1:8000; }
+      upstream nso_agent { server 127.0.0.1:8081; }
+
+      server {
+          listen 80;
+          server_name DOMAIN_PH *.DOMAIN_PH;
+          location /.well-known/acme-challenge/ { root /var/www/html; }
+          return 301 https://$host$request_uri;
+      }
+
+      server {
+          listen 443 ssl;
+          server_name DOMAIN_PH *.DOMAIN_PH;
+
+          ssl_certificate CERT_DIR_PH/DOMAIN_PH/fullchain.pem;
+          ssl_certificate_key CERT_DIR_PH/DOMAIN_PH/privkey.pem;
+          include /etc/letsencrypt/options-ssl-nginx.conf;
+          ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+          location /api/ {
+              proxy_pass http://nso_api;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+              proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+              proxy_set_header X-Forwarded-Proto $scheme;
+              proxy_read_timeout 300s;
+          }
+          location /docs { proxy_pass http://nso_api; }
+          location /openapi.json { proxy_pass http://nso_api; }
+          location /ws/ {
+              proxy_pass http://nso_api;
+              proxy_http_version 1.1;
+              proxy_set_header Upgrade $http_upgrade;
+              proxy_set_header Connection "upgrade";
+              proxy_set_header Host $host;
+              proxy_read_timeout 86400s;
+          }
+          location /agent/ {
+              proxy_pass http://nso_agent/;
+              proxy_set_header Host $host;
+              proxy_set_header X-Real-IP $remote_addr;
+          }
+          location / {
+              root /opt/nso/client/dashboard/static;
+              index index.html;
+              try_files $uri $uri/ /index.html;
+          }
+      }
+      NGINX_MAIN
+
+      # Replace placeholders
+      sed -i "s|DOMAIN_PH|$DOMAIN|g" /etc/nginx/sites-available/nso
+      sed -i "s|CERT_DIR_PH|$CERT_DIR|g" /etc/nginx/sites-available/nso
+
+      # ── Write admin site config with SSL ──
+      if [ -f "$CERT_DIR/sonfazt.$DOMAIN/fullchain.pem" ]; then
+        cat > /etc/nginx/sites-available/sonfazt << 'NGINX_ADMIN'
+        server {
+            listen 80;
+            server_name sonfazt.DOMAIN_PH;
+            return 301 https://$host$request_uri;
+        }
+        server {
+            listen 443 ssl;
+            server_name sonfazt.DOMAIN_PH;
+            ssl_certificate CERT_DIR_PH/sonfazt.DOMAIN_PH/fullchain.pem;
+            ssl_certificate_key CERT_DIR_PH/sonfazt.DOMAIN_PH/privkey.pem;
+            include /etc/letsencrypt/options-ssl-nginx.conf;
+            ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+            location /api/admin/ {
+                proxy_pass http://nso_api;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+                proxy_read_timeout 300s;
+            }
+            location /api/auth/ {
+                proxy_pass http://nso_api;
+                proxy_set_header Host $host;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                proxy_set_header X-Forwarded-Proto $scheme;
+            }
+            location /api/ { return 403; }
+            location / {
+                root /opt/nso/client/admin/static;
+                index index.html;
+                try_files $uri $uri/ /index.html;
+            }
+            location ~ /\. { deny all; }
+        }
+        NGINX_ADMIN
+        sed -i "s|DOMAIN_PH|$DOMAIN|g" /etc/nginx/sites-available/sonfazt
+        sed -i "s|CERT_DIR_PH|$CERT_DIR|g" /etc/nginx/sites-available/sonfazt
+      fi
+
+      # Test and reload
+      nginx -t && systemctl reload nginx
+      echo "SSL nginx configs applied successfully"
 
 runcmd:
   # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
@@ -259,10 +352,14 @@ runcmd:
   - systemctl enable nso
   - systemctl start nso
 
-  # ── SSL certificates (certbot) ────────────────────────────
+  # ── SSL certificates (certonly — no nginx rewrite) ────────
   - sleep 5
-  - certbot --nginx -d {{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} --redirect || true
-  - certbot --nginx -d sonfazt.{{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} --redirect || true
+  - mkdir -p /var/www/html
+  - certbot certonly --webroot -w /var/www/html -d {{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} || true
+  - certbot certonly --webroot -w /var/www/html -d sonfazt.{{DOMAIN}} --non-interactive --agree-tos --email {{ADMIN_EMAIL}} || true
+
+  # ── Apply SSL nginx configs (uses our own templates, not certbot's) ──
+  - /opt/nso/deploy/setup-ssl.sh || true
 
   # ── Diagnostics ──────────────────────────────────────────
   - sleep 3
