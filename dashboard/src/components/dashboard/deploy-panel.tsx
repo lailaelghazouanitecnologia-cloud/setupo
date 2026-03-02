@@ -146,7 +146,7 @@ export function DeployPanel() {
       const inst = instances.find((i) => i.id === selectedInstance);
       if (inst) {
         const state = inst.state || "";
-        if (state === "creating" || state === "provisioning")
+        if (state === "creating" || state === "installing")
           return `Instance is still ${state} — wait until it's ready`;
         if (state === "destroying")
           return "Instance is being destroyed — cannot deploy";

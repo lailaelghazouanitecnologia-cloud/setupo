@@ -341,12 +341,12 @@ function InstancesTab() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Auto-refresh every 15s (faster during provisioning)
-  const hasProvisioning = instances.some((i) => i.state === "creating" || i.state === "provisioning");
+  // Auto-refresh every 10s during install, otherwise 30s
+  const hasInstalling = instances.some((i) => i.state === "creating" || i.state === "installing");
   useEffect(() => {
-    const interval = setInterval(fetchData, hasProvisioning ? 10000 : 30000);
+    const interval = setInterval(fetchData, hasInstalling ? 10000 : 30000);
     return () => clearInterval(interval);
-  }, [hasProvisioning]);
+  }, [hasInstalling]);
 
   const handleDelete = async (inst: Instance) => {
     if (!projectId) return;
@@ -470,11 +470,11 @@ function InstancesTab() {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              {(inst.state === "creating" || inst.state === "provisioning") && (
+              {(inst.state === "creating" || inst.state === "installing") && (
                 <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--color-yellow)" }} />
               )}
               <span className={`inst-badge ${stateBadgeClass(inst.state)}`}>
-                {inst.state === "provisioning" ? "installing" : inst.state}
+                {inst.state}
               </span>
             </div>
           </div>
@@ -729,14 +729,14 @@ function FilesPanel({ instance }: { instance: Instance }) {
 
 function stateColor(state: string): string {
   if (state === "ready" || state === "active" || state === "running") return "var(--color-green)";
-  if (state === "creating" || state === "provisioning" || state === "deploying") return "var(--color-yellow)";
+  if (state === "creating" || state === "installing" || state === "deploying") return "var(--color-yellow)";
   if (state === "stopped") return "var(--muted-foreground)";
   return "var(--color-red)";
 }
 
 function stateBadgeClass(state: string): string {
   if (state === "ready" || state === "active" || state === "running") return "green";
-  if (state === "creating" || state === "provisioning" || state === "deploying") return "yellow";
+  if (state === "creating" || state === "installing" || state === "deploying") return "yellow";
   return "red";
 }
 

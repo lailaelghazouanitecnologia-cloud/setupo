@@ -77,7 +77,7 @@ def table(rows: list[dict], columns: list[str] | None = None):
                     val = f"{GREEN}{val}{RESET}"
                 elif val in ("error", "failed", "destroyed"):
                     val = f"{RED}{val}{RESET}"
-                elif val in ("provisioning", "pending", "deploying"):
+                elif val in ("installing", "pending", "deploying"):
                     val = f"{YELLOW}{val}{RESET}"
             cells.append(f"{val:<{widths[col]}}")
         print(f"  {'  '.join(cells)}")

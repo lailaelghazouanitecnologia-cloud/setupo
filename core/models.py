@@ -22,7 +22,7 @@ class InstanceType(str, Enum):
 
 class InstanceState(str, Enum):
     CREATING = "creating"
-    PROVISIONING = "provisioning"
+    INSTALLING = "installing"
     READY = "ready"
     DEPLOYING = "deploying"
     RUNNING = "running"

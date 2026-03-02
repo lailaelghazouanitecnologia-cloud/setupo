@@ -36,7 +36,7 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
         raise HTTPException(403, "Instance does not belong to this project")
 
     state = inst.get("state", "")
-    if state in ("creating", "provisioning"):
+    if state in ("creating", "installing"):
         raise HTTPException(409, f"Instance is still {state} — wait until it's ready")
     if state == "destroying":
         raise HTTPException(409, "Instance is being destroyed")

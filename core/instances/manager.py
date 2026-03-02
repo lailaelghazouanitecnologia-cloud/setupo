@@ -91,7 +91,7 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
 
         await db.update("instances", instance_id, {
             "ssh_key_id": ssh_key_id,
-            "state": InstanceState.PROVISIONING.value,
+            "state": InstanceState.INSTALLING.value,
         })
 
         user_data = get_cloud_init(req.type.value, domain=req.domain)
