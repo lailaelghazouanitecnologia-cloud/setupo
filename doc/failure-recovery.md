@@ -154,7 +154,7 @@ nso deploy backend inst_xxx
 ssh root@149.28.xx.xx
 cd /opt/nso/snapshots
 # Restore the latest agent snapshot manually
-tar xzf nso-agent_*.tar.gz -C /opt/nso/nso-agent/
+tar xzf nso-agent_*.tar.gz -C /opt/nso/instance/
 systemctl restart nso-agent
 
 # Option B: Create a new instance and migrate

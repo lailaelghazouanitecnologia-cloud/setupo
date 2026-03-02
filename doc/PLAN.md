@@ -22,7 +22,7 @@
 - cloud-init provisioning for new VPS instances
 - Exec commands on instances via HTTP relay (no SSH)
 
-#### Agent (nso-agent/)
+#### Agent (instance/)
 - File operations: browse, read, write, delete, tree
 - Command execution + systemd service management
 - Deploy: pull .zar from R2, snapshot, rollback, self-update

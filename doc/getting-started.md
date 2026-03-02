@@ -139,4 +139,4 @@ export NSO_PROJECT=proj_a1b2c3
 - [CLI Reference](cli.md)
 - [API Reference](api-reference.md) — All 34 endpoints
 - [Failure Recovery](failure-recovery.md) — What can go wrong and how to fix it
-- [SKILL.md](../SKILL.md) — AI agent skill documentation
+- [SKILL.md](SKILL.md) — AI agent skill documentation

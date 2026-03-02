@@ -59,7 +59,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  client/dashboard/  — Main Next.js dashboard                    │
 │  client/admin/      — Admin Next.js dashboard                   │
-│  cli.py             — Python CLI (nso login, ship, exec, inst)  │
+│  cli/               — Python CLI (nso login, ship, exec, inst)  │
 │  common/            — Shared utilities                          │
 │  doc/               — Documentation + deploy configs            │
 └─────────────────────────────────────────────────────────────────┘
@@ -582,7 +582,11 @@ setupo/
 │   └── *.md                     # API reference, CLI docs, etc.
 │
 ├── tests/                       # Test suite
-├── cli.py                       # Python CLI (nso login, ship, exec, inst)
+├── cli/                         # Python CLI package
+│   ├── __init__.py
+│   ├── main.py                  # Commands + argument parser
+│   ├── client.py                # HTTP client (auth, retries, timeouts)
+│   └── output.py                # Terminal formatting helpers
 ├── nso                          # CLI entry point
 ├── requirements.txt
 ├── pytest.ini
