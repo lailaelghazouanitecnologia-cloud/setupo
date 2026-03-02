@@ -214,6 +214,13 @@ async def start_instance(project_id: str, instance_id: str):
         await vultr.close()
 
 
+def _ipv4_client(timeout: float):
+    """Create httpx client forced to IPv4 (IPv6 may not be routable between VPSes)."""
+    import httpx
+    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    return httpx.AsyncClient(timeout=timeout, transport=transport)
+
+
 async def _agent_login(ip: str) -> str:
     import httpx
 
@@ -222,7 +229,7 @@ async def _agent_login(ip: str) -> str:
     if not password:
         raise ProviderError("agent", "AGENT_ADMIN_PASSWORD not configured")
 
-    async with httpx.AsyncClient(timeout=AGENT_LOGIN_TIMEOUT) as client:
+    async with _ipv4_client(AGENT_LOGIN_TIMEOUT) as client:
         resp = await client.post(
             f"http://{ip}:8081/auth/login",
             json={"email": email, "password": password},
@@ -242,7 +249,7 @@ async def exec_on_instance(project_id: str, instance_id: str, command: str, time
 
     try:
         token = await _agent_login(ip)
-        async with httpx.AsyncClient(timeout=timeout + 10) as client:
+        async with _ipv4_client(timeout + 10) as client:
             resp = await client.post(
                 f"http://{ip}:8081/exec",
                 headers={"Authorization": f"Bearer {token}"},

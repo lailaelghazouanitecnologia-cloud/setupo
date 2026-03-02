@@ -20,6 +20,13 @@ DEPLOY_TIMEOUT = 300.0
 AGENT_AUTH_TIMEOUT = 15.0
 ROLLBACK_TIMEOUT = 60.0
 
+# Force IPv4 for all agent connections (IPv6 may not be routable between VPSes)
+_ipv4_transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+
+
+def _agent_client(timeout: float) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout, transport=_ipv4_transport)
+
 
 def _get_r2() -> R2Client:
     cfg = settings.r2_config()
@@ -54,7 +61,7 @@ async def _get_agent_token(agent_url: str) -> str:
     if not agent_password:
         raise HTTPException(503, "AGENT_ADMIN_PASSWORD not configured")
     try:
-        async with httpx.AsyncClient(timeout=AGENT_AUTH_TIMEOUT) as client:
+        async with _agent_client(AGENT_AUTH_TIMEOUT) as client:
             resp = await client.post(f"{agent_url}/auth/login", json={
                 "email": settings.ADMIN_EMAIL,
                 "password": agent_password,
@@ -90,7 +97,7 @@ async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -
 async def _deploy_via_agent(agent_url: str, token: str, r2_key: str) -> dict:
     r2_cfg = settings.r2_config()
     try:
-        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
+        async with _agent_client(DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/pull",
                 headers={"Authorization": f"Bearer {token}"},
@@ -306,7 +313,7 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
     token = await _get_agent_token(agent_url)
 
     try:
-        async with httpx.AsyncClient(timeout=ROLLBACK_TIMEOUT) as client:
+        async with _agent_client(ROLLBACK_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
@@ -381,7 +388,7 @@ async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends
     token = await _get_agent_token(agent_url)
 
     try:
-        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
+        async with _agent_client(DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/self-update",
                 headers={"Authorization": f"Bearer {token}"},
