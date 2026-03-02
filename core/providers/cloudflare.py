@@ -4,7 +4,7 @@ import httpx
 
 from core.errors import ProviderError
 
-logger = logging.getLogger("setupo.cloudflare")
+logger = logging.getLogger("nso.cloudflare")
 
 BASE = "https://api.cloudflare.com/client/v4"
 REQUEST_TIMEOUT = 15.0

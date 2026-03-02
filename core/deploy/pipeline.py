@@ -8,7 +8,7 @@ from core.deploy.sync import sync_workspace
 from core.workspace_config import read_config
 from server.config import settings
 
-logger = logging.getLogger("setupo.deploy")
+logger = logging.getLogger("nso.deploy")
 
 
 DEPS_INSTALL_TIMEOUT = 300
@@ -226,7 +226,7 @@ async def _start_app(ip: str, key_path: str, remote_dir: str, command: str, port
     env_block = "\n".join(env_lines)
 
     service = f"""[Unit]
-Description=Setupo App
+Description=NSO App
 After=network.target
 
 [Service]
@@ -240,9 +240,9 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 """
-    write_cmd = f"cat > /etc/systemd/system/setupo-app.service << 'SERVICEEOF'\n{service}\nSERVICEEOF"
+    write_cmd = f"cat > /etc/systemd/system/nso-app.service << 'SERVICEEOF'\n{service}\nSERVICEEOF"
     await run_ssh_command(ip, write_cmd, key_path)
-    await run_ssh_command(ip, "systemctl daemon-reload && systemctl enable setupo-app && systemctl restart setupo-app", key_path)
+    await run_ssh_command(ip, "systemctl daemon-reload && systemctl enable nso-app && systemctl restart nso-app", key_path)
 
 
 LOG_FETCH_LIMIT = 100

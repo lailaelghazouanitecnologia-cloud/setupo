@@ -8,7 +8,7 @@ from core import db
 from core.errors import ConflictError, NotFoundError, ValidationError, AuthError
 from server.auth.jwt import hash_password, verify_password, create_user_token
 
-logger = logging.getLogger("setupo.users")
+logger = logging.getLogger("nso.users")
 
 EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$")
 SUBDOMAIN_RE = re.compile(r"^[a-z][a-z0-9-]{1,30}[a-z0-9]$")

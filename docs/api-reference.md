@@ -324,7 +324,7 @@ POST /api/projects/{project_id}/zar/{workspace_name}/deploy
   "version": "1.2.0",
   "branch": "main",
   "target_dir": "/opt/app",
-  "restart_service": "setupo-app"
+  "restart_service": "nso-app"
 }
 ```
 
@@ -479,15 +479,15 @@ All subsequent agent endpoints require: `Authorization: Bearer <token>`
 ### File Operations
 
 ```
-GET    /files/list?path=/opt/setupo       # List directory
-GET    /files/read?path=/opt/setupo/.env   # Read file (max 5MB)
+GET    /files/list?path=/opt/nso       # List directory
+GET    /files/read?path=/opt/nso/.env   # Read file (max 5MB)
 POST   /files/write                        # Write file
 POST   /files/mkdir                        # Create directory
 DELETE /files/?path=/opt/app/old-file      # Delete file/dir
-GET    /files/tree?path=/opt/setupo&depth=2  # Directory tree
+GET    /files/tree?path=/opt/nso&depth=2  # Directory tree
 ```
 
-Allowed paths: `/opt/setupo`, `/opt/app`, `/var/log/setupo`, `/tmp`
+Allowed paths: `/opt/nso`, `/opt/app`, `/var/log/nso`, `/tmp`
 
 ### Command Execution
 
@@ -497,8 +497,8 @@ POST /exec/
 
 ```json
 {
-  "command": "systemctl status setupo",
-  "working_dir": "/opt/setupo",
+  "command": "systemctl status nso",
+  "working_dir": "/opt/nso",
   "timeout": 60
 }
 ```
@@ -516,7 +516,7 @@ Response:
 ### Service Management
 
 ```
-POST /exec/service?action=restart&name=setupo
+POST /exec/service?action=restart&name=nso
 ```
 
 Actions: `start`, `stop`, `restart`, `status`

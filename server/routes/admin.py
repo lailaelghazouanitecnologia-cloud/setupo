@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 
 from server.deps import require_admin, AuthContext
 from core import analytics, blockchain
-from core.errors import SetupoError
+from core.errors import NsoError
 
-logger = logging.getLogger("setupo.admin")
+logger = logging.getLogger("nso.admin")
 router = APIRouter()
 
 _USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
@@ -68,7 +68,7 @@ async def list_users(
             search=search, role=role, sort=sort, order=order,
             limit=limit, offset=offset,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -78,7 +78,7 @@ async def get_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     _check_user_id(user_id)
     try:
         return {"user": await analytics.admin_get_user(user_id)}
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -94,7 +94,7 @@ async def update_user(
         user = await analytics.admin_update_user(
             user_id, updates, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "user": user}
 
@@ -110,7 +110,7 @@ async def reset_password(
         await analytics.admin_reset_password(
             user_id, req.new_password, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -123,7 +123,7 @@ async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin))
         await analytics.admin_disable_user(
             user_id, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -183,7 +183,7 @@ async def cashflow(
         return await analytics.cashflow_analysis(
             granularity=granularity, periods=periods,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -233,7 +233,7 @@ async def user_ledger(
     try:
         chain = await blockchain.get_chain(user_id, limit=limit, offset=offset)
         length = await blockchain.get_chain_length(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"blocks": chain, "total": length}
 
@@ -244,7 +244,7 @@ async def verify_user_chain(user_id: str, auth: AuthContext = Depends(require_ad
     _check_user_id(user_id)
     try:
         result = await blockchain.verify_chain(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
 
@@ -262,7 +262,7 @@ async def balance_proof(user_id: str, auth: AuthContext = Depends(require_admin)
     _check_user_id(user_id)
     try:
         proof = await blockchain.get_balance_proof(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return proof
 

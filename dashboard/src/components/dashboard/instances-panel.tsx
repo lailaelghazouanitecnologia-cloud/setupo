@@ -62,8 +62,8 @@ const INSTANCE_TYPES = [
 ] as const;
 
 const SERVICES = [
-  { name: "setupo", display: "NSO API", description: "Main REST API server" },
-  { name: "setupo-agent", display: "NSO Agent", description: "Remote execution agent" },
+  { name: "nso", display: "NSO API", description: "Main REST API server" },
+  { name: "nso-agent", display: "NSO Agent", description: "Remote execution agent" },
   { name: "nginx", display: "nginx", description: "Reverse proxy & TLS" },
 ];
 
@@ -770,11 +770,11 @@ function ServicesTab() {
   const fetchSysInfo = async () => {
     setSysLoading(true);
     try {
-      const os = await execCommand("cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'", "/opt/setupo", 5);
-      const mem = await execCommand("free -h | awk '/Mem:/{print $2, $3}'", "/opt/setupo", 5);
-      const disk = await execCommand("df -h / | awk 'NR==2{print $2, $3, $5}'", "/opt/setupo", 5);
-      const cpu = await execCommand("nproc", "/opt/setupo", 5);
-      const up = await execCommand("uptime -p", "/opt/setupo", 5);
+      const os = await execCommand("cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'", "/opt/nso", 5);
+      const mem = await execCommand("free -h | awk '/Mem:/{print $2, $3}'", "/opt/nso", 5);
+      const disk = await execCommand("df -h / | awk 'NR==2{print $2, $3, $5}'", "/opt/nso", 5);
+      const cpu = await execCommand("nproc", "/opt/nso", 5);
+      const up = await execCommand("uptime -p", "/opt/nso", 5);
       setSysInfo({
         os: os.stdout.trim(),
         memory: mem.stdout.trim(),

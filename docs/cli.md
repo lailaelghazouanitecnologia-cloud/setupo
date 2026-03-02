@@ -7,7 +7,7 @@
 ./nso <command>
 
 # Or add to PATH
-ln -s /opt/setupo/nso /usr/local/bin/nso
+ln -s /opt/nso/nso /usr/local/bin/nso
 ```
 
 ## Global Options

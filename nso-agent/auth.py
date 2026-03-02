@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 logger = logging.getLogger("nso-agent.auth")
 
-ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@setupo.dev")
+ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@nso.dev")
 ADMIN_PASSWORD_HASH = os.environ.get("NSO_ADMIN_PASSWORD_HASH", "")
 ADMIN_PASSWORD_PLAIN = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 

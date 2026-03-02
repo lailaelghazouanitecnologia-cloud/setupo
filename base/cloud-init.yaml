@@ -1,5 +1,5 @@
 #cloud-config
-# Setupo — Cloud-init template for VPS provisioning
+# NSO — Cloud-init template for VPS provisioning
 # Placeholders replaced at runtime by types.py:
 #   {{DOMAIN}}         → user's domain or "localhost"
 #   {{VULTR_API_KEY}}  → Vultr API key from server config
@@ -40,49 +40,49 @@ packages:
   - rsync
 
 write_files:
-  - path: /opt/setupo/.env
+  - path: /opt/nso/.env
     permissions: "0600"
     content: |
       VULTR_API_KEY={{VULTR_API_KEY}}
       CF_API_TOKEN={{CF_API_TOKEN}}
       CF_NSO_ZONE_ID={{CF_NSO_ZONE_ID}}
       NSO_BASE_DOMAIN={{DOMAIN}}
-      SETUPO_HOST=0.0.0.0
-      SETUPO_PORT=8000
-      SETUPO_DATA_DIR=/opt/setupo/data
-      SETUPO_CONFIG_DIR=/opt/setupo/config
-      SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
-      SETUPO_CORS_ORIGINS=https://{{DOMAIN}},https://sonfazt.{{DOMAIN}},http://localhost:3000
-      SETUPO_ADMIN_EMAIL={{ADMIN_EMAIL}}
+      NSO_HOST=0.0.0.0
+      NSO_PORT=8000
+      NSO_DATA_DIR=/opt/nso/data
+      NSO_CONFIG_DIR=/opt/nso/config
+      NSO_WORKSPACES_DIR=/opt/nso/workspaces
+      NSO_CORS_ORIGINS=https://{{DOMAIN}},https://sonfazt.{{DOMAIN}},http://localhost:3000
+      NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
       R2_ENDPOINT={{R2_ENDPOINT}}
       R2_ACCESS_KEY_ID={{R2_ACCESS_KEY_ID}}
       R2_SECRET_ACCESS_KEY={{R2_SECRET_ACCESS_KEY}}
       R2_BUCKET={{R2_BUCKET}}
-      SETUPO_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
+      NSO_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
       AGENT_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
       NSO_AGENT_URL=http://127.0.0.1:8081
       NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
 
-  - path: /etc/systemd/system/setupo.service
+  - path: /etc/systemd/system/nso.service
     permissions: "0644"
     content: |
       [Unit]
-      Description=Setupo — AI Agent Infrastructure API
+      Description=NSO — AI Agent Infrastructure API
       After=network.target
 
       [Service]
       Type=simple
       User=root
-      WorkingDirectory=/opt/setupo
-      EnvironmentFile=/opt/setupo/.env
-      ExecStart=/opt/setupo/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
+      WorkingDirectory=/opt/nso
+      EnvironmentFile=/opt/nso/.env
+      ExecStart=/opt/nso/venv/bin/uvicorn server.main:app --host 127.0.0.1 --port 8000 --workers 2
       Restart=always
       RestartSec=5
 
       [Install]
       WantedBy=multi-user.target
 
-  - path: /etc/systemd/system/setupo-agent.service
+  - path: /etc/systemd/system/nso-agent.service
     permissions: "0644"
     content: |
       [Unit]
@@ -92,11 +92,11 @@ write_files:
       [Service]
       Type=simple
       User=root
-      WorkingDirectory=/opt/setupo/nso-agent
-      EnvironmentFile=/opt/setupo/.env
+      WorkingDirectory=/opt/nso/nso-agent
+      EnvironmentFile=/opt/nso/.env
       Environment=NSO_AGENT_HOST=0.0.0.0
       Environment=NSO_AGENT_PORT=8081
-      ExecStart=/opt/setupo/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8081
+      ExecStart=/opt/nso/venv/bin/uvicorn main:app --host 0.0.0.0 --port 8081
       Restart=always
       RestartSec=3
 
@@ -104,14 +104,14 @@ write_files:
       WantedBy=multi-user.target
 
   # ── Main site nginx (nso.dev) ──
-  - path: /etc/nginx/sites-available/setupo
+  - path: /etc/nginx/sites-available/nso
     permissions: "0644"
     content: |
-      upstream setupo_api {
+      upstream nso_api {
           server 127.0.0.1:8000;
       }
 
-      upstream setupo_agent {
+      upstream nso_agent {
           server 127.0.0.1:8081;
       }
 
@@ -121,7 +121,7 @@ write_files:
 
           # API
           location /api/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -130,16 +130,16 @@ write_files:
           }
 
           location /docs {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
           }
 
           location /openapi.json {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
           }
 
           # WebSocket
           location /ws/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
               proxy_http_version 1.1;
               proxy_set_header Upgrade $http_upgrade;
               proxy_set_header Connection "upgrade";
@@ -149,14 +149,14 @@ write_files:
 
           # Agent endpoints (auth, files, exec, metrics)
           location /agent/ {
-              proxy_pass http://setupo_agent/;
+              proxy_pass http://nso_agent/;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
           }
 
           # Dashboard (static HTML/CSS/JS)
           location / {
-              root /opt/setupo/dashboard/static;
+              root /opt/nso/dashboard/static;
               index index.html;
               try_files $uri $uri/ /index.html;
           }
@@ -172,7 +172,7 @@ write_files:
 
           # Admin API routes
           location /api/admin/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -182,7 +182,7 @@ write_files:
 
           # Auth endpoint (needed for admin login)
           location /api/auth/ {
-              proxy_pass http://setupo_api;
+              proxy_pass http://nso_api;
               proxy_set_header Host $host;
               proxy_set_header X-Real-IP $remote_addr;
               proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -196,7 +196,7 @@ write_files:
 
           # Admin dashboard (static HTML/CSS/JS)
           location / {
-              root /opt/setupo/dashboard-admin/static;
+              root /opt/nso/dashboard-admin/static;
               index index.html;
               try_files $uri $uri/ /index.html;
           }
@@ -214,50 +214,50 @@ runcmd:
   - ufw allow 8081/tcp
   - ufw --force enable
 
-  # ── Clone setupo (specific branch) ────────────────────────
-  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/setupo/repo
-  - cp -r /opt/setupo/repo/* /opt/setupo/
-  - cp -r /opt/setupo/repo/.* /opt/setupo/ 2>/dev/null || true
-  - rm -rf /opt/setupo/repo
+  # ── Clone repo (specific branch) ────────────────────────
+  - git clone -b "{{GIT_BRANCH}}" https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo || git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git /opt/nso/repo
+  - cp -r /opt/nso/repo/* /opt/nso/
+  - cp -r /opt/nso/repo/.* /opt/nso/ 2>/dev/null || true
+  - rm -rf /opt/nso/repo
 
   # ── Python virtual env ────────────────────────────────────
-  - python3 -m venv /opt/setupo/venv
-  - /opt/setupo/venv/bin/pip install --upgrade pip
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/requirements.txt
-  - /opt/setupo/venv/bin/pip install -r /opt/setupo/nso-agent/requirements.txt
+  - python3 -m venv /opt/nso/venv
+  - /opt/nso/venv/bin/pip install --upgrade pip
+  - /opt/nso/venv/bin/pip install -r /opt/nso/requirements.txt
+  - /opt/nso/venv/bin/pip install -r /opt/nso/nso-agent/requirements.txt
 
   # ── Node.js (for dashboard build) ─────────────────────────
   - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
   - apt-get install -y nodejs
 
   # ── Data dirs ─────────────────────────────────────────────
-  - mkdir -p /opt/setupo/data /opt/setupo/config /opt/setupo/workspaces /var/log/setupo /opt/app
+  - mkdir -p /opt/nso/data /opt/nso/config /opt/nso/workspaces /var/log/nso /opt/app
 
   # ── Build main dashboard (Next.js static export) ──────────
-  - cd /opt/setupo/dashboard && npm install && npm run build
-  - mkdir -p /opt/setupo/dashboard/static
-  - cp -r /opt/setupo/dashboard/out/* /opt/setupo/dashboard/static/
+  - cd /opt/nso/dashboard && npm install && npm run build
+  - mkdir -p /opt/nso/dashboard/static
+  - cp -r /opt/nso/dashboard/out/* /opt/nso/dashboard/static/
 
   # ── Build admin dashboard (Next.js static export) ─────────
-  - cd /opt/setupo/dashboard-admin && npm install && npm run build
-  - mkdir -p /opt/setupo/dashboard-admin/static
-  - cp -r /opt/setupo/dashboard-admin/out/* /opt/setupo/dashboard-admin/static/
+  - cd /opt/nso/dashboard-admin && npm install && npm run build
+  - mkdir -p /opt/nso/dashboard-admin/static
+  - cp -r /opt/nso/dashboard-admin/out/* /opt/nso/dashboard-admin/static/
 
   # ── Activate nginx configs ────────────────────────────────
-  - ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
+  - ln -sf /etc/nginx/sites-available/nso /etc/nginx/sites-enabled/nso
   - ln -sf /etc/nginx/sites-available/sonfazt /etc/nginx/sites-enabled/sonfazt
   - rm -f /etc/nginx/sites-enabled/default
   - nginx -t && systemctl restart nginx
 
   # ── Start agent first (for metrics tracking) ──────────────
   - systemctl daemon-reload
-  - systemctl enable setupo-agent
-  - systemctl start setupo-agent
+  - systemctl enable nso-agent
+  - systemctl start nso-agent
   - sleep 2
 
-  # ── Start setupo API ──────────────────────────────────────
-  - systemctl enable setupo
-  - systemctl start setupo
+  # ── Start NSO API ──────────────────────────────────────
+  - systemctl enable nso
+  - systemctl start nso
 
   # ── SSL certificates (certbot) ────────────────────────────
   - sleep 5
@@ -266,11 +266,11 @@ runcmd:
 
   # ── Diagnostics ──────────────────────────────────────────
   - sleep 3
-  - 'echo "=== Agent ===" > /var/log/setupo/boot-diag.txt'
-  - 'systemctl status setupo-agent --no-pager >> /var/log/setupo/boot-diag.txt 2>&1 || true'
-  - 'echo "=== API ===" >> /var/log/setupo/boot-diag.txt'
-  - 'systemctl status setupo --no-pager >> /var/log/setupo/boot-diag.txt 2>&1 || true'
-  - 'echo "=== Nginx ===" >> /var/log/setupo/boot-diag.txt'
-  - 'nginx -t >> /var/log/setupo/boot-diag.txt 2>&1 || true'
-  - 'echo "=== SSL ===" >> /var/log/setupo/boot-diag.txt'
-  - 'certbot certificates >> /var/log/setupo/boot-diag.txt 2>&1 || true'
+  - 'echo "=== Agent ===" > /var/log/nso/boot-diag.txt'
+  - 'systemctl status nso-agent --no-pager >> /var/log/nso/boot-diag.txt 2>&1 || true'
+  - 'echo "=== API ===" >> /var/log/nso/boot-diag.txt'
+  - 'systemctl status nso --no-pager >> /var/log/nso/boot-diag.txt 2>&1 || true'
+  - 'echo "=== Nginx ===" >> /var/log/nso/boot-diag.txt'
+  - 'nginx -t >> /var/log/nso/boot-diag.txt 2>&1 || true'
+  - 'echo "=== SSL ===" >> /var/log/nso/boot-diag.txt'
+  - 'certbot certificates >> /var/log/nso/boot-diag.txt 2>&1 || true'

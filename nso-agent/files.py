@@ -13,9 +13,9 @@ from auth import require_admin, AdminUser
 logger = logging.getLogger("nso-agent.files")
 router = APIRouter(prefix="/files", tags=["files"])
 
-ALLOWED_ROOTS = ["/opt/setupo", "/opt/app", "/var/log/setupo", "/tmp"]
+ALLOWED_ROOTS = ["/opt/nso", "/opt/app", "/var/log/nso", "/tmp"]
 MAX_READ_SIZE = 5 * 1024 * 1024
-DEFAULT_PATH = "/opt/setupo"
+DEFAULT_PATH = "/opt/nso"
 SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git", "venv", ".venv"})
 
 

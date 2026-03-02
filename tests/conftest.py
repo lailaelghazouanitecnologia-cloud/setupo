@@ -11,8 +11,8 @@ import aiosqlite
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 # Override settings before any import touches them
-os.environ["SETUPO_DATA_DIR"] = "/tmp/setupo-test/data"
-os.environ["SETUPO_JWT_SECRET"] = "test-secret-key-for-tests-only"
+os.environ["NSO_DATA_DIR"] = "/tmp/nso-test/data"
+os.environ["NSO_JWT_SECRET"] = "test-secret-key-for-tests-only"
 
 
 @pytest.fixture(scope="session")
@@ -65,11 +65,11 @@ async def admin_user(fresh_db):
     uid = f"user_{secrets.token_hex(12)}"
     await db.insert("users", {
         "id": uid,
-        "email": "admin@setupo.dev",
+        "email": "admin@nso.dev",
         "password_hash": hash_password("admin123"),
         "name": "Admin",
         "role": "admin",
         "balance": 0.00,
         "verified": 1,
     })
-    return {"id": uid, "email": "admin@setupo.dev", "role": "admin"}
+    return {"id": uid, "email": "admin@nso.dev", "role": "admin"}

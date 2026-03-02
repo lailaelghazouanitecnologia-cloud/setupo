@@ -6,7 +6,7 @@ import aiosqlite
 
 from server.config import settings
 
-logger = logging.getLogger("setupo.db")
+logger = logging.getLogger("nso.db")
 
 _db: aiosqlite.Connection | None = None
 
@@ -116,7 +116,7 @@ async def _migrate(db: aiosqlite.Connection):
             version TEXT DEFAULT '1.0.0',
             category TEXT DEFAULT '',
             icon TEXT DEFAULT '',
-            author TEXT DEFAULT 'setupo',
+            author TEXT DEFAULT 'nso',
             published INTEGER DEFAULT 1,
             config_schema TEXT DEFAULT '{}',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP,

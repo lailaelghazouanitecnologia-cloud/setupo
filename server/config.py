@@ -5,15 +5,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings:
-    DATA_DIR = Path(os.environ.get("SETUPO_DATA_DIR", "/opt/setupo/data"))
-    DB_PATH = DATA_DIR / "setupo.db"
+    DATA_DIR = Path(os.environ.get("NSO_DATA_DIR", "/opt/nso/data"))
+    DB_PATH = DATA_DIR / "nso.db"
     KEYS_DIR = DATA_DIR / "keys"
-    CONFIG_DIR = Path(os.environ.get("SETUPO_CONFIG_DIR", "/opt/setupo/config"))
+    CONFIG_DIR = Path(os.environ.get("NSO_CONFIG_DIR", "/opt/nso/config"))
     TOKEN_PATH = CONFIG_DIR / "token"
-    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", "/opt/setupo/workspaces"))
+    WORKSPACES_DIR = Path(os.environ.get("NSO_WORKSPACES_DIR", "/opt/nso/workspaces"))
 
-    DEV_DATA_DIR = Path("/tmp/setupo/data")
-    DEV_DB_PATH = DEV_DATA_DIR / "setupo.db"
+    DEV_DATA_DIR = Path("/tmp/nso/data")
+    DEV_DB_PATH = DEV_DATA_DIR / "nso.db"
 
     VULTR_API_KEY = os.environ.get("VULTR_API_KEY", "")
     VULTR_BASE_URL = "https://api.vultr.com/v2"
@@ -31,15 +31,15 @@ class Settings:
     R2_BUCKET = os.environ.get("R2_BUCKET", "nso")
     R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "")
 
-    HOST = os.environ.get("SETUPO_HOST", "0.0.0.0")
-    PORT = int(os.environ.get("SETUPO_PORT", "8000"))
+    HOST = os.environ.get("NSO_HOST", "0.0.0.0")
+    PORT = int(os.environ.get("NSO_PORT", "8000"))
     CORS_ORIGINS = os.environ.get(
-        "SETUPO_CORS_ORIGINS",
+        "NSO_CORS_ORIGINS",
         "https://nso.dev,https://sonfazt.nso.dev,http://localhost:3000,http://localhost:3001,http://localhost:8000"
     ).split(",")
 
-    ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "admin@setupo.dev")
-    ADMIN_PASSWORD = os.environ.get("SETUPO_ADMIN_PASSWORD", "")
+    ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@nso.dev")
+    ADMIN_PASSWORD = os.environ.get("NSO_ADMIN_PASSWORD", "")
     AGENT_ADMIN_PASSWORD = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")

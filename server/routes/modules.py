@@ -12,7 +12,7 @@ from server.config import settings
 from server.deps import require_admin, get_auth
 from server.auth.middleware import AuthContext
 
-logger = logging.getLogger("setupo.routes.modules")
+logger = logging.getLogger("nso.routes.modules")
 router = APIRouter()
 
 MODULE_R2_PREFIX = "_modules"

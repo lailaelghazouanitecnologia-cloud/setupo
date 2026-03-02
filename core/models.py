@@ -242,7 +242,7 @@ class ZarDeployRequest(BaseModel):
     r2_access_key_id: str
     r2_secret_access_key: str
     target_dir: str = "/opt/app"
-    restart_service: str = "setupo-app"
+    restart_service: str = "nso-app"
     manifest: ZarManifest | None = None
 
 

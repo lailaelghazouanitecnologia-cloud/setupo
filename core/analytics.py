@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from core import db
 from core.errors import NotFoundError, ValidationError
 
-logger = logging.getLogger("setupo.analytics")
+logger = logging.getLogger("nso.analytics")
 
 _USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
 _VALID_ROLES = frozenset({"user", "admin", "disabled"})

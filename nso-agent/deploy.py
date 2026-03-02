@@ -22,9 +22,9 @@ from auth import require_admin, AdminUser
 logger = logging.getLogger("nso-agent.deploy")
 router = APIRouter(prefix="/deploy", tags=["deploy"])
 APP_DIR = Path("/opt/app")
-SNAPSHOTS_DIR = Path("/opt/setupo/snapshots")
-SETUPO_DIR = Path("/opt/setupo")
-DEPLOY_STATE_FILE = Path("/opt/setupo/data/deploy-state.json")
+SNAPSHOTS_DIR = Path("/opt/nso/snapshots")
+NSO_DIR = Path("/opt/nso")
+DEPLOY_STATE_FILE = Path("/opt/nso/data/deploy-state.json")
 MAX_SNAPSHOTS = 5
 R2_DOWNLOAD_TIMEOUT = 120.0
 DEPS_INSTALL_TIMEOUT = 300
@@ -58,7 +58,7 @@ class PullRequest(BaseModel):
     r2_access_key_id: str
     r2_secret_access_key: str
     target_dir: str = "/opt/app"
-    restart_service: str = "setupo-app"
+    restart_service: str = "nso-app"
     install_deps: bool = True
 
 
@@ -86,9 +86,9 @@ class RollbackRequest(BaseModel):
 
 
 COMPONENT_MAP = {
-    "agent": {"target": "/opt/setupo/nso-agent", "service": "setupo-agent"},
-    "frontend": {"target": "/opt/setupo/dashboard/static", "service": None},
-    "core": {"target": "/opt/setupo", "service": "setupo"},
+    "agent": {"target": "/opt/nso/nso-agent", "service": "nso-agent"},
+    "frontend": {"target": "/opt/nso/dashboard/static", "service": None},
+    "core": {"target": "/opt/nso", "service": "nso"},
 }
 
 
@@ -340,7 +340,7 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
 async def deploy_upload(
     file: UploadFile = File(...),
     target_dir: str = "/opt/app",
-    restart_service: str = "setupo-app",
+    restart_service: str = "nso-app",
     install_deps: bool = True,
     admin: AdminUser = Depends(require_admin),
 ):
@@ -390,7 +390,7 @@ async def deploy_upload(
 async def deploy_rollback(
     req: RollbackRequest,
     target_dir: str = "/opt/app",
-    restart_service: str = "setupo-app",
+    restart_service: str = "nso-app",
     admin: AdminUser = Depends(require_admin),
 ):
     snaps = _list_snapshots(target_dir)
@@ -459,7 +459,7 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
         req_file = os.path.join(target, "requirements.txt")
         if os.path.exists(req_file):
             proc = await asyncio.create_subprocess_shell(
-                f"/opt/setupo/venv/bin/pip install -r {req_file} --quiet 2>&1",
+                f"/opt/nso/venv/bin/pip install -r {req_file} --quiet 2>&1",
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
             )

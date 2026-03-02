@@ -17,7 +17,7 @@ from typing import Any
 from core import db
 from core.errors import NotFoundError, ConflictError, ValidationError
 
-logger = logging.getLogger("setupo.billing")
+logger = logging.getLogger("nso.billing")
 
 
 # ──────────────────────────────────────────────

@@ -153,7 +153,7 @@ export async function getFileTree(path: string, depth = 3) {
   return apiCall<any>(`/agent/files/tree?path=${encodeURIComponent(path)}&depth=${depth}`);
 }
 
-export async function execCommand(command: string, workingDir = "/opt/setupo", timeout = 60) {
+export async function execCommand(command: string, workingDir = "/opt/nso", timeout = 60) {
   return apiCall<{ stdout: string; stderr: string; exit_code: number; timed_out: boolean }>("/agent/exec/", {
     method: "POST",
     body: JSON.stringify({ command, working_dir: workingDir, timeout }),

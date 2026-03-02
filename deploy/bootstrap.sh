@@ -1,13 +1,13 @@
 #!/bin/bash
 # ═══════════════════════════════════════════════════
-# NSO (Setupo) — Full bootstrap for fresh Debian 12
+# NSO — Full bootstrap for fresh Debian 12
 # Run as root on the new VPS
 # ═══════════════════════════════════════════════════
 set -euo pipefail
 
 REPO="https://github.com/lailaelghazouanitecnologia-cloud/setupo.git"
-APP_DIR="/opt/setupo"
-LOG="/var/log/setupo-bootstrap.log"
+APP_DIR="/opt/nso"
+LOG="/var/log/nso-bootstrap.log"
 
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG"; }
 
@@ -46,7 +46,7 @@ fi
 
 # Create data dirs
 mkdir -p "$APP_DIR"/{data,config,workspaces}
-mkdir -p /var/log/setupo
+mkdir -p /var/log/nso
 chmod 755 "$APP_DIR"
 
 # ── 4. Python environment ────────────────────────
@@ -81,19 +81,19 @@ chmod 600 "$APP_DIR/.env"
 
 # ── 7. Systemd services ─────────────────────────
 log "[7/8] Installing systemd services..."
-cp "$APP_DIR/deploy/setupo.service" /etc/systemd/system/setupo.service
-cp "$APP_DIR/deploy/setupo-agent.service" /etc/systemd/system/setupo-agent.service
+cp "$APP_DIR/deploy/nso.service" /etc/systemd/system/nso.service
+cp "$APP_DIR/deploy/nso-agent.service" /etc/systemd/system/nso-agent.service
 
 systemctl daemon-reload
-systemctl enable setupo-agent setupo
-systemctl start setupo-agent
+systemctl enable nso-agent nso
+systemctl start nso-agent
 sleep 2
-systemctl start setupo
+systemctl start nso
 
 # ── 8. Nginx ─────────────────────────────────────
 log "[8/8] Configuring nginx..."
-cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/setupo
-ln -sf /etc/nginx/sites-available/setupo /etc/nginx/sites-enabled/setupo
+cp "$APP_DIR/deploy/nginx.conf" /etc/nginx/sites-available/nso
+ln -sf /etc/nginx/sites-available/nso /etc/nginx/sites-enabled/nso
 rm -f /etc/nginx/sites-enabled/default
 
 # Test nginx config — if SSL certs don't exist yet, use HTTP-only temporarily
@@ -102,32 +102,32 @@ if nginx -t 2>/dev/null; then
 else
   log "  -> Nginx config has SSL refs but certs don't exist yet."
   log "  -> Creating temporary HTTP-only config..."
-  cat > /etc/nginx/sites-available/setupo-temp <<'NGINX'
-upstream setupo_api { server 127.0.0.1:8000; }
-upstream setupo_agent { server 127.0.0.1:8081; }
+  cat > /etc/nginx/sites-available/nso-temp <<'NGINX'
+upstream nso_api { server 127.0.0.1:8000; }
+upstream nso_agent { server 127.0.0.1:8081; }
 server {
     listen 80;
     server_name _;
     location /api/ {
-        proxy_pass http://setupo_api;
+        proxy_pass http://nso_api;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_read_timeout 300s;
     }
     location /agent/ {
-        proxy_pass http://setupo_agent/;
+        proxy_pass http://nso_agent/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
     location / {
-        root /opt/setupo/dashboard/static;
+        root /opt/nso/dashboard/static;
         index index.html;
         try_files $uri $uri/ /index.html;
     }
 }
 NGINX
-  ln -sf /etc/nginx/sites-available/setupo-temp /etc/nginx/sites-enabled/setupo
+  ln -sf /etc/nginx/sites-available/nso-temp /etc/nginx/sites-enabled/nso
   nginx -t && systemctl reload nginx
   log "  -> HTTP-only nginx running. Run certbot to enable HTTPS:"
   log "     certbot --nginx -d nso.dev"
@@ -138,12 +138,12 @@ log ""
 log "=== Bootstrap complete ==="
 log ""
 log "Services:"
-systemctl is-active setupo-agent && log "  setupo-agent: OK" || log "  setupo-agent: FAILED"
-systemctl is-active setupo && log "  setupo: OK" || log "  setupo: FAILED"
+systemctl is-active nso-agent && log "  nso-agent: OK" || log "  nso-agent: FAILED"
+systemctl is-active nso && log "  nso: OK" || log "  nso: FAILED"
 systemctl is-active nginx && log "  nginx: OK" || log "  nginx: FAILED"
 log ""
 log "Next steps:"
-log "  1. Edit /opt/setupo/.env with your API keys"
+log "  1. Edit /opt/nso/.env with your API keys"
 log "  2. Run: certbot --nginx -d nso.dev"
-log "  3. Restart: systemctl restart setupo setupo-agent"
+log "  3. Restart: systemctl restart nso nso-agent"
 log "  4. Visit: https://nso.dev"

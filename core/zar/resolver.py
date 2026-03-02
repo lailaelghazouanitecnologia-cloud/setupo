@@ -7,7 +7,7 @@ from core.models import ZarDependency, ZarManifest, R2Config
 from core.zar.packer import extract, read_manifest
 from core.zar.storage import R2Client
 
-logger = logging.getLogger("setupo.zar.resolver")
+logger = logging.getLogger("nso.zar.resolver")
 
 MAX_DEPTH = 5
 

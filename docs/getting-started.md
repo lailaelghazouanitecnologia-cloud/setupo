@@ -25,7 +25,7 @@ You (CLI/API) ──HTTPS──► NSO API (:8000) ──HTTP──► Agent (:8
 
 ```bash
 git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git
-cd setupo
+cd nso
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env  # Edit with your keys
@@ -121,8 +121,8 @@ export NSO_PROJECT=proj_a1b2c3
 
 | Service | Port | Systemd unit | Purpose |
 |---------|------|-------------|---------|
-| NSO API | 8000 | `setupo.service` | Central API (FastAPI + uvicorn) |
-| NSO Agent | 8081 | `setupo-agent.service` | VPS management (files, exec, deploy) |
+| NSO API | 8000 | `nso.service` | Central API (FastAPI + uvicorn) |
+| NSO Agent | 8081 | `nso-agent.service` | VPS management (files, exec, deploy) |
 | Nginx | 80 | `nginx.service` | Reverse proxy + static dashboard |
 
 ## Tech Stack

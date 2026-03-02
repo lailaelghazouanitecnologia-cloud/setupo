@@ -1,4 +1,4 @@
-"""Setupo Zar — Workspace packaging, storage, and dependency resolution.
+"""NSO Zar — Workspace packaging, storage, and dependency resolution.
 
 Modules:
     packer   — Create and extract .zar packages (tar.gz with manifest)

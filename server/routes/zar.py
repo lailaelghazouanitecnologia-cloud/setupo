@@ -13,7 +13,7 @@ from core.workspace_config import read_config, read_package_config
 from server.config import settings
 from server.deps import require_project
 
-logger = logging.getLogger("setupo.routes.zar")
+logger = logging.getLogger("nso.routes.zar")
 router = APIRouter()
 
 DEPLOY_TIMEOUT = 300.0
@@ -101,7 +101,7 @@ async def _deploy_via_agent(agent_url: str, token: str, r2_key: str) -> dict:
                     "r2_access_key_id": r2_cfg.access_key_id,
                     "r2_secret_access_key": r2_cfg.secret_access_key,
                     "target_dir": "/opt/app",
-                    "restart_service": "setupo-app",
+                    "restart_service": "nso-app",
                     "install_deps": True,
                 },
             )
@@ -310,7 +310,7 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
-                params={"target_dir": "/opt/app", "restart_service": "setupo-app"},
+                params={"target_dir": "/opt/app", "restart_service": "nso-app"},
                 json={"snapshot": req.snapshot},
             )
     except httpx.ConnectError:

@@ -1,4 +1,4 @@
-"""Setupo Core — Infrastructure management for AI agents.
+"""NSO Core — Infrastructure management for AI agents.
 
 Modules:
     db          — Async SQLite persistence layer

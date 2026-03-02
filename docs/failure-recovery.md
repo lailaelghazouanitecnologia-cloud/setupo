@@ -41,7 +41,7 @@ nso ship backend inst_xxx
 #   Reason: health check failed after restart
 
 # Check what went wrong
-nso exec inst_xxx journalctl -u setupo-app -n 50
+nso exec inst_xxx journalctl -u nso-app -n 50
 # Fix the bug in your code, then ship again
 ```
 
@@ -55,7 +55,7 @@ nso exec inst_xxx journalctl -u setupo-app -n 50
 
 ```
 # Check what failed
-nso exec inst_xxx cat /var/log/setupo-deploy.log
+nso exec inst_xxx cat /var/log/nso-deploy.log
 
 # Maybe a system package is needed
 nso exec inst_xxx apt-get install -y libpq-dev
@@ -139,7 +139,7 @@ nso deploy backend inst_xxx
 
 ### 3.1 Agent update kills the agent
 
-**What happens**: During `nso update inst_xxx --target agent`, new code is extracted and `systemctl restart setupo-agent` runs. The agent process dies.
+**What happens**: During `nso update inst_xxx --target agent`, new code is extracted and `systemctl restart nso-agent` runs. The agent process dies.
 
 **Protection**: systemd has `Restart=always` with `RestartSec=3`. The new agent code starts automatically. If the new agent can't start (import error, syntax error), systemd keeps restarting it.
 
@@ -152,10 +152,10 @@ nso deploy backend inst_xxx
 # If the agent doesn't come back (new code is broken):
 # Option A: SSH into the VPS manually
 ssh root@149.28.xx.xx
-cd /opt/setupo/snapshots
+cd /opt/nso/snapshots
 # Restore the latest agent snapshot manually
-tar xzf nso-agent_*.tar.gz -C /opt/setupo/nso-agent/
-systemctl restart setupo-agent
+tar xzf nso-agent_*.tar.gz -C /opt/nso/nso-agent/
+systemctl restart nso-agent
 
 # Option B: Create a new instance and migrate
 nso inst create prod-2 --domain app.mysite.com
@@ -172,7 +172,7 @@ nso ship backend inst_new
 
 ### 3.3 Core update kills the API
 
-**What happens**: Core/server code updated, `systemctl restart setupo` runs, new code has errors.
+**What happens**: Core/server code updated, `systemctl restart nso` runs, new code has errors.
 
 **Protection**: Snapshot taken. Systemd will restart. If the API can't start, the agent is still running independently.
 
@@ -183,7 +183,7 @@ nso ship backend inst_new
 curl -X POST http://149.28.xx.xx:8081/deploy/rollback \
   -H "Authorization: Bearer <agent-token>" \
   -H "Content-Type: application/json" \
-  -d '{"target_dir": "/opt/setupo/server"}'
+  -d '{"target_dir": "/opt/nso/server"}'
 ```
 
 ---
@@ -235,7 +235,7 @@ nso inst create prod-1 --domain app.mysite.com
 
 ```
 nso exec inst_xxx df -h
-nso exec inst_xxx du -sh /opt/setupo/snapshots/*
+nso exec inst_xxx du -sh /opt/nso/snapshots/*
 nso exec inst_xxx journalctl --vacuum-size=100M
 nso exec inst_xxx rm -rf /tmp/*
 ```
@@ -292,7 +292,7 @@ nso ship backend inst_xxx
 
 # The deploy might still be running on the agent
 # Wait a minute and check
-nso exec inst_xxx systemctl status setupo-app
+nso exec inst_xxx systemctl status nso-app
 ```
 
 ### 6.2 R2 region latency
@@ -329,8 +329,8 @@ The .zar packer EXCLUDES `.env` from archives. During extraction, existing `.env
 | Problem | Command |
 |---------|---------|
 | Bad deploy | `nso rollback backend inst_xxx` |
-| Service down | `nso exec inst_xxx systemctl restart setupo-app` |
-| Check logs | `nso exec inst_xxx journalctl -u setupo-app -n 100` |
+| Service down | `nso exec inst_xxx systemctl restart nso-app` |
+| Check logs | `nso exec inst_xxx journalctl -u nso-app -n 100` |
 | Disk full | `nso exec inst_xxx df -h` |
 | Agent dead | SSH manually, restore from snapshot |
 | API dead | Use agent directly on :8081 |
@@ -361,13 +361,13 @@ The .zar packer EXCLUDES `.env` from archives. During extraction, existing `.env
 
 3. **Keep snapshots healthy**
    ```
-   nso exec inst_xxx ls -la /opt/setupo/snapshots/
+   nso exec inst_xxx ls -la /opt/nso/snapshots/
    ```
 
 4. **Monitor after deploy**
    ```
    nso exec inst_xxx curl -s http://localhost:3000/health
-   nso exec inst_xxx journalctl -u setupo-app -f
+   nso exec inst_xxx journalctl -u nso-app -f
    ```
 
 5. **Use branches for risky changes**

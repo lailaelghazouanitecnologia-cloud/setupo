@@ -217,7 +217,7 @@ nso ship backend inst_prod
 nso rollback backend inst_prod
 
 # Check what went wrong
-nso exec inst_prod journalctl -u setupo-app -n 50
+nso exec inst_prod journalctl -u nso-app -n 50
 ```
 
 ### Update infrastructure without downtime

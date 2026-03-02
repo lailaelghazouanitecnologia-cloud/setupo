@@ -8,7 +8,7 @@ from core.models import CreateDomainRequest
 from core.providers.cloudflare import CloudflareProvider
 from server.deps import require_project
 
-logger = logging.getLogger("setupo.domains")
+logger = logging.getLogger("nso.domains")
 router = APIRouter()
 
 

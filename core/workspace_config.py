@@ -12,7 +12,7 @@ from core.models import (
     R2Config,
 )
 
-logger = logging.getLogger("setupo.workspace_config")
+logger = logging.getLogger("nso.workspace_config")
 
 CONFIG_FILENAME = "config.toml"
 

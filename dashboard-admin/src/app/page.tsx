@@ -57,7 +57,7 @@ function LoginPage() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="admin@setupo.dev"
+              placeholder="admin@nso.dev"
               required
               autoComplete="email"
             />

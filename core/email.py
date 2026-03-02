@@ -20,7 +20,7 @@ from core import db
 from core.errors import NotFoundError, ValidationError
 from server.config import settings
 
-logger = logging.getLogger("setupo.email")
+logger = logging.getLogger("nso.email")
 
 # Config from centralized settings
 SMTP_HOST = settings.SMTP_HOST
@@ -31,7 +31,7 @@ SMTP_FROM = settings.SMTP_FROM
 SMTP_FROM_NAME = os.environ.get("SMTP_FROM_NAME", "NSO Platform")
 
 # Token signing for verification/reset links
-EMAIL_SECRET = os.environ.get("SETUPO_EMAIL_SECRET", secrets.token_hex(32))
+EMAIL_SECRET = os.environ.get("NSO_EMAIL_SECRET", secrets.token_hex(32))
 VERIFY_EXPIRY = 86400  # 24 hours
 RESET_EXPIRY = 3600    # 1 hour
 

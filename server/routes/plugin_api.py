@@ -14,7 +14,7 @@ from core.providers.cloudflare import CloudflareProvider
 from server.config import settings
 from server.deps import require_project
 
-logger = logging.getLogger("setupo.plugin_api")
+logger = logging.getLogger("nso.plugin_api")
 router = APIRouter()
 
 MAX_FILE_SIZE = 50 * 1024 * 1024

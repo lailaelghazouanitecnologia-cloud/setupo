@@ -10,7 +10,7 @@ from pathlib import Path
 from core.models import ZarManifest
 from core.workspace_config import read_config
 
-logger = logging.getLogger("setupo.zar.packer")
+logger = logging.getLogger("nso.zar.packer")
 
 EXCLUDE_DIRS = {
     ".git", "node_modules", "__pycache__", "venv", ".venv", ".DS_Store",

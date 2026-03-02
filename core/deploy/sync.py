@@ -3,7 +3,7 @@ import logging
 
 from core.instances.provisioner import scp_upload, run_ssh_command
 
-logger = logging.getLogger("setupo.deploy.sync")
+logger = logging.getLogger("nso.deploy.sync")
 
 RSYNC_TIMEOUT = 300
 RSYNC_EXCLUDES = ".git node_modules __pycache__ .env venv .venv"

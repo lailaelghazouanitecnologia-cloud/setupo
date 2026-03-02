@@ -11,7 +11,7 @@ from core.instances.types import get_cloud_init
 from core.instances.provisioner import wait_for_ssh
 from server.config import settings
 
-logger = logging.getLogger("setupo.instances")
+logger = logging.getLogger("nso.instances")
 
 VPS_POLL_INTERVAL = 5
 VPS_POLL_MAX_ATTEMPTS = 60
@@ -30,7 +30,7 @@ async def _generate_ssh_key(project_id: str) -> tuple[str, str]:
 
     if not priv.exists():
         proc = await asyncio.create_subprocess_exec(
-            "ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", "", "-C", f"setupo-{project_id}",
+            "ssh-keygen", "-t", "ed25519", "-f", str(priv), "-N", "", "-C", f"nso-{project_id}",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -47,7 +47,7 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         project_id=project_id,
         type=req.type,
         provider=Provider.VULTR,
-        label=req.label or f"setupo-{req.type.value}",
+        label=req.label or f"nso-{req.type.value}",
         region=req.region,
         plan=req.plan,
         domain=req.domain,
@@ -86,7 +86,7 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
     vultr = VultrProvider()
     try:
         priv_path, pub_key = await _generate_ssh_key(project_id)
-        ssh_key = await vultr.create_ssh_key(f"setupo-{project_id}", pub_key)
+        ssh_key = await vultr.create_ssh_key(f"nso-{project_id}", pub_key)
         ssh_key_id = ssh_key.get("id", "")
 
         await db.update("instances", instance_id, {
@@ -100,10 +100,10 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
             region=req.region,
             plan=req.plan,
             os_id=settings.VULTR_DEFAULT_OS,
-            label=req.label or f"setupo-{req.type.value}-{instance_id[:8]}",
+            label=req.label or f"nso-{req.type.value}-{instance_id[:8]}",
             ssh_key_ids=[ssh_key_id],
             user_data=user_data,
-            tag="setupo",
+            tag="nso",
         )
 
         provider_id = vps.get("id", "")

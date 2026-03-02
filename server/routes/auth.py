@@ -9,9 +9,9 @@ from server.deps import require_user, require_admin, AuthContext
 from server.routes.notifications import create_notification
 from core import users
 from core import email as email_service
-from core.errors import SetupoError
+from core.errors import NsoError
 
-logger = logging.getLogger("setupo.auth")
+logger = logging.getLogger("nso.auth")
 router = APIRouter()
 
 
@@ -70,7 +70,7 @@ class ResendVerificationRequest(BaseModel):
 async def register(req: RegisterRequest):
     try:
         user = await users.create_user(req.email, req.password, req.name)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
     token = users.issue_token(user)
@@ -101,7 +101,7 @@ async def login(req: LoginRequest):
 
     try:
         user = await users.authenticate(req.email, req.password)
-    except SetupoError:
+    except NsoError:
         raise HTTPException(401, "Invalid email or password")
 
     token = users.issue_token(user)
@@ -112,7 +112,7 @@ async def login(req: LoginRequest):
 async def get_me(auth: AuthContext = Depends(require_user)):
     try:
         user = await users.get_user(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return UserProfile(**user)
 
@@ -121,7 +121,7 @@ async def get_me(auth: AuthContext = Depends(require_user)):
 async def update_profile(req: UpdateProfileRequest, auth: AuthContext = Depends(require_user)):
     try:
         user = await users.update_profile(auth.user_id, name=req.name, email=req.email)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "user": user}
 
@@ -130,7 +130,7 @@ async def update_profile(req: UpdateProfileRequest, auth: AuthContext = Depends(
 async def change_password(req: ChangePasswordRequest, auth: AuthContext = Depends(require_user)):
     try:
         await users.change_password(auth.user_id, req.current_password, req.new_password)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -148,7 +148,7 @@ async def verify_email(req: VerifyEmailRequest):
     """Verify email address using token from verification email."""
     try:
         user_id = await email_service.confirm_verification(req.token)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
     user = await users.get_user(user_id)
@@ -192,6 +192,6 @@ async def reset_password(req: ResetPasswordRequest):
     """Reset password using token from reset email."""
     try:
         user_id = await email_service.confirm_reset(req.token, req.new_password)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "user_id": user_id}

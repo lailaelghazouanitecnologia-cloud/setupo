@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from core import db
-from core.errors import SetupoError
+from core.errors import NsoError
 from server.config import settings
 from server.ratelimit import RateLimitMiddleware
 
@@ -36,15 +36,15 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("setupo")
+logger = logging.getLogger("nso")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Setupo starting...")
+    logger.info("NSO starting...")
     await db.init_db()
     yield
-    logger.info("Setupo shutting down...")
+    logger.info("NSO shutting down...")
     await db.close_db()
 
 
@@ -65,8 +65,8 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(SetupoError)
-async def setupo_error_handler(request: Request, exc: SetupoError):
+@app.exception_handler(NsoError)
+async def nso_error_handler(request: Request, exc: NsoError):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.message},
@@ -90,7 +90,7 @@ app.include_router(plugin_api.router, prefix="/api/projects/{project_id}/p", tag
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
 
 
-if os.environ.get("SETUPO_SERVE_STATIC"):
+if os.environ.get("NSO_SERVE_STATIC"):
     from fastapi.staticfiles import StaticFiles
     dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
     if os.path.isdir(dashboard_dir):

@@ -18,9 +18,9 @@ import secrets
 from datetime import datetime, timezone
 
 from core import db
-from core.errors import SetupoError, ValidationError
+from core.errors import NsoError, ValidationError
 
-logger = logging.getLogger("setupo.blockchain")
+logger = logging.getLogger("nso.blockchain")
 
 _USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
 

@@ -1,4 +1,4 @@
-"""Setupo CLI — Output formatting helpers."""
+"""NSO CLI — Output formatting helpers."""
 import json
 import sys
 

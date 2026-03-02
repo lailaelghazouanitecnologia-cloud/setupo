@@ -7,7 +7,7 @@ from core.errors import ProviderError
 from core.providers.base import CloudProvider
 from server.config import settings
 
-logger = logging.getLogger("setupo.vultr")
+logger = logging.getLogger("nso.vultr")
 
 BASE = settings.VULTR_BASE_URL
 REQUEST_TIMEOUT = 30.0
@@ -53,14 +53,14 @@ class VultrProvider(CloudProvider):
         label: str = "",
         ssh_key_ids: list[str] | None = None,
         user_data: str = "",
-        tag: str = "setupo",
+        tag: str = "nso",
         **kwargs,
     ) -> dict:
         payload: dict[str, Any] = {
             "region": region,
             "plan": plan,
             "os_id": os_id,
-            "label": label or "setupo-instance",
+            "label": label or "nso-instance",
             "tag": tag,
             "backups": "disabled",
             "enable_ipv6": True,
@@ -84,7 +84,7 @@ class VultrProvider(CloudProvider):
         logger.info("Deleted Vultr instance %s", instance_id)
         return True
 
-    async def list_instances(self, tag: str = "setupo") -> list[dict]:
+    async def list_instances(self, tag: str = "nso") -> list[dict]:
         data = await self._request("GET", "/instances", params={"tag": tag, "per_page": 100})
         return data.get("instances", []) if data else []
 

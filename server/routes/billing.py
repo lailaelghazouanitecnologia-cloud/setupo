@@ -15,9 +15,9 @@ from pydantic import BaseModel
 
 from server.deps import require_user, require_admin, AuthContext
 from core import db, billing
-from core.errors import SetupoError
+from core.errors import NsoError
 
-logger = logging.getLogger("setupo.billing")
+logger = logging.getLogger("nso.billing")
 router = APIRouter()
 
 MAX_TOPUP_AMOUNT = 1000.0
@@ -166,7 +166,7 @@ async def subscribe(req: SubscribeRequest, auth: AuthContext = Depends(require_u
     """Subscribe to a plan (free plans only — paid plans use /checkout)."""
     try:
         plan = await billing.get_plan(req.plan_code)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
     if plan["amount_cents"] > 0 and not req.trial:
@@ -174,7 +174,7 @@ async def subscribe(req: SubscribeRequest, auth: AuthContext = Depends(require_u
 
     try:
         sub = await billing.create_subscription(auth.user_id, req.plan_code, trial=req.trial)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "subscription": sub}
 
@@ -184,7 +184,7 @@ async def cancel_subscription(auth: AuthContext = Depends(require_user)):
     """Cancel the current subscription."""
     try:
         sub = await billing.cancel_subscription(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "subscription": sub}
 
@@ -194,7 +194,7 @@ async def pause_subscription(auth: AuthContext = Depends(require_user)):
     """Pause the current subscription."""
     try:
         sub = await billing.pause_subscription(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "subscription": sub}
 
@@ -204,7 +204,7 @@ async def resume_subscription(auth: AuthContext = Depends(require_user)):
     """Resume a paused subscription."""
     try:
         sub = await billing.resume_subscription(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "subscription": sub}
 
@@ -231,7 +231,7 @@ async def create_coupon(req: CouponCreateRequest, auth: AuthContext = Depends(re
             plan_codes=req.plan_codes, max_redemptions=req.max_redemptions,
             expires_at=req.expires_at,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "coupon": coupon}
 
@@ -241,7 +241,7 @@ async def deactivate_coupon(code: str, auth: AuthContext = Depends(require_admin
     """Deactivate a coupon (admin only)."""
     try:
         coupon = await billing.deactivate_coupon(code)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "coupon": coupon}
 
@@ -255,7 +255,7 @@ async def apply_coupon(req: ApplyCouponRequest, auth: AuthContext = Depends(requ
             auth.user_id, req.coupon_code,
             subscription_id=sub["id"] if sub else None,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "applied_coupon": applied}
 
@@ -265,7 +265,7 @@ async def remove_applied_coupon(applied_id: str, auth: AuthContext = Depends(req
     """Remove an applied coupon."""
     try:
         await billing.remove_applied_coupon(auth.user_id, applied_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -300,7 +300,7 @@ async def create_credit_note(req: CreditNoteRequest, auth: AuthContext = Depends
             total_cents=req.total_cents, reason=req.reason,
             credit_type=req.credit_type,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "credit_note": cn}
 
@@ -310,7 +310,7 @@ async def get_credit_note(cn_id: str, auth: AuthContext = Depends(require_user))
     """Get a credit note."""
     try:
         cn = await billing.get_credit_note(cn_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     if cn["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
@@ -322,7 +322,7 @@ async def void_credit_note(cn_id: str, auth: AuthContext = Depends(require_admin
     """Void a credit note (admin only)."""
     try:
         cn = await billing.void_credit_note(cn_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "credit_note": cn}
 
@@ -347,7 +347,7 @@ async def create_billable_metric(req: BillableMetricRequest, auth: AuthContext =
             description=req.description, field_name=req.field_name,
             recurring=req.recurring, filters=req.filters,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "metric": m}
 
@@ -357,7 +357,7 @@ async def update_billable_metric(code: str, updates: dict, auth: AuthContext = D
     """Update a billable metric (admin only)."""
     try:
         m = await billing.update_billable_metric(code, updates)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "metric": m}
 
@@ -367,7 +367,7 @@ async def delete_billable_metric(code: str, auth: AuthContext = Depends(require_
     """Delete a billable metric (admin only)."""
     try:
         await billing.delete_billable_metric(code)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -424,7 +424,7 @@ async def create_tax_rate(req: TaxRateRequest, auth: AuthContext = Depends(requi
             name=req.name, code=req.code, rate=req.rate,
             description=req.description, applied_to=req.applied_to, region=req.region,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "tax": tax}
 
@@ -434,7 +434,7 @@ async def update_tax_rate(code: str, updates: dict, auth: AuthContext = Depends(
     """Update a tax rate (admin only)."""
     try:
         tax = await billing.update_tax_rate(code, updates)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "tax": tax}
 
@@ -459,7 +459,7 @@ async def create_wallet(req: WalletCreateRequest, auth: AuthContext = Depends(re
             paid_credits=req.paid_credits, granted_credits=req.granted_credits,
             rate_amount=req.rate_amount, expiration_at=req.expiration_at,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "wallet": wallet}
 
@@ -469,7 +469,7 @@ async def get_wallet(wallet_id: str, auth: AuthContext = Depends(require_user)):
     """Get a wallet."""
     try:
         wallet = await billing.get_wallet(wallet_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     if wallet["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
@@ -481,13 +481,13 @@ async def top_up_wallet(wallet_id: str, req: WalletTopUpRequest, auth: AuthConte
     """Top up a wallet with credits."""
     try:
         wallet = await billing.get_wallet(wallet_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     if wallet["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
     try:
         wallet = await billing.top_up_wallet(wallet_id, req.paid_credits, req.granted_credits)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "wallet": wallet}
 
@@ -497,7 +497,7 @@ async def wallet_transactions(wallet_id: str, auth: AuthContext = Depends(requir
     """List transactions for a wallet."""
     try:
         wallet = await billing.get_wallet(wallet_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     if wallet["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
@@ -519,7 +519,7 @@ async def create_checkout(req: CheckoutRequest, auth: AuthContext = Depends(requ
             auth.user_id, req.plan_code, success_url, cancel_url,
             payment_methods=req.payment_methods,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
 
@@ -539,7 +539,7 @@ async def create_topup_checkout(req: TopUpCheckoutRequest, auth: AuthContext = D
             auth.user_id, req.amount_cents, success_url, cancel_url,
             payment_methods=req.payment_methods,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
 
@@ -603,7 +603,7 @@ async def get_invoice(invoice_id: str, auth: AuthContext = Depends(require_user)
     """Get a specific invoice with line items."""
     try:
         inv = await billing.get_invoice(invoice_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     if inv["user_id"] != auth.user_id and not auth.is_admin:
         raise HTTPException(403, "Access denied")
@@ -615,7 +615,7 @@ async def generate_invoice(auth: AuthContext = Depends(require_user)):
     """Generate a draft invoice for the current billing period."""
     try:
         inv = await billing.generate_invoice(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "invoice": inv}
 
@@ -625,7 +625,7 @@ async def finalize_invoice(invoice_id: str, auth: AuthContext = Depends(require_
     """Finalize a draft invoice (admin only)."""
     try:
         inv = await billing.finalize_invoice(invoice_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "invoice": inv}
 
@@ -635,7 +635,7 @@ async def void_invoice(invoice_id: str, auth: AuthContext = Depends(require_admi
     """Void an invoice (admin only)."""
     try:
         inv = await billing.void_invoice(invoice_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "invoice": inv}
 
@@ -656,7 +656,7 @@ async def remove_payment_method(pm_id: str, auth: AuthContext = Depends(require_
     """Remove a payment method."""
     try:
         await billing.remove_payment_method(pm_id, auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -666,7 +666,7 @@ async def set_default_pm(pm_id: str, auth: AuthContext = Depends(require_user)):
     """Set a payment method as default."""
     try:
         pm = await billing.set_default_payment_method(pm_id, auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "payment_method": pm}
 
@@ -803,7 +803,7 @@ async def billing_overview(auth: AuthContext = Depends(require_user)):
     """Complete billing overview for the dashboard."""
     try:
         overview = await billing.get_billing_overview(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return overview
 

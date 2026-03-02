@@ -17,8 +17,8 @@ from models import (
 
 logger = logging.getLogger("nso-agent.store")
 
-DB_PATH = Path("/opt/setupo/data/metrics.db")
-DEV_DB_PATH = Path("/tmp/setupo/metrics.db")
+DB_PATH = Path("/opt/nso/data/metrics.db")
+DEV_DB_PATH = Path("/tmp/nso/metrics.db")
 MAX_LOG_ENTRIES = 500
 
 _db: aiosqlite.Connection | None = None

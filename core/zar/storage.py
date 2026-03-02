@@ -9,7 +9,7 @@ import httpx
 
 from core.models import R2Config
 
-logger = logging.getLogger("setupo.zar.storage")
+logger = logging.getLogger("nso.zar.storage")
 
 REGION = "auto"
 SERVICE = "s3"

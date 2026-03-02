@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-logger = logging.getLogger("setupo.provisioner")
+logger = logging.getLogger("nso.provisioner")
 
 SSH_CONNECT_TIMEOUT = 5
 SSH_POLL_INTERVAL = 5

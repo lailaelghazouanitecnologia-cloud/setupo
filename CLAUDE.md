@@ -1,4 +1,4 @@
-# Setupo — AI Agent Infrastructure Platform
+# NSO — AI Agent Infrastructure Platform
 
 ## Infrastructure
 
@@ -127,7 +127,7 @@ Client (HTTPS :443 → nso.dev)
     ├── /api/*      → proxy_pass 127.0.0.1:8000  (FastAPI central)
     ├── /agent/*    → proxy_pass 127.0.0.1:8081/ (nso-agent)
     ├── /ws/*       → WebSocket proxy :8000
-    └── /           → /opt/setupo/dashboard/static (Next.js export)
+    └── /           → /opt/nso/dashboard/static (Next.js export)
 ```
 
 ## API Routes — Central Server (:8000)
@@ -372,7 +372,7 @@ Client (HTTPS :443 → nso.dev)
 | GET | `/secrets/buckets` | List bucket definitions |
 
 Buckets auto-classify by prefix:
-- **auth**: `SETUPO_ADMIN_*`, `AGENT_ADMIN_*`, `JWT_*`, `SECRET_*`
+- **auth**: `NSO_ADMIN_*`, `AGENT_ADMIN_*`, `JWT_*`, `SECRET_*`
 - **providers**: `VULTR_*`, `CF_*`
 - **storage**: `R2_*`
 - **system**: `HOST*`, `PORT*`, `DB_*`, `LOG_*`, `CORS_*`
@@ -494,23 +494,23 @@ R2_BUCKET=nso
 R2_PUBLIC_URL=...                 # optional, for public download URLs
 
 # Central Server
-SETUPO_HOST=0.0.0.0
-SETUPO_PORT=8000
-SETUPO_CORS_ORIGINS=https://nso.dev,http://localhost:3000
-SETUPO_DATA_DIR=/opt/setupo/data
-SETUPO_CONFIG_DIR=/opt/setupo/config
-SETUPO_WORKSPACES_DIR=/opt/setupo/workspaces
+NSO_HOST=0.0.0.0
+NSO_PORT=8000
+NSO_CORS_ORIGINS=https://nso.dev,http://localhost:3000
+NSO_DATA_DIR=/opt/nso/data
+NSO_CONFIG_DIR=/opt/nso/config
+NSO_WORKSPACES_DIR=/opt/nso/workspaces
 
 # Admin
-SETUPO_ADMIN_EMAIL=...
-SETUPO_ADMIN_PASSWORD=...
+NSO_ADMIN_EMAIL=...
+NSO_ADMIN_PASSWORD=...
 
 # Agent
 AGENT_ADMIN_PASSWORD=...
 NSO_ADMIN_EMAIL=...
 
 # JWT (auto-generated if not set — set in production for token persistence)
-SETUPO_JWT_SECRET=...
+NSO_JWT_SECRET=...
 
 # Email (optional — emails are no-op if not configured)
 SMTP_HOST=...
@@ -518,7 +518,7 @@ SMTP_PORT=587
 SMTP_USER=...
 SMTP_PASS=...
 SMTP_FROM=nso@nso.dev
-SETUPO_EMAIL_SECRET=...           # auto-generated if not set
+NSO_EMAIL_SECRET=...           # auto-generated if not set
 
 # Stripe (optional — for paid billing)
 STRIPE_SECRET_KEY=...
@@ -529,11 +529,11 @@ STRIPE_PUBLISHABLE_KEY=...
 ## Project Structure
 
 ```
-setupo/
+nso/
 ├── core/                    # Core business logic
 │   ├── db.py               # SQLite persistence (aiosqlite) + migrations
 │   ├── models.py           # All Pydantic models
-│   ├── errors.py           # Exception hierarchy (SetupoError tree)
+│   ├── errors.py           # Exception hierarchy (NsoError tree)
 │   ├── workspace_config.py # config.toml reader/writer
 │   ├── users.py            # User CRUD, auth, subdomain claiming
 │   ├── billing.py          # Billing engine (plans, subs, invoices, wallets, Stripe)
@@ -617,8 +617,8 @@ setupo/
 ├── deploy/                  # Production deploy configs
 │   ├── bootstrap.sh        # Full Debian 12 VPS bootstrap
 │   ├── nginx.conf          # Nginx reverse proxy config
-│   ├── setupo.service      # Main API systemd unit
-│   └── setupo-agent.service # Agent systemd unit
+│   ├── nso.service      # Main API systemd unit
+│   └── nso-agent.service # Agent systemd unit
 ├── base/
 │   ├── cloud-init.yaml     # VPS provisioning template
 │   └── scripts/bootstrap.sh # Post-boot verification
@@ -645,10 +645,10 @@ setupo/
 
 ```bash
 # Run API server (dev)
-cd /opt/setupo && venv/bin/uvicorn server.main:app --reload --port 8000
+cd /opt/nso && venv/bin/uvicorn server.main:app --reload --port 8000
 
 # Run agent (dev)
-cd /opt/setupo/nso-agent && ../venv/bin/uvicorn main:app --port 8081
+cd /opt/nso/nso-agent && ../venv/bin/uvicorn main:app --port 8081
 
 # Build dashboard
 cd dashboard && npm run build
@@ -660,5 +660,5 @@ curl -X POST -H "Authorization: Bearer sk_live_xxx" \
   https://nso.dev/api/projects/{pid}/zar/{name}/ship
 
 # Restart services
-systemctl restart setupo setupo-agent
+systemctl restart nso nso-agent
 ```

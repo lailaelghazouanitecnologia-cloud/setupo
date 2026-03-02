@@ -13,13 +13,13 @@ router = APIRouter(prefix="/exec", tags=["exec"])
 MAX_TIMEOUT = 300
 MAX_OUTPUT = 512 * 1024
 
-ALLOWED_SERVICES = frozenset({"setupo", "setupo-agent", "nginx"})
+ALLOWED_SERVICES = frozenset({"nso", "nso-agent", "nginx"})
 VALID_SERVICE_ACTIONS = frozenset({"start", "stop", "restart", "status", "enable", "disable"})
 
 
 class ExecRequest(BaseModel):
     command: str
-    working_dir: str = "/opt/setupo"
+    working_dir: str = "/opt/nso"
     timeout: int = Field(default=60, ge=1, le=MAX_TIMEOUT)
     env: dict[str, str] = Field(default_factory=dict)
 
@@ -60,7 +60,7 @@ async def execute_command(
         raise HTTPException(403, "Command blocked for safety")
 
     if not os.path.isdir(req.working_dir):
-        req.working_dir = "/opt/setupo"
+        req.working_dir = "/opt/nso"
 
     env = {**os.environ, **req.env}
 

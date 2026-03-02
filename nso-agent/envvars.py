@@ -11,7 +11,7 @@ from auth import require_admin, AdminUser
 logger = logging.getLogger("nso-agent.envvars")
 router = APIRouter(prefix="/secrets", tags=["secrets"])
 
-ENV_FILE = Path("/opt/setupo/.env")
+ENV_FILE = Path("/opt/nso/.env")
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
 
@@ -31,10 +31,10 @@ class SecretUpdateRequest(BaseModel):
 
 
 BUCKETS = [
-    {"name": "auth", "label": "Authentication", "prefixes": ["SETUPO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_"]},
+    {"name": "auth", "label": "Authentication", "prefixes": ["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_"]},
     {"name": "providers", "label": "Providers", "prefixes": ["VULTR_", "CF_"]},
     {"name": "storage", "label": "Storage (R2)", "prefixes": ["R2_"]},
-    {"name": "system", "label": "System", "prefixes": ["HOST", "PORT", "DB_", "LOG_", "CORS_", "SETUPO_SERVE"]},
+    {"name": "system", "label": "System", "prefixes": ["HOST", "PORT", "DB_", "LOG_", "CORS_", "NSO_SERVE"]},
 ]
 
 
