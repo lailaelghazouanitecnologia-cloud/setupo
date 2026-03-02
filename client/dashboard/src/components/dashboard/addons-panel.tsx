@@ -50,7 +50,7 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
 const TAB_CONFIG: { id: AddonTab; label: string; icon: typeof Puzzle }[] = [
   { id: "connectors", label: "Connectors", icon: Link2 },
   { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "marketplace", label: "Marketplace", icon: ShoppingBag },
+  { id: "marketplace", label: "Apps", icon: ShoppingBag },
 ];
 
 const ADDON_TYPE_MAP: Record<AddonTab, string> = {

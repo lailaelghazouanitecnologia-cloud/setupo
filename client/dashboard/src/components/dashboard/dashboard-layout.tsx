@@ -95,7 +95,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
-  { id: "addons", label: "Addons", icon: Blocks },
+  { id: "addons", label: "Apps", icon: Blocks },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -104,7 +104,7 @@ const viewTitles: Record<DashboardView, string> = {
   projects: "Projects",
   deploy: "Deploy",
   secrets: "Secrets",
-  addons: "Addons",
+  addons: "Apps",
   billing: "Billing",
   settings: "Settings",
 };
@@ -310,7 +310,7 @@ export function DashboardLayout() {
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
           {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
-          {activeView === "addons" && <PanelErrorBoundary name="Addons"><AddonsPanel /></PanelErrorBoundary>}
+          {activeView === "addons" && <PanelErrorBoundary name="Apps"><AddonsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
         </div>
