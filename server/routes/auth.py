@@ -95,7 +95,18 @@ async def register(req: RegisterRequest):
 async def login(req: LoginRequest):
     admin = verify_password(req.email, req.password)
     if admin:
-        token = load_admin_token()
+        # Ensure admin user exists in DB so user-scoped endpoints work
+        user = await users.get_user_by_email(req.email)
+        if not user:
+            user = await users.create_user(req.email, req.password, "Admin")
+            from core import db as _db
+            await _db.update("users", user["id"], {"role": "admin", "verified": 1})
+            user["role"] = "admin"
+        elif user.get("role") != "admin":
+            from core import db as _db
+            await _db.update("users", user["id"], {"role": "admin"})
+            user["role"] = "admin"
+        token = users.issue_token(user)
         logger.info("Admin login: %s", req.email)
         return LoginResponse(token=token, email=req.email, role="admin")
 
