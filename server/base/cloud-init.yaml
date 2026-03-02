@@ -61,7 +61,7 @@ write_files:
       NSO_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
       AGENT_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
       NSO_AGENT_URL=http://127.0.0.1:8081
-      NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
+      NSO_JWT_SECRET={{JWT_SECRET}}
 
   - path: /etc/systemd/system/nso.service
     permissions: "0644"

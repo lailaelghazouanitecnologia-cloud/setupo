@@ -1,4 +1,5 @@
 import base64
+import secrets
 from pathlib import Path
 
 from server.config import settings
@@ -58,6 +59,7 @@ def get_cloud_init(instance_type: str, domain: str | None = None) -> str:
         "{{R2_SECRET_ACCESS_KEY}}": settings.R2_SECRET_ACCESS_KEY,
         "{{R2_BUCKET}}": settings.R2_BUCKET,
         "{{ADMIN_PASSWORD}}": settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD,
+        "{{JWT_SECRET}}": secrets.token_hex(32),
     }
     for placeholder, value in replacements.items():
         content = content.replace(placeholder, value)
