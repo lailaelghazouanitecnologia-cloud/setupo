@@ -89,12 +89,12 @@ class PanelErrorBoundary extends Component<
 /* ═══════════════════════════════════════════
    NAV CONFIG
    ═══════════════════════════════════════════ */
-const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
+const navItems: { id: DashboardView; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: "inbox", label: "Inbox", icon: Mail },
-  { id: "instances", label: "Instances", icon: Server },
-  { id: "projects", label: "Projects", icon: FolderKanban },
+  { id: "instances", label: "Instances", icon: Server, adminOnly: true },
+  { id: "projects", label: "Projects", icon: FolderKanban, adminOnly: true },
   { id: "deploy", label: "Deploy", icon: Rocket },
-  { id: "secrets", label: "Secrets", icon: Key },
+  { id: "secrets", label: "Secrets", icon: Key, adminOnly: true },
   { id: "addons", label: "Apps", icon: Blocks },
 ];
 
@@ -213,6 +213,19 @@ export function DashboardLayout() {
   const setActiveView = useDashboardStore((s) => s.setActiveView);
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const toggleSidebar = useDashboardStore((s) => s.toggleSidebar);
+  const userRole = useDashboardStore((s) => s.userRole);
+  const isAdmin = userRole === "admin";
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || isAdmin);
+
+  // Redirect non-admin from admin-only views
+  useEffect(() => {
+    if (!isAdmin) {
+      const adminViews: DashboardView[] = ["instances", "projects", "secrets"];
+      if (adminViews.includes(activeView)) {
+        setActiveView("inbox");
+      }
+    }
+  }, [isAdmin, activeView, setActiveView]);
 
   const [balance, setBalance] = useState(0);
   const [unread, setUnread] = useState(0);
@@ -283,7 +296,7 @@ export function DashboardLayout() {
 
         {/* Navigation */}
         <nav className="fsidebar-nav">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               key={item.id}
               className={cn("fmenu", activeView === item.id && "active")}
