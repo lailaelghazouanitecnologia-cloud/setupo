@@ -33,6 +33,7 @@
 │  │   ├── zar.py, deploy.py        ├── providers/ (Vultr, CF)   │
 │  │   ├── billing.py, admin.py     └── zar/ (packer, storage)   │
 │  │   ├── plugins.py, plugin_api.py                              │
+│  │   ├── addons/ (catalog, connectors, marketplace)             │
 │  │   ├── modules.py, notifications.py                           │
 │  │   └── subdomain.py             Cloudflare R2                 │
 │  └── base/                         ├── .zar packages            │
@@ -190,7 +191,7 @@ Client (HTTPS :443 → nso.dev)
 | GET | `.../zar/{name}/versions` | List versions/branches |
 | POST | `.../zar/self-update` | Update agent/core/frontend on instance |
 
-### Plugins (admin for catalog, API key for install)
+### Plugins (admin for catalog, API key for install) — legacy
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `.../plugins/catalog` | List catalog (admin, includes unpublished) |
@@ -201,6 +202,21 @@ Client (HTTPS :443 → nso.dev)
 | POST | `.../plugins/install` | Install plugin (user) |
 | PATCH | `.../plugins/{id}` | Enable/disable, update config (user) |
 | DELETE | `.../plugins/{id}` | Uninstall (user) |
+
+### Addons (connectors + plugins + marketplace)
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `.../addons?addon_type=` | List addons (filtered by type) |
+| GET | `.../addons/catalog?addon_type=` | List catalog (admin) |
+| POST | `.../addons/catalog` | Publish addon (admin) |
+| PATCH | `.../addons/catalog/{type}/{id}` | Update catalog entry (admin) |
+| DELETE | `.../addons/catalog/{type}/{id}` | Remove from catalog (admin) |
+| POST | `.../addons/install?addon_type=` | Install addon |
+| PATCH | `.../addons/{id}?addon_type=` | Enable/disable, update config |
+| DELETE | `.../addons/{id}?addon_type=` | Uninstall addon |
+| GET | `.../addons/connectors/{id}/status` | Connector connection status |
+| POST | `.../addons/connectors/{id}/test` | Test connector connection |
+| GET | `.../addons/marketplace/{id}/status` | Marketplace app status |
 
 ### Plugin APIs (API key, requires plugin installed)
 | Method | Path | Description |
@@ -426,8 +442,10 @@ Resolved recursively (max depth 5) from R2.
 | `workspaces` | Workspace metadata per project |
 | `domains` | Domain records per project |
 | `deploy_logs` | Deploy log entries per instance |
-| `plugins` | Installed plugins per project |
-| `plugin_catalog` | Admin-published plugin definitions |
+| `plugins` | Installed plugins per project (legacy) |
+| `plugin_catalog` | Admin-published plugin definitions (legacy) |
+| `addon_catalog` | Unified addon catalog (connectors, plugins, marketplace) |
+| `addons` | Installed addons per project (connectors, plugins, marketplace) |
 | `modules` | System module catalog (server, core, agent, dashboard) |
 
 ### Users & Auth
@@ -534,6 +552,7 @@ setupo/
 │   │   ├── auth.py, health.py, projects.py, instances.py
 │   │   ├── workspaces.py, domains.py, deploy.py, zar.py
 │   │   ├── plugins.py, plugin_api.py, billing.py, admin.py
+│   │   ├── addons/ (catalog.py, connectors.py, marketplace.py)
 │   │   ├── modules.py, notifications.py, subdomain.py
 │   │   └── ...
 │   ├── core/                    # Core business logic
@@ -550,6 +569,7 @@ setupo/
 │   │   ├── instances/           # Instance CRUD + lifecycle
 │   │   ├── projects/            # Project CRUD
 │   │   ├── providers/           # Cloud provider clients (Vultr, Cloudflare)
+│   │   ├── addons/              # Addon system (base types, defaults)
 │   │   └── zar/                 # .zar packaging (packer, storage, resolver)
 │   └── base/                    # VPS provisioning templates
 │       └── cloud-init.yaml

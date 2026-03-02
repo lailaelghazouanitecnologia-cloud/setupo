@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef, Component, type ErrorInfo, type ReactNode } from "react";
 import {
-  Mail, Server, FolderKanban, Key, Puzzle,
+  Mail, Server, FolderKanban, Key, Blocks,
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, UserCog, Sun, Moon,
 } from "lucide-react";
@@ -12,7 +12,7 @@ import { InboxPanel } from "./inbox-panel";
 import { InstancesPanel } from "./instances-panel";
 import { ProjectsPanel } from "./projects-panel";
 import { SecretsPanel } from "./secrets-panel";
-import { PluginsPanel } from "./plugins-panel";
+import { AddonsPanel } from "./addons-panel";
 import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
 import { SettingsPanel } from "./settings-panel";
@@ -95,7 +95,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
-  { id: "plugins", label: "Plugins", icon: Puzzle },
+  { id: "addons", label: "Addons", icon: Blocks },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -104,7 +104,7 @@ const viewTitles: Record<DashboardView, string> = {
   projects: "Projects",
   deploy: "Deploy",
   secrets: "Secrets",
-  plugins: "Plugins",
+  addons: "Addons",
   billing: "Billing",
   settings: "Settings",
 };
@@ -310,7 +310,7 @@ export function DashboardLayout() {
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
           {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
-          {activeView === "plugins" && <PanelErrorBoundary name="Plugins"><PluginsPanel /></PanelErrorBoundary>}
+          {activeView === "addons" && <PanelErrorBoundary name="Addons"><AddonsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
         </div>

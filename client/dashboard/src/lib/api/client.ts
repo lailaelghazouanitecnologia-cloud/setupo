@@ -341,6 +341,22 @@ export interface PluginInfo {
   id: string | null;
 }
 
+export interface AddonInfo {
+  addon_id: string;
+  addon_type: "connector" | "plugin" | "marketplace";
+  name: string;
+  description: string;
+  version: string;
+  category: string;
+  icon: string;
+  author: string;
+  installed: boolean;
+  enabled: boolean;
+  config: Record<string, any>;
+  installed_at: string | null;
+  id: string | null;
+}
+
 export async function listPlugins(projectId: string) {
   return centralApi<{ plugins: PluginInfo[] }>(`/api/projects/${projectId}/plugins`);
 }
@@ -402,6 +418,55 @@ export async function removeCatalogEntry(projectId: string, pluginId: string) {
   return centralApi<{ ok: boolean; plugin_id: string }>(`/api/projects/${projectId}/plugins/catalog/${pluginId}`, {
     method: "DELETE",
   });
+}
+
+// ═══════════════════════════════════════════
+//  ADDONS API
+// ═══════════════════════════════════════════
+
+export async function listAddons(projectId: string, addonType = "") {
+  const params = addonType ? `?addon_type=${encodeURIComponent(addonType)}` : "";
+  return centralApi<{ addons: AddonInfo[] }>(`/api/projects/${projectId}/addons${params}`);
+}
+
+export async function installAddon(projectId: string, addonId: string, addonType = "plugin", config: Record<string, any> = {}) {
+  return centralApi<{ ok: boolean; addon: AddonInfo }>(`/api/projects/${projectId}/addons/install?addon_type=${encodeURIComponent(addonType)}`, {
+    method: "POST",
+    body: JSON.stringify({ plugin_id: addonId, config }),
+  });
+}
+
+export async function updateAddon(projectId: string, addonId: string, opts: { enabled?: boolean; config?: Record<string, any> }, addonType = "") {
+  const params = addonType ? `?addon_type=${encodeURIComponent(addonType)}` : "";
+  return centralApi<{ ok: boolean; addon_id: string; updated: string[] }>(`/api/projects/${projectId}/addons/${addonId}${params}`, {
+    method: "PATCH",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function uninstallAddon(projectId: string, addonId: string, addonType = "") {
+  const params = addonType ? `?addon_type=${encodeURIComponent(addonType)}` : "";
+  return centralApi<{ ok: boolean; addon_id: string }>(`/api/projects/${projectId}/addons/${addonId}${params}`, {
+    method: "DELETE",
+  });
+}
+
+export async function testConnector(projectId: string, connectorId: string) {
+  return centralApi<{ ok: boolean; message: string }>(`/api/projects/${projectId}/addons/connectors/${connectorId}/test`, {
+    method: "POST",
+  });
+}
+
+export async function getConnectorStatus(projectId: string, connectorId: string) {
+  return centralApi<{ connector_id: string; name: string; connected: boolean; config_keys: string[]; enabled: boolean }>(
+    `/api/projects/${projectId}/addons/connectors/${connectorId}/status`,
+  );
+}
+
+export async function getMarketplaceAppStatus(projectId: string, appId: string) {
+  return centralApi<{ app_id: string; name: string; version: string; enabled: boolean; config: Record<string, any> }>(
+    `/api/projects/${projectId}/addons/marketplace/${appId}/status`,
+  );
 }
 
 export async function getDeployStatus() {

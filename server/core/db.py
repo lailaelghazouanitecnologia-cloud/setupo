@@ -137,6 +137,37 @@ async def _migrate(db: aiosqlite.Connection):
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS addon_catalog (
+            id TEXT PRIMARY KEY,
+            addon_id TEXT NOT NULL,
+            addon_type TEXT NOT NULL DEFAULT 'plugin',
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            version TEXT DEFAULT '1.0.0',
+            category TEXT DEFAULT '',
+            icon TEXT DEFAULT '',
+            author TEXT DEFAULT 'nso',
+            published INTEGER DEFAULT 1,
+            config_schema TEXT DEFAULT '{}',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS addons (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            addon_id TEXT NOT NULL,
+            addon_type TEXT NOT NULL DEFAULT 'plugin',
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            version TEXT DEFAULT '1.0.0',
+            category TEXT DEFAULT '',
+            enabled INTEGER DEFAULT 1,
+            config TEXT DEFAULT '{}',
+            installed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             email TEXT NOT NULL UNIQUE,
@@ -184,6 +215,11 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE UNIQUE INDEX IF NOT EXISTS idx_workspaces_name ON workspaces(project_id, name);
         CREATE INDEX IF NOT EXISTS idx_plugins_project ON plugins(project_id);
         CREATE UNIQUE INDEX IF NOT EXISTS idx_plugins_unique ON plugins(project_id, plugin_id);
+        CREATE INDEX IF NOT EXISTS idx_addon_catalog_type ON addon_catalog(addon_type);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_addon_catalog_unique ON addon_catalog(addon_id, addon_type);
+        CREATE INDEX IF NOT EXISTS idx_addon_catalog_published ON addon_catalog(published);
+        CREATE INDEX IF NOT EXISTS idx_addons_project ON addons(project_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_addons_unique ON addons(project_id, addon_id, addon_type);
         CREATE INDEX IF NOT EXISTS idx_plugin_catalog_published ON plugin_catalog(published);
         CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
         CREATE INDEX IF NOT EXISTS idx_transactions_user ON transactions(user_id);
