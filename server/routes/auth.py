@@ -7,9 +7,9 @@ from pydantic import BaseModel
 from server.auth.middleware import LoginRequest, LoginResponse, verify_password, load_admin_token
 from server.deps import require_user, require_admin, AuthContext
 from server.routes.notifications import create_notification
-from core import users
-from core import email as email_service
-from core.errors import NsoError
+from server.core import users
+from server.core import email as email_service
+from server.core.errors import NsoError
 
 logger = logging.getLogger("nso.auth")
 router = APIRouter()
@@ -99,11 +99,11 @@ async def login(req: LoginRequest):
         user = await users.get_user_by_email(req.email)
         if not user:
             user = await users.create_user(req.email, req.password, "Admin")
-            from core import db as _db
+            from server.core import db as _db
             await _db.update("users", user["id"], {"role": "admin", "verified": 1})
             user["role"] = "admin"
         elif user.get("role") != "admin":
-            from core import db as _db
+            from server.core import db as _db
             await _db.update("users", user["id"], {"role": "admin"})
             user["role"] = "admin"
         token = users.issue_token(user)

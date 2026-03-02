@@ -1,7 +1,7 @@
 """Tests for core/billing.py — plans, subscriptions, coupons, wallets, invoices."""
 import pytest
-from core import billing
-from core.errors import ConflictError, NotFoundError, ValidationError
+from server.core import billing
+from server.core.errors import ConflictError, NotFoundError, ValidationError
 
 
 # ── Plans ─────────────────────────────────────────────────────

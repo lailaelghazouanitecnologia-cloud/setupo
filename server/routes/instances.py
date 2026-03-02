@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
-from core.models import CreateInstanceRequest, InstanceExecRequest
-from core.instances import manager as im
+from server.core.models import CreateInstanceRequest, InstanceExecRequest
+from server.core.instances import manager as im
 from server.deps import require_project
 
 router = APIRouter()
@@ -62,7 +62,7 @@ async def exec_on_instance(instance_id: str, req: InstanceExecRequest, project_i
 
 @router.get("/{instance_id}/logs")
 async def get_instance_logs(instance_id: str, project_id: str = Depends(require_project), tail: int = 100):
-    from core.deploy.pipeline import get_deploy_logs
+    from server.core.deploy.pipeline import get_deploy_logs
     await im.get_instance(project_id, instance_id)
     logs = await get_deploy_logs(instance_id, limit=tail)
     return {"logs": logs}

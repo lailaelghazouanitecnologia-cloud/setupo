@@ -10,8 +10,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
 from server.deps import require_admin, AuthContext
-from core import analytics, blockchain
-from core.errors import NsoError
+from server.core import analytics, blockchain
+from server.core.errors import NsoError
 
 logger = logging.getLogger("nso.admin")
 router = APIRouter()

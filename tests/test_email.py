@@ -1,8 +1,8 @@
 """Tests for core/email.py — tokens, verification, reset."""
 import time
 import pytest
-from core import email as email_service
-from core.errors import ValidationError
+from server.core import email as email_service
+from server.core.errors import ValidationError
 
 
 # ── Token generation & verification ───────────────────────────
@@ -50,7 +50,7 @@ async def test_verify_email_flow(fresh_db, test_user):
     await email_service.send_verification_email(test_user["id"], test_user["email"])
 
     # Get the token from DB
-    from core import db
+    from server.core import db
     d = await db.get_db()
     cursor = await d.execute(
         "SELECT token_hash FROM email_tokens WHERE user_id = ? AND purpose = 'verify'",
@@ -85,7 +85,7 @@ async def test_verify_email_flow(fresh_db, test_user):
 @pytest.mark.asyncio
 async def test_verify_token_reuse_rejected(fresh_db, test_user):
     """A verification token can only be used once."""
-    from core import db
+    from server.core import db
     import hashlib, secrets
 
     token = email_service._generate_token(test_user["id"], "verify", 3600)
@@ -110,7 +110,7 @@ async def test_verify_token_reuse_rejected(fresh_db, test_user):
 @pytest.mark.asyncio
 async def test_reset_password_flow(fresh_db, test_user):
     """Full flow: forgot → confirm reset → login with new password."""
-    from core import db, users
+    from server.core import db, users
     import hashlib, secrets as sec
 
     # Generate reset token manually
@@ -131,7 +131,7 @@ async def test_reset_password_flow(fresh_db, test_user):
     assert user_id == test_user["id"]
 
     # Old password should fail
-    from core.errors import AuthError
+    from server.core.errors import AuthError
     with pytest.raises(AuthError):
         await users.authenticate(test_user["email"], "password1234")
 
@@ -143,7 +143,7 @@ async def test_reset_password_flow(fresh_db, test_user):
 @pytest.mark.asyncio
 async def test_reset_short_password_rejected(fresh_db, test_user):
     """Reset with too-short password should fail."""
-    from core import db
+    from server.core import db
     import hashlib, secrets as sec
 
     token = email_service._generate_token(test_user["id"], "reset", 3600)

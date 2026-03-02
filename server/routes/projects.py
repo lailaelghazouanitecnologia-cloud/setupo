@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
-from core.models import CreateProjectRequest
-from core.projects import manager as pm
+from server.core.models import CreateProjectRequest
+from server.core.projects import manager as pm
 from server.deps import require_admin, get_auth
 from server.auth.middleware import AuthContext
 

@@ -15,46 +15,35 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CENTRAL SERVER (:8000)                        │
+│                    server/ — CENTRAL SERVER (:8000)              │
 │                                                                 │
-│  dashboard/ (Next.js)          server/ (FastAPI)                │
-│  ├── src/app/                  ├── main.py (entry + middleware) │
-│  ├── src/components/           ├── config.py (env vars)         │
-│  │   └── dashboard/            ├── deps.py (auth deps)          │
-│  │       ├── admin-panel       ├── ratelimit.py (brute-force)   │
-│  │       ├── billing-panel     ├── auth/                        │
-│  │       ├── inbox-panel       │   ├── jwt.py (user JWT+PBKDF2) │
-│  │       ├── instances-panel   │   ├── keys.py (sk_live_ gen)   │
-│  │       ├── projects-panel    │   └── middleware.py (resolve)   │
-│  │       ├── deploy-panel      └── routes/                      │
-│  │       ├── secrets-panel         ├── health.py                │
-│  │       ├── settings-panel        ├── auth.py (login+register) │
-│  │       └── plugins-panel         ├── projects.py              │
-│  ├── src/lib/api/client.ts         ├── instances.py             │
-│  └── src/stores/                   ├── workspaces.py            │
-│                                    ├── domains.py               │
-│  core/                             ├── deploy.py                │
-│  ├── db.py (SQLite + migrations)   ├── zar.py                   │
-│  ├── models.py (Pydantic)          ├── plugins.py               │
-│  ├── errors.py                     ├── billing.py (Stripe+plans)│
-│  ├── workspace_config.py           ├── admin.py (user mgmt)     │
-│  ├── users.py (user CRUD+auth)     ├── modules.py (sys modules) │
-│  ├── billing.py (billing engine)   ├── notifications.py         │
-│  ├── blockchain.py (ledger)        ├── subdomain.py             │
-│  ├── analytics.py (metrics+fraud)  └── plugin_api.py            │
-│  ├── email.py (SMTP+templates)                                  │
-│  ├── deploy/ (orchestration)   Cloudflare R2                    │
-│  ├── instances/ (lifecycle)    ├── .zar packages                │
-│  ├── projects/ (CRUD)          ├── branches.json                │
-│  ├── providers/ (Vultr, CF)    └── latest.zar per branch        │
-│  └── zar/ (packer, storage)                                     │
+│  server/                           server/core/                 │
+│  ├── main.py (entry + middleware)  ├── db.py (SQLite+migrations)│
+│  ├── config.py (env vars)          ├── models.py (Pydantic)     │
+│  ├── deps.py (auth deps)           ├── errors.py               │
+│  ├── ratelimit.py (brute-force)    ├── users.py (CRUD+auth)    │
+│  ├── auth/                         ├── billing.py (engine)      │
+│  │   ├── jwt.py (JWT+PBKDF2)      ├── blockchain.py (ledger)   │
+│  │   ├── keys.py (sk_live_ gen)    ├── analytics.py (metrics)   │
+│  │   └── middleware.py (resolve)   ├── email.py (SMTP)          │
+│  ├── routes/                       ├── workspace_config.py      │
+│  │   ├── health.py, auth.py       ├── deploy/ (orchestration)  │
+│  │   ├── projects.py, instances.py ├── instances/ (lifecycle)   │
+│  │   ├── workspaces.py, domains.py ├── projects/ (CRUD)         │
+│  │   ├── zar.py, deploy.py        ├── providers/ (Vultr, CF)   │
+│  │   ├── billing.py, admin.py     └── zar/ (packer, storage)   │
+│  │   ├── plugins.py, plugin_api.py                              │
+│  │   ├── modules.py, notifications.py                           │
+│  │   └── subdomain.py             Cloudflare R2                 │
+│  └── base/                         ├── .zar packages            │
+│      └── cloud-init.yaml           ├── branches.json            │
+│                                    └── latest.zar per branch    │
 └───────────────────────┬─────────────────────────────────────────┘
                         │  HTTP (no SSH)
                         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   NSO AGENT (per VPS :8081)                      │
+│                   instance/ — NSO AGENT (per VPS :8081)          │
 │                                                                 │
-│  nso-agent/                                                     │
 │  ├── main.py       (entry, router mounting)                     │
 │  ├── auth.py       (JWT login, PBKDF2)                          │
 │  ├── files.py      (browse/read/write/delete)                   │
@@ -68,9 +57,11 @@
 └─────────────────────────────────────────────────────────────────┘
 
 ┌─────────────────────────────────────────────────────────────────┐
-│                   NSO CLIENT (Python CLI)                        │
-│  cli/ — Python CLI (rich TUI)                                   │
-│  Commands: nso login, nso ship, nso exec, nso inst              │
+│  client/dashboard/  — Main Next.js dashboard                    │
+│  client/admin/      — Admin Next.js dashboard                   │
+│  cli.py             — Python CLI (nso login, ship, exec, inst)  │
+│  common/            — Shared utilities                          │
+│  doc/               — Documentation + deploy configs            │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -127,7 +118,7 @@ Client (HTTPS :443 → nso.dev)
     ├── /api/*      → proxy_pass 127.0.0.1:8000  (FastAPI central)
     ├── /agent/*    → proxy_pass 127.0.0.1:8081/ (nso-agent)
     ├── /ws/*       → WebSocket proxy :8000
-    └── /           → /opt/nso/dashboard/static (Next.js export)
+    └── /           → /opt/nso/client/dashboard/static (Next.js export)
 ```
 
 ## API Routes — Central Server (:8000)
@@ -529,104 +520,73 @@ STRIPE_PUBLISHABLE_KEY=...
 ## Project Structure
 
 ```
-nso/
-├── core/                    # Core business logic
-│   ├── db.py               # SQLite persistence (aiosqlite) + migrations
-│   ├── models.py           # All Pydantic models
-│   ├── errors.py           # Exception hierarchy (NsoError tree)
-│   ├── workspace_config.py # config.toml reader/writer
-│   ├── users.py            # User CRUD, auth, subdomain claiming
-│   ├── billing.py          # Billing engine (plans, subs, invoices, wallets, Stripe)
-│   ├── blockchain.py       # Immutable hash-linked ledger for financial traceability
-│   ├── analytics.py        # Metrics, fraud detection, admin user management
-│   ├── email.py            # SMTP email service (verification, reset, notifications)
-│   ├── deploy/             # Deploy orchestration
-│   │   ├── pipeline.py     # Deploy pipeline
-│   │   └── sync.py         # File sync
-│   ├── instances/          # Instance CRUD + lifecycle
-│   │   ├── manager.py      # Instance management
-│   │   ├── provisioner.py  # VPS provisioning
-│   │   └── types.py        # Instance types
-│   ├── projects/           # Project CRUD
-│   │   └── manager.py      # Project management
-│   ├── providers/          # Cloud provider clients
-│   │   ├── base.py         # Provider base class
-│   │   ├── vultr.py        # Vultr API client
-│   │   └── cloudflare.py   # Cloudflare DNS + zone management
-│   └── zar/                # .zar packaging system
-│       ├── packer.py       # Pack/extract .zar archives
-│       ├── storage.py      # R2 client (S3v4 HMAC signing, no boto3)
-│       └── resolver.py     # Dependency resolution
-├── server/                  # FastAPI HTTP layer
-│   ├── main.py             # App entry, middleware stack, router mounting
-│   ├── config.py           # Settings from env (all config centralized)
-│   ├── deps.py             # Shared FastAPI dependencies (require_project/admin/user)
-│   ├── ratelimit.py        # Rate limiting middleware (sliding window per IP)
-│   ├── auth/               # Auth system
-│   │   ├── jwt.py          # User JWT creation/decode + PBKDF2 password hashing
-│   │   ├── keys.py         # API key generation (sk_live_)
-│   │   └── middleware.py   # Token resolution (admin/user/API key) + AuthContext
-│   └── routes/             # All API route handlers
-│       ├── auth.py         # Login, register, profile, password reset, email verify
-│       ├── health.py       # Health check
-│       ├── projects.py     # Project CRUD
-│       ├── instances.py    # Instance lifecycle
-│       ├── workspaces.py   # Workspace management
-│       ├── domains.py      # Domain management
-│       ├── deploy.py       # Deploy orchestration
-│       ├── zar.py          # .zar pack/push/deploy/ship
-│       ├── plugins.py      # Plugin catalog (admin) + install (user)
-│       ├── plugin_api.py   # Plugin runtime APIs (storage, logs, dns, monitoring, backups)
-│       ├── billing.py      # Full billing API (plans, subs, checkout, invoices, wallets, coupons)
-│       ├── admin.py        # Admin panel API (user mgmt, analytics, ledger, fraud)
-│       ├── modules.py      # System module management (upload, catalog)
-│       ├── notifications.py # Notification inbox CRUD
-│       └── subdomain.py    # User subdomain claiming + DNS setup
-├── nso-agent/               # VPS agent (runs on each instance)
-│   ├── main.py             # Agent entry
-│   ├── auth.py             # Agent-local JWT auth (PBKDF2)
-│   ├── files.py            # File operations (browse/read/write/delete)
-│   ├── exec.py             # Command execution
-│   ├── deploy.py           # .zar deploy/snapshot/rollback
-│   ├── envvars.py          # Env var CRUD with bucket grouping
-│   ├── store.py            # SQLite metrics store
-│   └── models.py           # Agent models
-├── dashboard/               # Next.js admin dashboard
-│   └── src/
-│       ├── app/            # Next.js app router
-│       │   ├── layout.tsx  # Root layout
-│       │   ├── page.tsx    # Main page
-│       │   └── global-error.tsx
-│       ├── components/
-│       │   └── dashboard/
-│       │       ├── dashboard-layout.tsx  # Main layout + sidebar + header
-│       │       ├── admin-panel.tsx       # Admin user management
-│       │       ├── billing-panel.tsx     # Billing & subscription management
-│       │       ├── inbox-panel.tsx       # Notifications
-│       │       ├── instances-panel.tsx   # Instance management
-│       │       ├── projects-panel.tsx    # Project + workspace management
-│       │       ├── deploy-panel.tsx      # Deploy UI
-│       │       ├── secrets-panel.tsx     # Secrets with bucket groups
-│       │       ├── settings-panel.tsx    # User settings
-│       │       └── plugins-panel.tsx     # Plugin catalog + install
-│       ├── lib/
-│       │   ├── api/client.ts            # API client (agent + central + billing)
-│       │   └── utils.ts                 # Shared utilities
-│       ├── stores/dashboard-store.ts    # Zustand state
-│       └── types/dashboard.ts           # TypeScript types
-├── deploy/                  # Production deploy configs
-│   ├── bootstrap.sh        # Full Debian 12 VPS bootstrap
-│   ├── nginx.conf          # Nginx reverse proxy config
-│   ├── nso.service      # Main API systemd unit
-│   └── nso-agent.service # Agent systemd unit
-├── base/
-│   ├── cloud-init.yaml     # VPS provisioning template
-│   └── scripts/bootstrap.sh # Post-boot verification
-├── workspaces/              # Workspace files (on VPS)
-├── .env.example
+setupo/
+├── server/                      # Central server (API + business logic)
+│   ├── main.py                  # App entry, middleware stack, router mounting
+│   ├── config.py                # Settings from env (all config centralized)
+│   ├── deps.py                  # Shared FastAPI dependencies
+│   ├── ratelimit.py             # Rate limiting middleware
+│   ├── auth/                    # Auth system
+│   │   ├── jwt.py               # User JWT + PBKDF2 password hashing
+│   │   ├── keys.py              # API key generation (sk_live_)
+│   │   └── middleware.py        # Token resolution + AuthContext
+│   ├── routes/                  # All API route handlers
+│   │   ├── auth.py, health.py, projects.py, instances.py
+│   │   ├── workspaces.py, domains.py, deploy.py, zar.py
+│   │   ├── plugins.py, plugin_api.py, billing.py, admin.py
+│   │   ├── modules.py, notifications.py, subdomain.py
+│   │   └── ...
+│   ├── core/                    # Core business logic
+│   │   ├── db.py                # SQLite persistence (aiosqlite) + migrations
+│   │   ├── models.py            # All Pydantic models
+│   │   ├── errors.py            # Exception hierarchy (NsoError tree)
+│   │   ├── workspace_config.py  # config.toml reader/writer
+│   │   ├── users.py             # User CRUD, auth, subdomain claiming
+│   │   ├── billing.py           # Billing engine
+│   │   ├── blockchain.py        # Hash-linked ledger
+│   │   ├── analytics.py         # Metrics, fraud detection
+│   │   ├── email.py             # SMTP email service
+│   │   ├── deploy/              # Deploy orchestration (pipeline.py, sync.py)
+│   │   ├── instances/           # Instance CRUD + lifecycle
+│   │   ├── projects/            # Project CRUD
+│   │   ├── providers/           # Cloud provider clients (Vultr, Cloudflare)
+│   │   └── zar/                 # .zar packaging (packer, storage, resolver)
+│   └── base/                    # VPS provisioning templates
+│       └── cloud-init.yaml
+│
+├── instance/                    # NSO Agent (runs on each VPS)
+│   ├── main.py                  # Agent entry
+│   ├── auth.py                  # Agent-local JWT auth
+│   ├── files.py                 # File operations
+│   ├── exec.py                  # Command execution
+│   ├── deploy.py                # .zar deploy/snapshot/rollback
+│   ├── envvars.py               # Env var CRUD with bucket grouping
+│   ├── store.py                 # SQLite metrics store
+│   └── models.py                # Agent models
+│
+├── client/                      # Frontend dashboards
+│   ├── dashboard/               # Main Next.js dashboard
+│   │   └── src/
+│   │       ├── app/             # Next.js app router
+│   │       ├── components/dashboard/  # All panels
+│   │       ├── lib/api/client.ts      # API client
+│   │       ├── stores/                # Zustand state
+│   │       └── types/                 # TypeScript types
+│   └── admin/                   # Admin Next.js dashboard
+│       └── src/
+│
+├── common/                      # Shared utilities (future)
+├── doc/                         # Documentation + deploy configs
+│   ├── deploy/                  # nginx.conf, systemd units, bootstrap.sh
+│   ├── PLAN.md                  # Roadmap
+│   └── *.md                     # API reference, CLI docs, etc.
+│
+├── tests/                       # Test suite
+├── cli.py                       # Python CLI (nso login, ship, exec, inst)
+├── nso                          # CLI entry point
 ├── requirements.txt
-├── PLAN.md                  # Roadmap
-└── CLAUDE.md                # This file — architecture reference
+├── pytest.ini
+└── CLAUDE.md                    # This file — architecture reference
 ```
 
 ## Tech Stack
@@ -648,10 +608,10 @@ nso/
 cd /opt/nso && venv/bin/uvicorn server.main:app --reload --port 8000
 
 # Run agent (dev)
-cd /opt/nso/nso-agent && ../venv/bin/uvicorn main:app --port 8081
+cd /opt/nso/instance && ../venv/bin/uvicorn main:app --port 8081
 
 # Build dashboard
-cd dashboard && npm run build
+cd client/dashboard && npm run build
 
 # Ship (pack + push + deploy)
 curl -X POST -H "Authorization: Bearer sk_live_xxx" \

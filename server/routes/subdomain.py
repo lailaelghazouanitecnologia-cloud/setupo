@@ -6,9 +6,9 @@ from pydantic import BaseModel
 from server.deps import require_user, AuthContext
 from server.config import settings
 from server.routes.notifications import create_notification
-from core import users
-from core.errors import NsoError
-from core.providers.cloudflare import CloudflareProvider
+from server.core import users
+from server.core.errors import NsoError
+from server.core.providers.cloudflare import CloudflareProvider
 
 logger = logging.getLogger("nso.subdomain")
 router = APIRouter()

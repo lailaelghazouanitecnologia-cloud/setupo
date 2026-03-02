@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core import db
-from core.models import InstallPluginRequest, UpdatePluginRequest
+from server.core import db
+from server.core.models import InstallPluginRequest, UpdatePluginRequest
 from server.deps import require_project, require_admin
 
 logger = logging.getLogger("nso.routes.plugins")

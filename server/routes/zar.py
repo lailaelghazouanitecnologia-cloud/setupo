@@ -5,11 +5,11 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from core import db
-from core.models import ZarUploadResult
-from core.zar.packer import pack, read_manifest
-from core.zar.storage import R2Client
-from core.workspace_config import read_config, read_package_config
+from server.core import db
+from server.core.models import ZarUploadResult
+from server.core.zar.packer import pack, read_manifest
+from server.core.zar.storage import R2Client
+from server.core.workspace_config import read_config, read_package_config
 from server.config import settings
 from server.deps import require_project
 

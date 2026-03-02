@@ -10,7 +10,7 @@ from pydantic import BaseModel
 
 from server.config import settings
 from server.auth.jwt import decode_user_token, verify_password as _pbkdf2_verify
-from core import db
+from server.core import db
 
 logger = logging.getLogger("nso.auth")
 

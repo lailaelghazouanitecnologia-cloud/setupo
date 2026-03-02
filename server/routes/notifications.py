@@ -4,7 +4,7 @@ import secrets as stdlib_secrets
 from fastapi import APIRouter, HTTPException, Depends
 
 from server.deps import require_user, require_admin, AuthContext
-from core import db
+from server.core import db
 
 logger = logging.getLogger("nso.notifications")
 router = APIRouter()

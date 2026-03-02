@@ -14,8 +14,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from server.deps import require_user, require_admin, AuthContext
-from core import db, billing
-from core.errors import NsoError
+from server.core import db, billing
+from server.core.errors import NsoError
 
 logger = logging.getLogger("nso.billing")
 router = APIRouter()

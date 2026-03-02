@@ -9,8 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 
-from core import db
-from core.models import (
+from server.core import db
+from server.core.models import (
     CreateWorkspaceRequest,
     WorkspaceConfig,
     WorkspaceGitConfig,
@@ -18,7 +18,7 @@ from core.models import (
     WorkspaceServiceConfig,
     WorkspaceType,
 )
-from core.workspace_config import read_config, write_config, generate_config_toml
+from server.core.workspace_config import read_config, write_config, generate_config_toml
 from server.deps import require_project
 from server.config import settings
 
@@ -342,7 +342,7 @@ async def deploy_workspace(name: str, project_id: str = Depends(require_project)
     if not instance_id:
         raise HTTPException(400, "No instance_id in config.toml — link a workspace to an instance first")
 
-    from core.deploy.pipeline import deploy_to_instance
+    from server.core.deploy.pipeline import deploy_to_instance
     return await deploy_to_instance(
         project_id=project_id,
         instance_id=instance_id,

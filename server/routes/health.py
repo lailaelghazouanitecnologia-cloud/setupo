@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter
 
-from core.models import Capabilities
-from core.instances.types import INSTANCE_CONFIGS
+from server.core.models import Capabilities
+from server.core.instances.types import INSTANCE_CONFIGS
 
 router = APIRouter()
 

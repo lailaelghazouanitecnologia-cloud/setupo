@@ -1,7 +1,7 @@
 """Tests for auth — users, JWT, passwords."""
 import pytest
-from core import users
-from core.errors import AuthError, ConflictError, ValidationError
+from server.core import users
+from server.core.errors import AuthError, ConflictError, ValidationError
 from server.auth.jwt import (
     hash_password, verify_password,
     create_user_token, decode_user_token,

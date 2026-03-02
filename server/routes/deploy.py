@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 
-from core.models import DeployRequest
-from core.deploy.pipeline import deploy_to_instance
-from core.instances import manager as im
+from server.core.models import DeployRequest
+from server.core.deploy.pipeline import deploy_to_instance
+from server.core.instances import manager as im
 from server.deps import require_project
 
 router = APIRouter()

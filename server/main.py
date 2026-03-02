@@ -7,8 +7,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from core import db
-from core.errors import NsoError
+from server.core import db
+from server.core.errors import NsoError
 from server.config import settings
 from server.ratelimit import RateLimitMiddleware
 

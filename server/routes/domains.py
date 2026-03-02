@@ -3,9 +3,9 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Depends
 
-from core import db
-from core.models import CreateDomainRequest
-from core.providers.cloudflare import CloudflareProvider
+from server.core import db
+from server.core.models import CreateDomainRequest
+from server.core.providers.cloudflare import CloudflareProvider
 from server.deps import require_project
 
 logger = logging.getLogger("nso.domains")

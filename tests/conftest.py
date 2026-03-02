@@ -25,7 +25,7 @@ def event_loop():
 @pytest.fixture(autouse=True)
 async def fresh_db(tmp_path):
     """Create a fresh in-memory database for each test."""
-    from core import db as db_mod
+    from server.core import db as db_mod
 
     # Open in-memory DB
     conn = await aiosqlite.connect(":memory:")
@@ -50,7 +50,7 @@ def user_id():
 @pytest.fixture
 async def test_user(fresh_db):
     """Create a test user and return their data."""
-    from core import users
+    from server.core import users
     user = await users.create_user("test@example.com", "password1234", "Test User")
     return user
 
@@ -58,7 +58,7 @@ async def test_user(fresh_db):
 @pytest.fixture
 async def admin_user(fresh_db):
     """Create an admin user."""
-    from core import db
+    from server.core import db
     from server.auth.jwt import hash_password
     import secrets
 

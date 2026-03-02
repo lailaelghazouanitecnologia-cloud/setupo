@@ -84,7 +84,7 @@ class Settings:
 
     @classmethod
     def r2_config(cls):
-        from core.models import R2Config
+        from server.core.models import R2Config
         return R2Config(
             bucket=cls.R2_BUCKET,
             endpoint=cls.R2_ENDPOINT,
