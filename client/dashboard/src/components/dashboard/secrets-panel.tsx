@@ -4,10 +4,12 @@ import { useState, useEffect } from "react";
 import {
   Key, Plus, Eye, EyeOff, Trash2, RefreshCw, Copy, Check,
   Shield, ChevronDown, ChevronRight, FolderKey, Folder,
+  Globe, Server, X,
 } from "lucide-react";
 import {
   listSecrets, addSecret as apiAddSecret, deleteSecret as apiDeleteSecret,
-  type AgentSecret,
+  listSecretScopes, createSecretScope, deleteSecretScope,
+  type AgentSecret, type SecretScope,
 } from "@/lib/api/client";
 
 interface Bucket {
@@ -28,6 +30,8 @@ const BUCKET_ORDER = ["auth", "providers", "storage", "system", "custom"];
 
 export function SecretsPanel() {
   const [secrets, setSecrets] = useState<AgentSecret[]>([]);
+  const [scopes, setScopes] = useState<SecretScope[]>([]);
+  const [activeScope, setActiveScope] = useState("general");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<Set<string>>(new Set());
@@ -36,12 +40,24 @@ export function SecretsPanel() {
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [copied, setCopied] = useState<string | null>(null);
+  const [addingScope, setAddingScope] = useState(false);
+  const [newDomain, setNewDomain] = useState("");
 
-  const fetchSecrets = async () => {
+  const fetchScopes = async () => {
+    try {
+      const res = await listSecretScopes();
+      setScopes(res.scopes || []);
+    } catch {
+      // Scopes endpoint not available — fallback to general only
+      setScopes([{ id: "general", label: "General", type: "general", domain: null }]);
+    }
+  };
+
+  const fetchSecrets = async (scope?: string) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await listSecrets();
+      const res = await listSecrets(scope ?? activeScope);
       setSecrets(res.secrets || []);
     } catch (err: any) {
       setError(err.message || "Failed to load secrets");
@@ -50,14 +66,18 @@ export function SecretsPanel() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchSecrets(); }, []);
+  useEffect(() => { fetchScopes(); }, []);
+  useEffect(() => {
+    fetchSecrets(activeScope);
+    setRevealed(new Set());
+  }, [activeScope]);
 
   const handleAdd = async () => {
     const k = newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
     const v = newValue.trim();
     if (!k || !v) return;
     try {
-      await apiAddSecret(k, v);
+      await apiAddSecret(k, v, activeScope);
       setNewKey("");
       setNewValue("");
       setAdding(false);
@@ -70,10 +90,35 @@ export function SecretsPanel() {
   const handleDelete = async (key: string) => {
     if (!confirm(`Remove ${key}?`)) return;
     try {
-      await apiDeleteSecret(key);
+      await apiDeleteSecret(key, activeScope);
       fetchSecrets();
     } catch (err: any) {
       setError(err.message || "Failed to delete secret");
+    }
+  };
+
+  const handleAddScope = async () => {
+    const d = newDomain.trim().toLowerCase();
+    if (!d) return;
+    try {
+      await createSecretScope(d);
+      setNewDomain("");
+      setAddingScope(false);
+      await fetchScopes();
+      setActiveScope(`domain:${d}`);
+    } catch (err: any) {
+      setError(err.message || "Failed to create scope");
+    }
+  };
+
+  const handleDeleteScope = async (domain: string) => {
+    if (!confirm(`Delete scope "${domain}" and all its secrets?`)) return;
+    try {
+      await deleteSecretScope(domain);
+      if (activeScope === `domain:${domain}`) setActiveScope("general");
+      fetchScopes();
+    } catch (err: any) {
+      setError(err.message || "Failed to delete scope");
     }
   };
 
@@ -113,6 +158,8 @@ export function SecretsPanel() {
   }
 
   const activeBuckets = BUCKET_ORDER.filter((b) => grouped[b]?.length);
+  const domainScopes = scopes.filter((s) => s.type === "domain");
+  const activeScopeLabel = scopes.find((s) => s.id === activeScope)?.label || activeScope;
 
   const bucketIcon = (icon: string) => {
     switch (icon) {
@@ -126,10 +173,82 @@ export function SecretsPanel() {
 
   return (
     <div>
+      {/* ── Scope selector ── */}
+      <div style={{
+        display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 14,
+        padding: "0 0 12px", borderBottom: "1px solid var(--border)",
+      }}>
+        {/* General scope */}
+        <button
+          className={`scope-chip ${activeScope === "general" ? "active" : ""}`}
+          onClick={() => setActiveScope("general")}
+        >
+          <Server className="h-3 w-3" />
+          <span>General</span>
+        </button>
+
+        {/* Domain scopes */}
+        {domainScopes.map((scope) => (
+          <div key={scope.id} style={{ display: "flex", alignItems: "center", gap: 0 }}>
+            <button
+              className={`scope-chip ${activeScope === scope.id ? "active" : ""}`}
+              onClick={() => setActiveScope(scope.id)}
+            >
+              <Globe className="h-3 w-3" />
+              <span>{scope.domain}</span>
+              {scope.count != null && (
+                <span style={{ fontSize: "var(--font-xxs)", opacity: 0.6 }}>{scope.count}</span>
+              )}
+            </button>
+            <button
+              className="scope-chip-delete"
+              title={`Delete scope ${scope.domain}`}
+              onClick={(e) => { e.stopPropagation(); handleDeleteScope(scope.domain!); }}
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </div>
+        ))}
+
+        {/* Add domain scope */}
+        {addingScope ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <input
+              className="scope-input"
+              type="text"
+              placeholder="example.com"
+              value={newDomain}
+              onChange={(e) => setNewDomain(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleAddScope();
+                if (e.key === "Escape") { setAddingScope(false); setNewDomain(""); }
+              }}
+              autoFocus
+            />
+            <button className="panel-btn-sm" onClick={handleAddScope} disabled={!newDomain.trim()}>
+              <Check className="h-3 w-3" />
+            </button>
+            <button className="panel-btn-sm" onClick={() => { setAddingScope(false); setNewDomain(""); }}>
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        ) : (
+          <button className="scope-chip add" onClick={() => setAddingScope(true)}>
+            <Plus className="h-3 w-3" />
+            <span>Domain</span>
+          </button>
+        )}
+      </div>
+
+      {/* ── Header row ── */}
       <div className="panel-header-row">
-        <span className="panel-count">{secrets.length} secret{secrets.length !== 1 ? "s" : ""} in {activeBuckets.length} group{activeBuckets.length !== 1 ? "s" : ""}</span>
+        <span className="panel-count">
+          {activeScope === "general" ? "General" : activeScopeLabel}
+          {" — "}
+          {secrets.length} secret{secrets.length !== 1 ? "s" : ""} in {activeBuckets.length} group{activeBuckets.length !== 1 ? "s" : ""}
+        </span>
         <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn-sm" onClick={fetchSecrets} disabled={loading}>
+          <button className="panel-btn-sm" onClick={() => fetchSecrets()} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button className="panel-btn-sm" onClick={() => setAdding(true)}>
@@ -181,7 +300,11 @@ export function SecretsPanel() {
         <div className="panel-empty">
           <Shield className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
           <div className="panel-empty-title">No secrets</div>
-          <div className="panel-empty-sub">Environment variables managed by the agent</div>
+          <div className="panel-empty-sub">
+            {activeScope === "general"
+              ? "Environment variables managed by the agent"
+              : `No secrets for ${activeScopeLabel}`}
+          </div>
           <button className="panel-btn" onClick={() => setAdding(true)}>
             <Plus className="h-3.5 w-3.5" />
             <span>Add secret</span>

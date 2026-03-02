@@ -185,26 +185,53 @@ export interface AgentSecret {
   bucket: string;
 }
 
-export async function listSecrets() {
-  return apiCall<{ secrets: AgentSecret[]; buckets: Record<string, { key: string; value: string }[]>; count: number }>("/agent/secrets");
+export interface SecretScope {
+  id: string;
+  label: string;
+  type: "general" | "domain";
+  domain: string | null;
+  count?: number;
 }
 
-export async function addSecret(key: string, value: string) {
-  return apiCall<{ ok: boolean; key: string; bucket: string }>("/agent/secrets", {
+export async function listSecretScopes() {
+  return apiCall<{ scopes: SecretScope[]; count: number }>("/agent/secrets/scopes");
+}
+
+export async function createSecretScope(domain: string) {
+  return apiCall<{ ok: boolean; scope: string; domain: string }>("/agent/secrets/scopes", {
+    method: "POST",
+    body: JSON.stringify({ domain }),
+  });
+}
+
+export async function deleteSecretScope(domain: string) {
+  return apiCall<{ ok: boolean; domain: string }>(`/agent/secrets/scopes/${encodeURIComponent(domain)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listSecrets(scope = "general") {
+  return apiCall<{ secrets: AgentSecret[]; buckets: Record<string, { key: string; value: string }[]>; count: number; scope: string }>(
+    `/agent/secrets?scope=${encodeURIComponent(scope)}`,
+  );
+}
+
+export async function addSecret(key: string, value: string, scope = "general") {
+  return apiCall<{ ok: boolean; key: string; bucket: string; scope: string }>(`/agent/secrets?scope=${encodeURIComponent(scope)}`, {
     method: "POST",
     body: JSON.stringify({ key, value }),
   });
 }
 
-export async function updateSecret(key: string, value: string) {
-  return apiCall<{ ok: boolean; key: string }>(`/agent/secrets/${encodeURIComponent(key)}`, {
+export async function updateSecret(key: string, value: string, scope = "general") {
+  return apiCall<{ ok: boolean; key: string; scope: string }>(`/agent/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
     method: "PUT",
     body: JSON.stringify({ value }),
   });
 }
 
-export async function deleteSecret(key: string) {
-  return apiCall<{ ok: boolean; key: string }>(`/agent/secrets/${encodeURIComponent(key)}`, {
+export async function deleteSecret(key: string, scope = "general") {
+  return apiCall<{ ok: boolean; key: string; scope: string }>(`/agent/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
     method: "DELETE",
   });
 }

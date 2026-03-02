@@ -903,6 +903,40 @@
   }
   .secret-actions { display: flex; gap: 3px; flex-shrink: 0; }
 
+  /* ── Scope chips ── */
+  .scope-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 4px 10px; border-radius: 16px;
+    font-size: var(--font-xxs); font-weight: 500;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--muted-foreground); cursor: pointer;
+    transition: all 0.1s;
+  }
+  .scope-chip:hover { background: var(--accent); color: var(--foreground); }
+  .scope-chip.active {
+    background: var(--color-teal); color: #fff;
+    border-color: var(--color-teal);
+  }
+  .scope-chip.add {
+    border-style: dashed; opacity: 0.7;
+  }
+  .scope-chip.add:hover { opacity: 1; border-style: solid; }
+  .scope-chip svg { width: 12px; height: 12px; }
+  .scope-chip-delete {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    border: none; background: transparent; cursor: pointer;
+    color: var(--muted-foreground); padding: 0;
+    margin-left: -4px;
+  }
+  .scope-chip-delete:hover { color: var(--color-red); background: rgba(239,68,68,0.1); }
+  .scope-input {
+    padding: 4px 10px; border-radius: 16px;
+    font-size: var(--font-xxs);
+    border: 1px solid var(--color-teal); background: transparent;
+    color: var(--foreground); outline: none; width: 140px;
+  }
+
   /* ═══════════════════════════════════════
      PLUGINS
      ═══════════════════════════════════════ */
