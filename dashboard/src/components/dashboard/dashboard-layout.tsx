@@ -108,8 +108,6 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "plugins", label: "Plugins", icon: Puzzle },
-  { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "settings", label: "Settings", icon: UserCog },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -172,6 +170,10 @@ function UserProfile() {
           <button className="user-profile-menu-item" onClick={() => menuNav("inbox")}>
             <Bell className="h-3.5 w-3.5" />
             <span>Notifications</span>
+          </button>
+          <button className="user-profile-menu-item" onClick={() => menuNav("billing")}>
+            <CreditCard className="h-3.5 w-3.5" />
+            <span>Billing</span>
           </button>
           <button className="user-profile-menu-item" onClick={() => menuNav("settings")}>
             <Settings className="h-3.5 w-3.5" />
