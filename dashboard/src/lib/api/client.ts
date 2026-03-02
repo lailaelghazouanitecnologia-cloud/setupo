@@ -27,6 +27,14 @@ export async function apiCall<T>(
 
   if (!resp.ok) {
     const text = await resp.text();
+    // Auto-logout on 401 (expired/invalid token)
+    if (resp.status === 401 && typeof window !== "undefined") {
+      localStorage.removeItem("nso_token");
+      localStorage.removeItem("nso_api_token");
+      localStorage.removeItem("nso_email");
+      localStorage.removeItem("nso_role");
+      window.location.reload();
+    }
     throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
   }
   return resp.json();
