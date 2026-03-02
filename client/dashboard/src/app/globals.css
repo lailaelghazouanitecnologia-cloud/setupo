@@ -1925,6 +1925,73 @@
   .animate-spin { animation: spin 1s linear infinite; }
 }
 
+/* ═══════════════════════════════════════
+   RADIX SELECT (shadcn-style)
+   ═══════════════════════════════════════ */
+
+.nso-select-trigger {
+  display: inline-flex; align-items: center; justify-content: space-between;
+  gap: 6px; padding: 6px 10px;
+  font-size: var(--font-xs); font-weight: 500;
+  background: var(--card); color: var(--foreground);
+  border: 1px solid var(--border); border-radius: 6px;
+  cursor: pointer; outline: none; min-width: 100px;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  line-height: 1.4;
+}
+.nso-select-trigger:hover { border-color: color-mix(in srgb, var(--border) 50%, var(--foreground)); }
+.nso-select-trigger:focus { border-color: var(--color-teal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-teal) 20%, transparent); }
+.nso-select-trigger[data-placeholder] { color: var(--muted-foreground); }
+
+.nso-select-chevron { width: 12px; height: 12px; color: var(--muted-foreground); flex-shrink: 0; }
+
+.nso-select-content {
+  z-index: 50; overflow: hidden;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.35), 0 0 0 1px rgba(255,255,255,0.03);
+  animation: select-in 0.12s ease-out;
+  min-width: var(--radix-select-trigger-width);
+}
+
+.nso-select-viewport { padding: 4px; }
+
+.nso-select-item {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px 6px 24px; border-radius: 4px;
+  font-size: var(--font-xs); color: var(--foreground);
+  cursor: pointer; outline: none; position: relative;
+  user-select: none;
+  transition: background 0.06s;
+}
+.nso-select-item:hover,
+.nso-select-item[data-highlighted] { background: var(--accent); }
+.nso-select-item[data-disabled] { opacity: 0.4; pointer-events: none; }
+
+.nso-select-item-indicator {
+  position: absolute; left: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px;
+  color: var(--color-teal);
+}
+
+.nso-select-label {
+  padding: 6px 8px 4px 24px;
+  font-size: var(--font-xxs); font-weight: 600;
+  color: var(--muted-foreground); text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.nso-select-separator {
+  height: 1px; margin: 4px -4px;
+  background: var(--border);
+}
+
+@keyframes select-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }

@@ -12,6 +12,9 @@ import {
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
 } from "@/lib/api/client";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 
 type Tab = "instances" | "services";
 
@@ -207,11 +210,16 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         </div>
         <div style={{ minWidth: 140 }}>
           <label style={labelStyle}>Type</label>
-          <select className="deploy-select" value={type} onChange={(e) => setType(e.target.value)} style={selectStyle}>
-            {INSTANCE_TYPES.map((t) => (
-              <option key={t.id} value={t.id}>{t.label} — {t.desc}</option>
-            ))}
-          </select>
+          <Select value={type} onValueChange={setType}>
+            <SelectTrigger style={{ width: "100%" }}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {INSTANCE_TYPES.map((t) => (
+                <SelectItem key={t.id} value={t.id}>{t.label} — {t.desc}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -219,21 +227,31 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
       <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Region</label>
-          <select className="deploy-select" value={region} onChange={(e) => setRegion(e.target.value)} style={selectStyle}>
-            {REGIONS.map((r) => (
-              <option key={r.id} value={r.id}>{r.city}, {r.country} ({r.id})</option>
-            ))}
-          </select>
+          <Select value={region} onValueChange={setRegion}>
+            <SelectTrigger style={{ width: "100%" }}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {REGIONS.map((r) => (
+                <SelectItem key={r.id} value={r.id}>{r.city}, {r.country} ({r.id})</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Plan</label>
-          <select className="deploy-select" value={plan} onChange={(e) => setPlan(e.target.value)} style={selectStyle}>
-            {PLANS.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.cpu}vCPU / {p.ram} / {p.disk} — {p.price}
-              </option>
-            ))}
-          </select>
+          <Select value={plan} onValueChange={setPlan}>
+            <SelectTrigger style={{ width: "100%" }}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PLANS.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.cpu}vCPU / {p.ram} / {p.disk} — {p.price}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 

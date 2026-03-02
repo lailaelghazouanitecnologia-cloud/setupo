@@ -12,6 +12,9 @@ import {
   listFiles, zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 
 interface Project {
   id: string;
@@ -166,19 +169,22 @@ export function ProjectsPanel() {
       {/* Project selector */}
       {projects.length > 1 && (
         <div className="panel-header-row" style={{ marginBottom: 8 }}>
-          <select
-            className="proj-input"
+          <Select
             value={selectedProject?.id || ""}
-            onChange={(e) => {
-              const p = projects.find((pr) => pr.id === e.target.value);
+            onValueChange={(id) => {
+              const p = projects.find((pr) => pr.id === id);
               if (p) setSelectedProject(p);
             }}
-            style={{ maxWidth: 240 }}
           >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+            <SelectTrigger style={{ maxWidth: 240 }}>
+              <SelectValue placeholder="Select project..." />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -222,12 +228,17 @@ export function ProjectsPanel() {
               style={{ flex: 1 }}
               autoFocus
             />
-            <select className="deploy-select" value={newStack} onChange={(e) => setNewStack(e.target.value)} style={{ border: "1px solid var(--border)", borderRadius: 6, padding: "4px 8px", minWidth: 90 }}>
-              <option value="node">Node</option>
-              <option value="python">Python</option>
-              <option value="static">Static</option>
-              <option value="custom">Custom</option>
-            </select>
+            <Select value={newStack} onValueChange={setNewStack}>
+              <SelectTrigger style={{ minWidth: 90 }}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="node">Node</SelectItem>
+                <SelectItem value="python">Python</SelectItem>
+                <SelectItem value="static">Static</SelectItem>
+                <SelectItem value="custom">Custom</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div style={{ display: "flex", gap: 6 }}>
             <button className="panel-btn-sm" onClick={handleCreate} disabled={!newName.trim()}>

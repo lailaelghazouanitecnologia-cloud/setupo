@@ -18,6 +18,9 @@ import {
   pluginLogsList, pluginDnsList, pluginMonitoring, pluginBackupsList,
   type AddonInfo,
 } from "@/lib/api/client";
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
 import type { AddonTab } from "@/types/dashboard";
 
 // ═══════════════════════════════════════════
@@ -714,9 +717,14 @@ export function AddonsPanel() {
       {/* Project selector */}
       {projects.length > 1 && (
         <div style={{ marginBottom: 16 }}>
-          <select className="deploy-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <Select value={projectId} onValueChange={setProjectId}>
+            <SelectTrigger style={{ maxWidth: 240 }}>
+              <SelectValue placeholder="Select project..." />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       )}
 

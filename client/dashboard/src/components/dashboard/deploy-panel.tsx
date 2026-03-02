@@ -6,6 +6,9 @@ import {
   RotateCcw, GitBranch, Clock, Server, Loader,
 } from "lucide-react";
 import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from "@/components/ui/select";
+import {
   listProjects, listWorkspaces, listInstances,
   zarPack, zarPush, zarDeploy, zarShip, zarRollback,
   zarVersions, getDeployStatus, getDeploySnapshots,
@@ -231,42 +234,60 @@ export function DeployPanel() {
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {/* Project */}
         {projects.length > 1 && (
-          <select className="deploy-select" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <Select value={projectId} onValueChange={setProjectId}>
+            <SelectTrigger style={{ minWidth: 120 }}>
+              <SelectValue placeholder="Project..." />
+            </SelectTrigger>
+            <SelectContent>
+              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         )}
         {/* Workspace */}
         <div className="deploy-field">
           <Package className="h-3 w-3" style={{ color: "var(--color-teal)" }} />
-          <select className="deploy-select" value={selectedWs} onChange={(e) => setSelectedWs(e.target.value)}>
-            <option value="">Workspace...</option>
-            {workspaces.map((ws) => <option key={ws.name} value={ws.name}>{ws.name}</option>)}
-          </select>
+          <Select value={selectedWs} onValueChange={setSelectedWs}>
+            <SelectTrigger style={{ border: "none", background: "transparent", minWidth: 100, padding: "5px 8px" }}>
+              <SelectValue placeholder="Workspace..." />
+            </SelectTrigger>
+            <SelectContent>
+              {workspaces.map((ws) => <SelectItem key={ws.name} value={ws.name}>{ws.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         {/* Branch */}
         <div className="deploy-field">
           <GitBranch className="h-3 w-3" style={{ color: "var(--color-purple)" }} />
-          <select className="deploy-select" value={branch} onChange={(e) => setBranch(e.target.value)}>
-            <option value="main">main</option>
-            {branches.filter((b) => b !== "main").map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
+          <Select value={branch} onValueChange={setBranch}>
+            <SelectTrigger style={{ border: "none", background: "transparent", minWidth: 80, padding: "5px 8px" }}>
+              <SelectValue placeholder="Branch..." />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="main">main</SelectItem>
+              {branches.filter((b) => b !== "main").map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
         {/* Instance */}
         <div className="deploy-field">
           <Server className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
-          <select className="deploy-select" value={selectedInstance} onChange={(e) => setSelectedInstance(e.target.value)}>
-            <option value="">Instance...</option>
-            {instances.map((inst) => {
-              const state = inst.state || "";
-              const ready = ["ready", "running"].includes(state);
-              const label = inst.label || inst.domain || inst.ip || inst.id;
-              return (
-                <option key={inst.id} value={inst.id} disabled={!ready && state !== "deploying"}>
-                  {label}{state && !ready ? ` (${state})` : ""}
-                </option>
-              );
-            })}
-          </select>
+          <Select value={selectedInstance} onValueChange={setSelectedInstance}>
+            <SelectTrigger style={{ border: "none", background: "transparent", minWidth: 100, padding: "5px 8px" }}>
+              <SelectValue placeholder="Instance..." />
+            </SelectTrigger>
+            <SelectContent>
+              {instances.map((inst) => {
+                const state = inst.state || "";
+                const ready = ["ready", "running"].includes(state);
+                const label = inst.label || inst.domain || inst.ip || inst.id;
+                return (
+                  <SelectItem key={inst.id} value={inst.id} disabled={!ready && state !== "deploying"}>
+                    {label}{state && !ready ? ` (${state})` : ""}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
