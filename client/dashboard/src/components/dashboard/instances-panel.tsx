@@ -400,11 +400,17 @@ function InstancesTab() {
     setError("");
     try {
       const projRes = await listProjects();
-      const proj = projRes.projects?.[0];
+      let proj = projRes.projects?.[0];
       if (!proj) {
-        setInstances([]);
-        setLoading(false);
-        return;
+        // Auto-create default project for admin
+        try {
+          const created = await apiCreateProject("main");
+          proj = created.project;
+        } catch {
+          setError("No projects — failed to auto-create");
+          setLoading(false);
+          return;
+        }
       }
       setProjectId(proj.id);
       const instRes = await listInstances(proj.id);

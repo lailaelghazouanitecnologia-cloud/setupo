@@ -9,7 +9,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import {
-  listProjects, listWorkspaces, listInstances,
+  listProjects, createProject, listWorkspaces, listInstances,
   zarPack, zarPush, zarDeploy, zarShip, zarRollback,
   zarVersions, getDeployStatus, getDeploySnapshots,
 } from "@/lib/api/client";
@@ -55,12 +55,18 @@ export function DeployPanel() {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [logs]);
 
-  // Load projects on mount
+  // Load projects on mount — auto-create if none exist
   useEffect(() => {
     (async () => {
       try {
         const res = await listProjects();
-        const projs = res.projects || [];
+        let projs = res.projects || [];
+        if (projs.length === 0) {
+          try {
+            const created = await createProject("main");
+            projs = [created.project];
+          } catch { /* ignore */ }
+        }
         setProjects(projs);
         if (projs.length > 0) setProjectId(projs[0].id);
       } catch {
