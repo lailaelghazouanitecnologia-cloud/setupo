@@ -35,32 +35,9 @@ import {
 
 type AdminTab = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
 
-export function AdminPanel() {
-  const [tab, setTab] = useState<AdminTab>("overview");
-
-  const tabs: { id: AdminTab; label: string; icon: React.ElementType }[] = [
-    { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "users", label: "Users", icon: Users },
-    { id: "cashflow", label: "Cashflow", icon: ArrowDownUp },
-    { id: "analytics", label: "Analytics", icon: TrendingUp },
-    { id: "fraud", label: "Fraud", icon: Shield },
-    { id: "ledger", label: "Ledger", icon: Link2 },
-  ];
-
+export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
   return (
     <div>
-      <div className="admin-tabs">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            className={`admin-tab ${tab === t.id ? "active" : ""}`}
-            onClick={() => setTab(t.id)}
-          >
-            <t.icon className="h-3.5 w-3.5" />
-            <span>{t.label}</span>
-          </button>
-        ))}
-      </div>
       {tab === "overview" && <OverviewTab />}
       {tab === "users" && <UsersTab />}
       {tab === "cashflow" && <CashflowTab />}

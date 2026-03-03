@@ -1,14 +1,32 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   BarChart3, Users, TrendingUp, Shield, Link2, ArrowDownUp,
   LogOut, Sun, Moon, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAdminStore } from "@/stores/admin-store";
+import { useAdminStore, type AdminView } from "@/stores/admin-store";
 import { adminLogout } from "@/lib/api/client";
 import { AdminPanel } from "./admin-panel";
+
+const navItems: { id: AdminView; label: string; icon: React.ElementType }[] = [
+  { id: "overview", label: "Overview", icon: BarChart3 },
+  { id: "users", label: "Users", icon: Users },
+  { id: "cashflow", label: "Cashflow", icon: ArrowDownUp },
+  { id: "analytics", label: "Analytics", icon: TrendingUp },
+  { id: "fraud", label: "Fraud", icon: Shield },
+  { id: "ledger", label: "Ledger", icon: Link2 },
+];
+
+const viewTitles: Record<AdminView, string> = {
+  overview: "Overview",
+  users: "Users",
+  cashflow: "Cashflow",
+  analytics: "Analytics",
+  fraud: "Fraud Detection",
+  ledger: "Blockchain Ledger",
+};
 
 function SonfaztLogo({ size = 16 }: { size?: number }) {
   return (
@@ -27,6 +45,8 @@ const IC_Menu = () => (
 );
 
 export function AdminDashboard() {
+  const activeView = useAdminStore((s) => s.activeView);
+  const setActiveView = useAdminStore((s) => s.setActiveView);
   const sidebarOpen = useAdminStore((s) => s.sidebarOpen);
   const toggleSidebar = useAdminStore((s) => s.toggleSidebar);
   const userEmail = useAdminStore((s) => s.userEmail);
@@ -57,7 +77,7 @@ export function AdminDashboard() {
               <IC_Menu />
             </button>
           )}
-          <span className="fheader-title">Sonfazt Admin</span>
+          <span className="fheader-title">{viewTitles[activeView]}</span>
         </div>
         <div className="fheader-right">
           <span style={{ fontSize: 11, color: "var(--muted-foreground)" }}>
@@ -72,7 +92,6 @@ export function AdminDashboard() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <SonfaztLogo />
             <span style={{ fontSize: 14, fontWeight: 600 }}>Sonfazt</span>
-            <span style={{ fontSize: 10, color: "var(--muted-foreground)", marginLeft: 2 }}>admin</span>
           </div>
           <button className="ibtn" onClick={toggleSidebar} aria-label="Close sidebar">
             <X className="h-3.5 w-3.5" />
@@ -80,12 +99,16 @@ export function AdminDashboard() {
         </div>
 
         <nav className="fsidebar-nav">
-          <div className="admin-sidebar-info">
-            <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>Admin Panel</div>
-            <div style={{ fontSize: 10, color: "var(--muted-foreground)" }}>
-              sonfazt.nso.dev
-            </div>
-          </div>
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              className={cn("fmenu", activeView === item.id && "active")}
+              onClick={() => setActiveView(item.id)}
+            >
+              <item.icon className="h-3.5 w-3.5" />
+              <span>{item.label}</span>
+            </button>
+          ))}
         </nav>
 
         <div style={{ flex: 1 }} />
@@ -109,7 +132,7 @@ export function AdminDashboard() {
       {/* ════ MAIN CONTENT ════ */}
       <div className={cn("fmain", sidebarOpen && "shifted")}>
         <div className="fmain-content">
-          <AdminPanel />
+          <AdminPanel tab={activeView} />
         </div>
       </div>
     </div>

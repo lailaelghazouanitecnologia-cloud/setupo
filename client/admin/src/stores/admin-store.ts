@@ -1,16 +1,19 @@
 import { create } from "zustand";
 
 export type Theme = "dark" | "light" | "auto";
+export type AdminView = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
 
 interface AdminState {
   token: string | null;
   userEmail: string | null;
   theme: Theme;
   sidebarOpen: boolean;
+  activeView: AdminView;
   setToken: (token: string | null) => void;
   setUser: (email: string) => void;
   setTheme: (theme: Theme) => void;
   toggleSidebar: () => void;
+  setActiveView: (view: AdminView) => void;
   logout: () => void;
 }
 
@@ -40,6 +43,7 @@ export const useAdminStore = create<AdminState>((set) => ({
   userEmail: typeof window !== "undefined" ? localStorage.getItem("sonfazt_email") : null,
   theme: getInitialTheme(),
   sidebarOpen: true,
+  activeView: "overview",
   setToken: (token) => {
     if (token) {
       localStorage.setItem("sonfazt_token", token);
@@ -58,6 +62,7 @@ export const useAdminStore = create<AdminState>((set) => ({
     set({ theme });
   },
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
+  setActiveView: (view) => set({ activeView: view }),
   logout: () => {
     localStorage.removeItem("sonfazt_token");
     localStorage.removeItem("sonfazt_email");
