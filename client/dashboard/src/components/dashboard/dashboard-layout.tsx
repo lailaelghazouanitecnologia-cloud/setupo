@@ -5,6 +5,7 @@ import {
   Mail, Server, FolderKanban, Key, Blocks,
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, UserCog, Sun, Moon,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -16,6 +17,7 @@ import { AddonsPanel } from "./addons-panel";
 import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
 import { SettingsPanel } from "./settings-panel";
+import { AdminPanel } from "./admin-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -91,11 +93,12 @@ class PanelErrorBoundary extends Component<
    ═══════════════════════════════════════════ */
 const navItems: { id: DashboardView; label: string; icon: React.ElementType; adminOnly?: boolean }[] = [
   { id: "inbox", label: "Inbox", icon: Mail },
-  { id: "instances", label: "Instances", icon: Server, adminOnly: true },
-  { id: "projects", label: "Projects", icon: FolderKanban, adminOnly: true },
+  { id: "instances", label: "Instances", icon: Server },
+  { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "deploy", label: "Deploy", icon: Rocket },
-  { id: "secrets", label: "Secrets", icon: Key, adminOnly: true },
+  { id: "secrets", label: "Secrets", icon: Key },
   { id: "addons", label: "Apps", icon: Blocks },
+  { id: "admin", label: "Admin", icon: ShieldCheck, adminOnly: true },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -107,6 +110,7 @@ const viewTitles: Record<DashboardView, string> = {
   addons: "Apps",
   billing: "Billing",
   settings: "Settings",
+  admin: "Admin",
 };
 
 /* ═══════════════════════════════════════════
@@ -219,11 +223,8 @@ export function DashboardLayout() {
 
   // Redirect non-admin from admin-only views
   useEffect(() => {
-    if (!isAdmin) {
-      const adminViews: DashboardView[] = ["instances", "projects", "secrets"];
-      if (adminViews.includes(activeView)) {
-        setActiveView("inbox");
-      }
+    if (!isAdmin && activeView === "admin") {
+      setActiveView("inbox");
     }
   }, [isAdmin, activeView, setActiveView]);
 
@@ -326,6 +327,7 @@ export function DashboardLayout() {
           {activeView === "addons" && <PanelErrorBoundary name="Apps"><AddonsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
+          {activeView === "admin" && <PanelErrorBoundary name="Admin"><AdminPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>
