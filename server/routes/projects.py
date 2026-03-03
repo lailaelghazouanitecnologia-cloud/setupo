@@ -9,13 +9,26 @@ from server.auth.middleware import AuthContext
 router = APIRouter()
 
 
-def _check_project_access(auth: AuthContext, project_id: str):
-    if auth and not auth.is_admin and auth.project_id != project_id:
+async def _check_project_access(auth: AuthContext, project_id: str):
+    if not auth:
         raise HTTPException(403, "Access denied")
+    if auth.is_admin:
+        return
+    if auth.project_id == project_id:
+        return
+    # User JWT — check ownership
+    if auth.user_id:
+        project = await db.fetch_one("projects", id=project_id)
+        if project and project.get("owner") == auth.user_id:
+            return
+    raise HTTPException(403, "Access denied")
 
 
 @router.post("")
-async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(get_auth)):
+async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(require_user)):
+    # Set owner to current user if not provided
+    if not req.owner and auth.user_id:
+        req.owner = auth.user_id
     project, api_key = await pm.create_project(req)
     return {
         "project": {
@@ -40,21 +53,21 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
 
 @router.get("/{project_id}")
 async def get_project(project_id: str, auth: AuthContext = Depends(get_auth)):
-    _check_project_access(auth, project_id)
+    await _check_project_access(auth, project_id)
     project = await pm.get_project(project_id)
     return {"project": project}
 
 
 @router.delete("/{project_id}")
 async def delete_project(project_id: str, auth: AuthContext = Depends(get_auth)):
-    _check_project_access(auth, project_id)
+    await _check_project_access(auth, project_id)
     await pm.delete_project(project_id)
     return {"deleted": True}
 
 
 @router.post("/{project_id}/rotate-key")
 async def rotate_key(project_id: str, auth: AuthContext = Depends(get_auth)):
-    _check_project_access(auth, project_id)
+    await _check_project_access(auth, project_id)
     new_key = await pm.rotate_api_key(project_id)
     return {
         "api_key": new_key,
@@ -64,6 +77,6 @@ async def rotate_key(project_id: str, auth: AuthContext = Depends(get_auth)):
 
 @router.put("/{project_id}/settings")
 async def update_settings(project_id: str, new_settings: dict, auth: AuthContext = Depends(get_auth)):
-    _check_project_access(auth, project_id)
+    await _check_project_access(auth, project_id)
     await pm.update_project_settings(project_id, new_settings)
     return {"updated": True}
