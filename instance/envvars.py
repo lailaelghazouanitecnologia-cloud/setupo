@@ -36,10 +36,14 @@ class CreateScopeRequest(BaseModel):
 
 
 BUCKETS = [
-    {"name": "auth", "label": "Authentication", "prefixes": ["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_"]},
+    {"name": "auth", "label": "Authentication", "prefixes": ["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_", "NSO_JWT_"]},
     {"name": "providers", "label": "Providers", "prefixes": ["VULTR_", "CF_"]},
     {"name": "storage", "label": "Storage (R2)", "prefixes": ["R2_"]},
-    {"name": "system", "label": "System", "prefixes": ["HOST", "PORT", "DB_", "LOG_", "CORS_", "NSO_SERVE"]},
+    {"name": "system", "label": "System", "prefixes": [
+        "NSO_HOST", "NSO_PORT", "NSO_DATA_", "NSO_CONFIG_", "NSO_WORKSPACES_",
+        "NSO_CORS_", "NSO_BASE_", "NSO_AGENT_", "NSO_SERVE",
+        "HOST", "PORT", "DB_", "LOG_", "CORS_",
+    ]},
 ]
 
 
