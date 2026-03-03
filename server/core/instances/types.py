@@ -57,7 +57,7 @@ def get_cloud_init(
         "{{VULTR_API_KEY}}": settings.VULTR_API_KEY,
         "{{CF_API_TOKEN}}": settings.CF_API_TOKEN,
         "{{ADMIN_EMAIL}}": settings.ADMIN_EMAIL,
-        "{{GIT_BRANCH}}": "claude/adoring-knuth-p6az5",
+        "{{GIT_BRANCH}}": git_branch or "master",
         "{{CF_NSO_ZONE_ID}}": getattr(settings, 'CF_NSO_ZONE_ID', ''),
         "{{R2_ENDPOINT}}": settings.R2_ENDPOINT,
         "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,

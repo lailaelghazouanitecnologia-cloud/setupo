@@ -103,7 +103,26 @@ write_files:
       [Install]
       WantedBy=multi-user.target
 
-  # ── HTTP-only nginx (used before certbot, overwritten after SSL) ──
+  # ── Self-signed cert generator (fallback for Cloudflare Full SSL) ──
+  - path: /opt/nso/deploy/gen-self-signed.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      # Generate self-signed cert so nginx can always serve HTTPS
+      # Cloudflare Full mode accepts self-signed on origin
+      DOMAIN="${1:-localhost}"
+      CERT_DIR="/etc/ssl/nso"
+      mkdir -p "$CERT_DIR"
+      if [ ! -f "$CERT_DIR/fullchain.pem" ]; then
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+          -keyout "$CERT_DIR/privkey.pem" \
+          -out "$CERT_DIR/fullchain.pem" \
+          -subj "/CN=$DOMAIN" \
+          -addext "subjectAltName=DNS:$DOMAIN,DNS:*.$DOMAIN" 2>/dev/null
+        echo "[nso] Self-signed cert generated for $DOMAIN"
+      fi
+
+  # ── Nginx with SSL from the start (self-signed → Let's Encrypt upgrade) ──
   - path: /etc/nginx/sites-available/nso
     permissions: "0644"
     content: |
@@ -117,6 +136,17 @@ write_files:
           listen 80;
           server_name {{DOMAIN}} *.{{DOMAIN}};
           location /.well-known/acme-challenge/ { root /var/www/html; }
+          return 301 https://$host$request_uri;
+      }
+      server {
+          listen 443 ssl;
+          server_name {{DOMAIN}} *.{{DOMAIN}};
+          ssl_certificate /etc/ssl/nso/fullchain.pem;
+          ssl_certificate_key /etc/ssl/nso/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+          ssl_prefer_server_ciphers off;
+
           location /api/ {
               proxy_pass http://nso_api;
               proxy_set_header Host $host;
@@ -154,6 +184,18 @@ write_files:
           listen 80;
           server_name sonfazt.{{DOMAIN}};
           location /.well-known/acme-challenge/ { root /var/www/html; }
+          return 301 https://$host$request_uri;
+      }
+      server {
+          listen 443 ssl;
+          server_name sonfazt.{{DOMAIN}};
+          ssl_certificate /etc/ssl/nso/fullchain.pem;
+          ssl_certificate_key /etc/ssl/nso/privkey.pem;
+          ssl_protocols TLSv1.2 TLSv1.3;
+          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+          ssl_prefer_server_ciphers off;
+          add_header X-Robots-Tag "noindex, nofollow" always;
+
           location /api/admin/ {
               proxy_pass http://nso_api;
               proxy_set_header Host $host;
@@ -246,20 +288,27 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      # NSO SSL setup — runs after certbot to write HTTPS nginx configs
-      # Uses inline SSL params (no external includes that may not exist)
+      # NSO SSL setup — upgrades nginx from self-signed to Let's Encrypt
+      # If Let's Encrypt certs don't exist, keeps self-signed (Cloudflare Full works with both)
       set -e
       DOMAIN="{{DOMAIN}}"
-      CERT_DIR="/etc/letsencrypt/live"
+      LE_DIR="/etc/letsencrypt/live"
+      SS_DIR="/etc/ssl/nso"
 
-      if [ ! -f "$CERT_DIR/$DOMAIN/fullchain.pem" ]; then
-        echo "No cert for $DOMAIN, skipping HTTPS setup"
-        exit 0
+      # Determine best cert for main domain
+      if [ -f "$LE_DIR/$DOMAIN/fullchain.pem" ]; then
+        CERT="$LE_DIR/$DOMAIN/fullchain.pem"
+        KEY="$LE_DIR/$DOMAIN/privkey.pem"
+        echo "Using Let's Encrypt cert for $DOMAIN"
+      else
+        CERT="$SS_DIR/fullchain.pem"
+        KEY="$SS_DIR/privkey.pem"
+        echo "Let's Encrypt not available for $DOMAIN — keeping self-signed"
       fi
 
-      # ── Main site with SSL ──
+      # ── Main site ──
       python3 -c "
-      d, c = '$DOMAIN', '$CERT_DIR'
+      d, cert, key = '$DOMAIN', '$CERT', '$KEY'
       open('/etc/nginx/sites-available/nso','w').write(f'''upstream nso_api {{ server 127.0.0.1:8000; }}
       upstream nso_agent {{ server 127.0.0.1:8081; }}
 
@@ -273,8 +322,8 @@ write_files:
       server {{
           listen 443 ssl;
           server_name {d} *.{d};
-          ssl_certificate {c}/{d}/fullchain.pem;
-          ssl_certificate_key {c}/{d}/privkey.pem;
+          ssl_certificate {cert};
+          ssl_certificate_key {key};
           ssl_protocols TLSv1.2 TLSv1.3;
           ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
           ssl_prefer_server_ciphers off;
@@ -311,10 +360,19 @@ write_files:
       ''')
       "
 
-      # ── Admin site with SSL (only if cert exists) ──
-      if [ -f "$CERT_DIR/sonfazt.$DOMAIN/fullchain.pem" ]; then
-        python3 -c "
-      d, c = '$DOMAIN', '$CERT_DIR'
+      # ── Admin site ──
+      if [ -f "$LE_DIR/sonfazt.$DOMAIN/fullchain.pem" ]; then
+        ADMIN_CERT="$LE_DIR/sonfazt.$DOMAIN/fullchain.pem"
+        ADMIN_KEY="$LE_DIR/sonfazt.$DOMAIN/privkey.pem"
+        echo "Using Let's Encrypt cert for sonfazt.$DOMAIN"
+      else
+        ADMIN_CERT="$SS_DIR/fullchain.pem"
+        ADMIN_KEY="$SS_DIR/privkey.pem"
+        echo "Using self-signed cert for sonfazt.$DOMAIN"
+      fi
+
+      python3 -c "
+      d, cert, key = '$DOMAIN', '$ADMIN_CERT', '$ADMIN_KEY'
       open('/etc/nginx/sites-available/sonfazt','w').write(f'''server {{
           listen 80;
           server_name sonfazt.{d};
@@ -325,8 +383,8 @@ write_files:
       server {{
           listen 443 ssl;
           server_name sonfazt.{d};
-          ssl_certificate {c}/sonfazt.{d}/fullchain.pem;
-          ssl_certificate_key {c}/sonfazt.{d}/privkey.pem;
+          ssl_certificate {cert};
+          ssl_certificate_key {key};
           ssl_protocols TLSv1.2 TLSv1.3;
           ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
           ssl_prefer_server_ciphers off;
@@ -356,7 +414,6 @@ write_files:
       }}
       ''')
       "
-      fi
 
       nginx -t && systemctl reload nginx
       echo "SSL nginx configs applied successfully"
@@ -372,7 +429,10 @@ runcmd:
   - ufw --force enable
 
   # ── Data dirs ─────────────────────────────────────────────
-  - mkdir -p /opt/nso/data /opt/nso/config /opt/nso/workspaces /var/log/nso /opt/app /opt/nso/deploy
+  - mkdir -p /opt/nso/data /opt/nso/config /opt/nso/workspaces /var/log/nso /opt/app /opt/nso/deploy /var/www/html
+
+  # ── Generate self-signed cert (so nginx has SSL from the start) ──
+  - /opt/nso/deploy/gen-self-signed.sh {{DOMAIN}}
 
   # ── Try nso-ready pre-built image first, fallback to git clone ──
   - |
