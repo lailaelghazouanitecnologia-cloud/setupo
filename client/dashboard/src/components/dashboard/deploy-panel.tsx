@@ -291,27 +291,28 @@ export function DeployPanel() {
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
-        <button className="deploy-action-btn" onClick={() => runAction("pack")} disabled={!!running || !selectedWs}>
-          {running === "pack" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Package className="h-3.5 w-3.5" />}
-          <span>Pack</span>
-        </button>
-        <button className="deploy-action-btn" onClick={() => runAction("push")} disabled={!!running || !selectedWs}>
-          {running === "push" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
-          <span>Push</span>
-        </button>
-        <button className="deploy-action-btn" onClick={() => runAction("deploy")} disabled={!!running || !selectedWs || !selectedInstance}>
-          {running === "deploy" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-          <span>Deploy</span>
-        </button>
-        <button className="deploy-action-btn teal" onClick={() => runAction("ship")} disabled={!!running || !selectedWs || !selectedInstance}>
+      {/* Action buttons — Ship is the primary action */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+        <button className="deploy-action-btn teal" onClick={() => runAction("ship")} disabled={!!running || !selectedWs || !selectedInstance} style={{ padding: "6px 18px" }}>
           {running === "ship" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Rocket className="h-3.5 w-3.5" />}
           <span>Ship</span>
         </button>
         <button className="deploy-action-btn yellow" onClick={() => runAction("rollback")} disabled={!!running || !selectedWs || !selectedInstance}>
           {running === "rollback" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
           <span>Rollback</span>
+        </button>
+        <div style={{ width: 1, height: 20, background: "var(--border)", margin: "0 4px" }} />
+        <button className="deploy-action-btn" onClick={() => runAction("pack")} disabled={!!running || !selectedWs} style={{ opacity: 0.7 }}>
+          {running === "pack" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Package className="h-3.5 w-3.5" />}
+          <span>Pack</span>
+        </button>
+        <button className="deploy-action-btn" onClick={() => runAction("push")} disabled={!!running || !selectedWs} style={{ opacity: 0.7 }}>
+          {running === "push" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+          <span>Push</span>
+        </button>
+        <button className="deploy-action-btn" onClick={() => runAction("deploy")} disabled={!!running || !selectedWs || !selectedInstance} style={{ opacity: 0.7 }}>
+          {running === "deploy" ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+          <span>Deploy</span>
         </button>
       </div>
 
