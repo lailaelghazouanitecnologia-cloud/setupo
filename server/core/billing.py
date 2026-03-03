@@ -382,7 +382,8 @@ def _calculate_proration(subscription: dict, plan: dict | None) -> int:
         daily_rate = plan["amount_cents"] / total_days
         credit = int(daily_rate * remaining_days)
         return credit
-    except Exception:
+    except Exception as e:
+        logger.warning("Proration calculation failed: %s", e)
         return 0
 
 

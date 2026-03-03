@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from server.core.models import CreateProjectRequest
 from server.core.projects import manager as pm
 from server.core import db
+from server.core.errors import NsoError
 from server.deps import require_admin, require_user, get_auth
 from server.auth.middleware import AuthContext
 
@@ -26,10 +27,12 @@ async def _check_project_access(auth: AuthContext, project_id: str):
 
 @router.post("")
 async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(require_user)):
-    # Set owner to current user if not provided
     if not req.owner and auth.user_id:
         req.owner = auth.user_id
-    project, api_key = await pm.create_project(req)
+    try:
+        project, api_key = await pm.create_project(req)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {
         "project": {
             "id": project.id,
@@ -52,23 +55,32 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
 
 
 @router.get("/{project_id}")
-async def get_project(project_id: str, auth: AuthContext = Depends(get_auth)):
+async def get_project(project_id: str, auth: AuthContext = Depends(require_user)):
     await _check_project_access(auth, project_id)
-    project = await pm.get_project(project_id)
+    try:
+        project = await pm.get_project(project_id)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {"project": project}
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str, auth: AuthContext = Depends(get_auth)):
+async def delete_project(project_id: str, auth: AuthContext = Depends(require_user)):
     await _check_project_access(auth, project_id)
-    await pm.delete_project(project_id)
+    try:
+        await pm.delete_project(project_id)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {"deleted": True}
 
 
 @router.post("/{project_id}/rotate-key")
-async def rotate_key(project_id: str, auth: AuthContext = Depends(get_auth)):
+async def rotate_key(project_id: str, auth: AuthContext = Depends(require_user)):
     await _check_project_access(auth, project_id)
-    new_key = await pm.rotate_api_key(project_id)
+    try:
+        new_key = await pm.rotate_api_key(project_id)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {
         "api_key": new_key,
         "message": "Save this API key — it won't be shown again. Previous key is now invalid.",
@@ -76,7 +88,10 @@ async def rotate_key(project_id: str, auth: AuthContext = Depends(get_auth)):
 
 
 @router.put("/{project_id}/settings")
-async def update_settings(project_id: str, new_settings: dict, auth: AuthContext = Depends(get_auth)):
+async def update_settings(project_id: str, new_settings: dict, auth: AuthContext = Depends(require_user)):
     await _check_project_access(auth, project_id)
-    await pm.update_project_settings(project_id, new_settings)
+    try:
+        await pm.update_project_settings(project_id, new_settings)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
     return {"updated": True}

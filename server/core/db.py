@@ -525,6 +525,7 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_email_tokens_user ON email_tokens(user_id);
     """)
 
+    # Migration: add workspace columns
     try:
         await db.execute("SELECT ws_type FROM workspaces LIMIT 1")
     except Exception:
@@ -537,24 +538,26 @@ async def _migrate(db: aiosqlite.Connection):
         ]:
             try:
                 await db.execute(f"ALTER TABLE workspaces ADD COLUMN {col} TEXT DEFAULT {default}")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Migration skip (workspaces.%s): %s", col, e)
 
+    # Migration: add subdomain column
     try:
         await db.execute("SELECT subdomain FROM users LIMIT 1")
     except Exception:
         try:
             await db.execute("ALTER TABLE users ADD COLUMN subdomain TEXT UNIQUE")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Migration failed (users.subdomain): %s", e)
 
+    # Migration: add last_active column
     try:
         await db.execute("SELECT last_active FROM users LIMIT 1")
     except Exception:
         try:
             await db.execute("ALTER TABLE users ADD COLUMN last_active TEXT")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Migration failed (users.last_active): %s", e)
 
     await db.commit()
     logger.info("Database migrations complete")

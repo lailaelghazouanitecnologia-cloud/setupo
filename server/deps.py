@@ -8,6 +8,8 @@ async def get_auth(auth: AuthContext | None = Depends(resolve_auth)) -> AuthCont
 
 
 async def require_project(request: Request, auth: AuthContext = Depends(get_auth)) -> str:
+    if not auth:
+        raise HTTPException(401, "Authentication required")
     # API key — project_id is embedded
     if auth.project_id:
         return auth.project_id

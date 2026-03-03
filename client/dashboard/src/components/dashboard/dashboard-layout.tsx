@@ -147,7 +147,7 @@ function UserProfile() {
             <div className="user-profile-avatar">{initial}</div>
             <div style={{ minWidth: 0 }}>
               <div className="user-profile-email">{userEmail || "User"}</div>
-              <div className="user-profile-role">{userRole || "admin"}</div>
+              <div className="user-profile-role">{userRole || "user"}</div>
             </div>
           </div>
           <div className="user-profile-menu-sep" />
@@ -189,7 +189,7 @@ function UserProfile() {
         <div className="user-profile-avatar">{initial}</div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="user-profile-email">{userEmail || "User"}</div>
-          <div className="user-profile-role">{userRole || "admin"}</div>
+          <div className="user-profile-role">{userRole || "user"}</div>
         </div>
         <ChevronDown
           className="h-3 w-3"

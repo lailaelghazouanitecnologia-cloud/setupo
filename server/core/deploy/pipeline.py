@@ -115,7 +115,12 @@ async def deploy_to_instance(
 
         if config_env:
             await _log(instance_id, f"Setting {len(config_env)} env vars from config.toml")
-            env_lines = "\n".join(f"{k}={v}" for k, v in config_env.items())
+            # Escape values to prevent heredoc injection
+            safe_lines = []
+            for k, v in config_env.items():
+                safe_v = str(v).replace("'", "'\\''")
+                safe_lines.append(f"{k}='{safe_v}'")
+            env_lines = "\n".join(safe_lines)
             await run_ssh_command(ip, f"cat >> {remote_dir}/.env << 'ENVEOF'\n{env_lines}\nENVEOF", key_path)
 
         start_cmd = command or config_command or _default_start_command(stack)
