@@ -642,8 +642,8 @@ export function AddonsPanel() {
         const projs = res.projects || [];
         setProjects(projs);
         if (projs.length > 0) setProjectId(projs[0].id);
-      } catch (e: any) {
-        setError(e.message?.includes("401") ? "Not authorized — check your login" : "Failed to load projects");
+      } catch {
+        setProjects([]);
         setLoading(false);
       }
     })();

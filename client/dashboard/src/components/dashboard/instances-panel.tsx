@@ -401,15 +401,15 @@ function InstancesTab() {
       const projRes = await listProjects();
       const proj = projRes.projects?.[0];
       if (!proj) {
-        setError("No projects found");
+        setInstances([]);
         setLoading(false);
         return;
       }
       setProjectId(proj.id);
       const instRes = await listInstances(proj.id);
       setInstances(instRes.instances || []);
-    } catch (e: any) {
-      setError(e.message || "Failed to load");
+    } catch {
+      setInstances([]);
     }
     setLoading(false);
   };

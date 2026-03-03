@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from server.core.models import CreateProjectRequest
 from server.core.projects import manager as pm
-from server.deps import require_admin, get_auth
+from server.core import db
+from server.deps import require_admin, require_user, get_auth
 from server.auth.middleware import AuthContext
 
 router = APIRouter()
@@ -29,8 +30,11 @@ async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(
 
 
 @router.get("")
-async def list_projects(auth: AuthContext = Depends(require_admin)):
-    projects = await pm.list_projects()
+async def list_projects(auth: AuthContext = Depends(require_user)):
+    if auth.is_admin:
+        projects = await pm.list_projects()
+    else:
+        projects = await db.fetch_all("projects", owner=auth.user_id)
     return {"projects": projects}
 
 

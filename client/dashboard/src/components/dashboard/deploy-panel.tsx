@@ -63,8 +63,8 @@ export function DeployPanel() {
         const projs = res.projects || [];
         setProjects(projs);
         if (projs.length > 0) setProjectId(projs[0].id);
-      } catch (e: any) {
-        setLoadError("Failed to load projects — check auth");
+      } catch {
+        setProjects([]);
       }
     })();
     // Load deploy status from agent
