@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
-  Send, RotateCcw, Power, FileText, Loader, Globe,
+  Send, RotateCcw, Power, FileText, Loader, Globe, Zap,
 } from "lucide-react";
 import {
   listProjects, createProject as apiCreateProject,
@@ -34,6 +34,7 @@ interface Instance {
     git_url?: string;
     git_branch?: string;
     zar_name?: string;
+    app_ready_key?: string;
   };
 }
 
@@ -106,7 +107,7 @@ interface CreateFormProps {
   onCancel: () => void;
 }
 
-type SourceType = "repository" | "zar" | "empty";
+type SourceType = "repository" | "zar" | "ready" | "empty";
 
 function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps) {
   const [label, setLabel] = useState("");
@@ -117,6 +118,7 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
   const [gitUrl, setGitUrl] = useState("");
   const [gitBranch, setGitBranch] = useState("main");
   const [zarName, setZarName] = useState("");
+  const [readyWorkspace, setReadyWorkspace] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
@@ -144,6 +146,9 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
     if (sourceType === "zar" && !zarName.trim()) {
       return "Package name is required for .zar source";
     }
+    if (sourceType === "ready" && !readyWorkspace.trim()) {
+      return "Workspace name is required for pre-built source";
+    }
     return null;
   };
 
@@ -166,7 +171,7 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         source_type: sourceType === "empty" ? undefined : sourceType,
         git_url: sourceType === "repository" ? gitUrl.trim() : undefined,
         git_branch: sourceType === "repository" ? gitBranch.trim() || "main" : undefined,
-        zar_name: sourceType === "zar" ? zarName.trim() : undefined,
+        zar_name: sourceType === "zar" ? zarName.trim() : sourceType === "ready" ? readyWorkspace.trim() : undefined,
       });
       onCreated();
     } catch (e: any) {
@@ -223,23 +228,40 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
       {/* Row 2: Source selector */}
       <div style={{ marginBottom: 10 }}>
         <label style={labelStyle}>Source</label>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-          {(["repository", "zar", "empty"] as SourceType[]).map((st) => (
+        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
+          {(["ready", "repository", "zar", "empty"] as SourceType[]).map((st) => (
             <button
               key={st}
               className={`scope-chip ${sourceType === st ? "active" : ""}`}
               onClick={() => setSourceType(st)}
               type="button"
             >
+              {st === "ready" && <Zap className="h-3 w-3" />}
               {st === "repository" && <FolderOpen className="h-3 w-3" />}
               {st === "zar" && <FileText className="h-3 w-3" />}
               {st === "empty" && <Server className="h-3 w-3" />}
-              <span>{st === "repository" ? "Repository" : st === "zar" ? ".zar" : "Empty"}</span>
+              <span>{st === "ready" ? "Pre-built" : st === "repository" ? "Repository" : st === "zar" ? ".zar" : "Empty"}</span>
             </button>
           ))}
         </div>
 
         {/* Source-specific fields */}
+        {sourceType === "ready" && (
+          <div>
+            <input
+              className="proj-input"
+              type="text"
+              placeholder="workspace name (frozen app)"
+              value={readyWorkspace}
+              onChange={(e) => setReadyWorkspace(e.target.value)}
+              style={{ width: "100%" }}
+            />
+            <div style={{ fontSize: "var(--font-xxs)", color: "var(--color-green)", marginTop: 4 }}>
+              Instant deploy from pre-built image — boots in ~3 min
+            </div>
+          </div>
+        )}
+
         {sourceType === "repository" && (
           <div style={{ display: "flex", gap: 8 }}>
             <div style={{ flex: 2 }}>
@@ -337,6 +359,7 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
         fontFamily: "monospace",
       }}>
         {selectedRegion?.city} · {selectedPlan?.cpu}vCPU · {selectedPlan?.ram} · {selectedPlan?.price}
+        {sourceType === "ready" && readyWorkspace ? ` · ${readyWorkspace} (pre-built)` : ""}
         {sourceType === "repository" && gitUrl ? ` · ${gitUrl.split("/").pop()?.replace(".git", "") || "repo"}` : ""}
         {sourceType === "zar" && zarName ? ` · ${zarName}.zar` : ""}
       </div>
@@ -558,6 +581,7 @@ function InstancesTab() {
               </div>
               <div className="proj-card-meta">
                 {inst.ip || "installing..."} — {inst.plan} / {inst.region}
+                {inst.metadata?.source_type === "ready" ? " · pre-built" : ""}
                 {inst.metadata?.source_type === "repository" ? " · repo" : ""}
                 {inst.metadata?.source_type === "zar" ? ` · ${inst.metadata.zar_name || "zar"}` : ""}
               </div>
@@ -624,7 +648,9 @@ function InstancesTab() {
             {[
               { label: "Name", value: selected.label || "—" },
               { label: "IP", value: selected.ip || "—" },
-              { label: "Source", value: selected.metadata?.source_type === "repository"
+              { label: "Source", value: selected.metadata?.source_type === "ready"
+                ? `pre-built (${selected.metadata.zar_name || "app"})`
+                : selected.metadata?.source_type === "repository"
                 ? (selected.metadata.git_url?.split("/").pop()?.replace(".git", "") || "repo")
                 : selected.metadata?.source_type === "zar"
                 ? (selected.metadata.zar_name || "zar")

@@ -84,10 +84,11 @@ class CreateInstanceRequest(BaseModel):
     domain: Optional[str] = None
     workspace: Optional[str] = None
     # Source: what to deploy on the instance
-    source_type: Optional[str] = None   # "repository" | "zar" | "folder" | None
-    git_url: Optional[str] = None       # for source_type="repository"
-    git_branch: str = "main"            # for source_type="repository"
-    zar_name: Optional[str] = None      # for source_type="zar"
+    source_type: Optional[str] = None       # "repository" | "zar" | "ready" | "folder" | None
+    git_url: Optional[str] = None           # for source_type="repository"
+    git_branch: str = "main"                # for source_type="repository"
+    zar_name: Optional[str] = None          # for source_type="zar" or "ready"
+    app_ready_key: Optional[str] = None     # R2 key for pre-built app (auto-resolved if source_type="ready")
 
 
 class InstanceExecRequest(BaseModel):

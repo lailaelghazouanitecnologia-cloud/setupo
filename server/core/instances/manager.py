@@ -51,6 +51,8 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
         metadata["git_branch"] = req.git_branch
     if req.zar_name:
         metadata["zar_name"] = req.zar_name
+    if req.app_ready_key:
+        metadata["app_ready_key"] = req.app_ready_key
 
     instance = Instance(
         id=instance_id,
@@ -93,6 +95,17 @@ async def create_instance(project_id: str, req: CreateInstanceRequest) -> Instan
     return instance
 
 
+async def _resolve_app_ready_key(project_id: str, req: CreateInstanceRequest) -> str:
+    """Resolve the R2 key for a frozen app, if available."""
+    # Explicit ready key in request
+    if req.app_ready_key:
+        return req.app_ready_key
+    # source_type="ready" with a workspace name — look up the frozen .zar
+    if req.source_type == "ready" and req.zar_name:
+        return f"{project_id}/_ready/{req.zar_name}/latest.zar"
+    return ""
+
+
 async def _provision_instance(project_id: str, instance_id: str, req: CreateInstanceRequest):
     vultr = VultrProvider()
     try:
@@ -105,11 +118,14 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
             "state": InstanceState.INSTALLING.value,
         })
 
+        app_ready_key = await _resolve_app_ready_key(project_id, req)
+
         user_data = get_cloud_init(
             req.type.value,
             domain=req.domain,
             git_url=req.git_url,
             git_branch=req.git_branch,
+            app_ready_key=app_ready_key,
         )
 
         vps = await vultr.create_instance(

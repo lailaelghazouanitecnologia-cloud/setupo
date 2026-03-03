@@ -6,11 +6,19 @@ Two levels:
      Key: system/latest.zar, system/v{version}.zar, system/manifest.json
   2. User apps (bucket: nso) — frozen user app deploys
      Key: {project_id}/_ready/{workspace}/latest.zar, manifest.json
+
+Workflow for system build:
+  1. git pull (get latest code from GitHub)
+  2. npm run build (dashboards + admin)
+  3. Pack server/ + instance/ + client/*/static/ into .zar
+  4. Upload to nso-ready bucket
 """
 
+import asyncio
 import hashlib
 import json
 import logging
+import subprocess
 import tarfile
 from datetime import datetime, timezone
 from io import BytesIO
@@ -109,8 +117,89 @@ def _build_system_zar(base_dir: Path, version: str) -> tuple[bytes, dict]:
     return zar_bytes, manifest
 
 
-async def build_and_upload_system(version: str | None = None) -> dict:
-    """Build system .zar and upload to nso-ready bucket."""
+async def _run_cmd(cmd: list[str], cwd: str, label: str) -> str:
+    """Run a shell command async and return stdout. Raises on failure."""
+    logger.info("[build] %s: %s", label, " ".join(cmd))
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        cwd=cwd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        err = stderr.decode().strip() or stdout.decode().strip()
+        raise RuntimeError(f"{label} failed (exit {proc.returncode}): {err[:500]}")
+    return stdout.decode().strip()
+
+
+async def _git_pull(base: Path, branch: str = "main") -> str:
+    """Pull latest code from GitHub."""
+    git_dir = base / ".git"
+    if not git_dir.exists():
+        logger.info("[build] No .git found at %s — skipping git pull", base)
+        return "skipped (no .git)"
+    out = await _run_cmd(
+        ["git", "pull", "origin", branch, "--ff-only"],
+        cwd=str(base),
+        label="git pull",
+    )
+    return out
+
+
+async def _build_dashboards(base: Path) -> dict:
+    """Build dashboard and admin Next.js apps."""
+    results = {}
+
+    for app in ("dashboard", "admin"):
+        app_dir = base / "client" / app
+        if not (app_dir / "package.json").exists():
+            logger.warning("[build] No package.json in %s — skipping", app_dir)
+            results[app] = "skipped (no package.json)"
+            continue
+
+        # npm install
+        await _run_cmd(["npm", "install"], cwd=str(app_dir), label=f"{app} npm install")
+
+        # npm run build
+        await _run_cmd(["npm", "run", "build"], cwd=str(app_dir), label=f"{app} npm build")
+
+        # Copy output to static/
+        out_dir = app_dir / "out"
+        static_dir = app_dir / "static"
+        if out_dir.exists():
+            static_dir.mkdir(parents=True, exist_ok=True)
+            await _run_cmd(
+                ["rsync", "-a", "--delete", f"{out_dir}/", f"{static_dir}/"],
+                cwd=str(app_dir),
+                label=f"{app} copy to static",
+            )
+            results[app] = "built"
+        else:
+            results[app] = "built (no out/ dir)"
+
+    return results
+
+
+async def build_and_upload_system(
+    version: str | None = None,
+    skip_git: bool = False,
+    skip_build: bool = False,
+    git_branch: str = "main",
+) -> dict:
+    """
+    Full system build pipeline:
+      1. git pull (latest code from GitHub)
+      2. npm run build (dashboards)
+      3. Pack into .zar
+      4. Upload to nso-ready bucket
+
+    Args:
+        version: Version string (auto-generated if not set).
+        skip_git: Skip git pull step.
+        skip_build: Skip npm build (use existing static/).
+        git_branch: Branch to pull from.
+    """
     base = Path("/opt/nso")
     if not base.exists():
         # Dev fallback
@@ -119,9 +208,36 @@ async def build_and_upload_system(version: str | None = None) -> dict:
     if not version:
         version = datetime.now(timezone.utc).strftime("%Y%m%d.%H%M%S")
 
+    build_log = {"version": version, "steps": {}}
+
+    # Step 1: git pull
+    if not skip_git:
+        try:
+            git_result = await _git_pull(base, git_branch)
+            build_log["steps"]["git_pull"] = git_result
+        except RuntimeError as e:
+            build_log["steps"]["git_pull"] = f"failed: {e}"
+            logger.warning("[build] git pull failed, continuing with local files: %s", e)
+    else:
+        build_log["steps"]["git_pull"] = "skipped"
+
+    # Step 2: Build dashboards
+    if not skip_build:
+        try:
+            dashboard_results = await _build_dashboards(base)
+            build_log["steps"]["build"] = dashboard_results
+        except RuntimeError as e:
+            raise RuntimeError(f"Dashboard build failed: {e}")
+    else:
+        build_log["steps"]["build"] = "skipped"
+
+    # Step 3: Pack
     zar_bytes, manifest = _build_system_zar(base, version)
+    manifest["build_log"] = build_log
+    build_log["steps"]["pack"] = f"{len(zar_bytes)} bytes"
     logger.info("Built system .zar v%s (%d bytes)", version, len(zar_bytes))
 
+    # Step 4: Upload
     r2 = R2Client(settings.r2_ready_config())
     try:
         # Upload versioned
@@ -138,6 +254,7 @@ async def build_and_upload_system(version: str | None = None) -> dict:
             json.dumps(manifest, indent=2).encode(),
             content_type="application/json",
         )
+        build_log["steps"]["upload"] = "ok"
     finally:
         await r2.close()
 

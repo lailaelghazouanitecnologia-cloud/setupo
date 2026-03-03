@@ -15,6 +15,7 @@ Project endpoints:
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from server.config import settings
 from server.deps import require_admin, require_project
@@ -42,12 +43,33 @@ def _check_r2():
 admin_router = APIRouter()
 
 
+class SystemBuildRequest(BaseModel):
+    version: str = ""
+    skip_git: bool = False
+    skip_build: bool = False
+    git_branch: str = "main"
+
+
 @admin_router.post("/build")
-async def build_system(version: str = "", _=Depends(require_admin)):
-    """Build NSO platform .zar and upload to nso-ready bucket."""
+async def build_system(req: SystemBuildRequest = SystemBuildRequest(), _=Depends(require_admin)):
+    """
+    Build NSO platform .zar and upload to nso-ready bucket.
+
+    Full pipeline: git pull → npm build dashboards → pack .zar → upload to R2.
+
+    Options:
+      - skip_git: Skip git pull (use current local code)
+      - skip_build: Skip npm build (use existing static/ dirs)
+      - git_branch: Branch to pull from (default: main)
+    """
     _check_r2()
     try:
-        manifest = await build_and_upload_system(version or None)
+        manifest = await build_and_upload_system(
+            version=req.version or None,
+            skip_git=req.skip_git,
+            skip_build=req.skip_build,
+            git_branch=req.git_branch,
+        )
     except Exception as e:
         logger.error("System build failed: %s", e)
         raise HTTPException(500, f"Build failed: {e}")

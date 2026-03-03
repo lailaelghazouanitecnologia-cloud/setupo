@@ -285,7 +285,7 @@ export async function listInstances(projectId: string) {
 
 export async function createInstance(projectId: string, opts: {
   type?: string; label?: string; region?: string; plan?: string; domain?: string; workspace?: string;
-  source_type?: string; git_url?: string; git_branch?: string; zar_name?: string;
+  source_type?: string; git_url?: string; git_branch?: string; zar_name?: string; app_ready_key?: string;
 } = {}) {
   return centralApi<{ instance: any; message: string }>(`/api/projects/${projectId}/instances`, {
     method: "POST",

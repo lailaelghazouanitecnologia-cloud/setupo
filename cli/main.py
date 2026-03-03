@@ -27,6 +27,8 @@ System:
     nso login                            Authenticate
     nso status                           Quick overview
     nso doctor                           Diagnose problems
+    nso system build                     Build + upload nso-ready image
+    nso system status                    Show current nso-ready version
 """
 import argparse
 import getpass
@@ -623,6 +625,97 @@ def cmd_doctor(args):
     return issues
 
 
+# ── System (nso-ready) ──────────────────────────────────────
+
+def cmd_system(args):
+    """Manage the nso-ready pre-compiled system image."""
+    subcmd = args.subcmd or "status"
+
+    if subcmd == "status":
+        output.info("Checking nso-ready system image...")
+        ok, data = client.get("/api/ready/latest", timeout=15)
+        if not ok:
+            error = data.get("error", "")
+            if "404" in str(data) or "No system build" in error:
+                output.warn("No system image found. Run: nso system build")
+            else:
+                output.err(error or "Failed to check status")
+            return 1
+
+        output.header("nso-ready System Image")
+        output.kv({
+            "Version": data.get("version", "?"),
+            "Type": data.get("type", "?"),
+            "Size": f"{data.get('size', 0) / 1024 / 1024:.1f} MB" if data.get("size") else "?",
+            "Hash": (data.get("hash", "?")[:30] + "...") if data.get("hash") else "?",
+            "Built": data.get("created_at", "?"),
+            "Components": ", ".join(data.get("components", [])),
+        })
+        return 0
+
+    if subcmd == "build":
+        body = {}
+        if args.version:
+            body["version"] = args.version
+        if getattr(args, "skip_git", False):
+            body["skip_git"] = True
+        if getattr(args, "skip_build", False):
+            body["skip_build"] = True
+        if args.branch:
+            body["git_branch"] = args.branch
+
+        output.info("Building nso-ready system image...")
+        if not body.get("skip_git"):
+            output.dim("  Step 1/4: git pull")
+        if not body.get("skip_build"):
+            output.dim("  Step 2/4: npm build dashboards")
+        output.dim("  Step 3/4: Pack .zar")
+        output.dim("  Step 4/4: Upload to R2 (nso-ready)")
+        output.dim("")
+        output.warn("This may take 2-5 minutes...")
+
+        start = time.time()
+        ok, data = client.post("/api/ready/build", body, timeout=600)
+        elapsed = time.time() - start
+
+        if not ok:
+            output.err(data.get("error", "Build failed"))
+            return 1
+
+        manifest = data.get("manifest", data)
+        output.ok(f"System image built in {elapsed:.0f}s")
+        output.kv({
+            "Version": manifest.get("version", "?"),
+            "Size": f"{manifest.get('size', 0) / 1024 / 1024:.1f} MB" if manifest.get("size") else "?",
+            "Hash": (manifest.get("hash", "?")[:30] + "...") if manifest.get("hash") else "?",
+            "Components": ", ".join(manifest.get("components", [])),
+        })
+        return 0
+
+    if subcmd == "versions":
+        ok, data = client.get("/api/ready/versions", timeout=15)
+        if not ok:
+            output.err(data.get("error", "Failed"))
+            return 1
+
+        versions = data.get("versions", [])
+        has_latest = data.get("has_latest", False)
+        output.header("System Versions")
+        if has_latest:
+            output.ok("latest.zar exists")
+        else:
+            output.warn("No latest.zar")
+        if versions:
+            for v in versions:
+                print(f"    v{v}")
+        else:
+            output.dim("  No versions found")
+        return 0
+
+    output.err(f"Unknown: system {subcmd}")
+    return 1
+
+
 # ── Parser ───────────────────────────────────────────────────────
 
 def build_parser() -> argparse.ArgumentParser:
@@ -745,6 +838,17 @@ def build_parser() -> argparse.ArgumentParser:
     ex.add_argument("command", nargs=argparse.REMAINDER)
     ex.add_argument("--timeout", type=int, default=30)
 
+    # ── System (nso-ready) ──
+    sys_parser = sub.add_parser("system", help="Manage nso-ready system image")
+    sys_sub = sys_parser.add_subparsers(dest="subcmd")
+    sys_sub.add_parser("status", help="Show current system image")
+    sys_sub.add_parser("versions", help="List all system versions")
+    p = sys_sub.add_parser("build", help="Build + upload system image")
+    p.add_argument("-v", "--version", help="Version string (auto if not set)")
+    p.add_argument("-b", "--branch", default="main", help="Git branch to pull")
+    p.add_argument("--skip-git", action="store_true", help="Skip git pull")
+    p.add_argument("--skip-build", action="store_true", help="Skip npm build (use existing static)")
+
     return parser
 
 
@@ -769,6 +873,7 @@ COMMANDS = {
     "inst": cmd_instances,
     "ws": cmd_workspaces,
     "exec": cmd_exec,
+    "system": cmd_system,
 }
 
 

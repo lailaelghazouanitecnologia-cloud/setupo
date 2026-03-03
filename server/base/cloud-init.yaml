@@ -423,14 +423,54 @@ runcmd:
   # ── Apply SSL nginx configs (uses our own templates, not certbot's) ──
   - /opt/nso/deploy/setup-ssl.sh || true
 
-  # ── Deploy user app (if source provided) ─────────────────
+  # ── Deploy user app (pre-built ready OR git clone) ───────
   - |
+    export R2_ENDPOINT="{{R2_ENDPOINT}}"
+    export R2_ACCESS_KEY_ID="{{R2_ACCESS_KEY_ID}}"
+    export R2_SECRET_ACCESS_KEY="{{R2_SECRET_ACCESS_KEY}}"
+    APP_READY_KEY="{{APP_READY_KEY}}"
     APP_GIT_URL="{{APP_GIT_URL}}"
     APP_GIT_BRANCH="{{APP_GIT_BRANCH}}"
+    R2_BUCKET="{{R2_BUCKET}}"
     APP_DIR="/opt/app"
+    APP_DEPLOYED=0
 
-    if [ -n "$APP_GIT_URL" ]; then
-      echo "[nso] Cloning app repo: $APP_GIT_URL (branch: $APP_GIT_BRANCH)" | tee /var/log/nso/app-deploy.log
+    # Priority 1: Pre-built app image from R2 (_ready/ prefix)
+    if [ -n "$APP_READY_KEY" ]; then
+      echo "[nso] Downloading pre-built app from R2: $APP_READY_KEY" | tee /var/log/nso/app-deploy.log
+      if python3 /opt/nso/deploy/r2-download.py "$R2_BUCKET" "$APP_READY_KEY" "/tmp/app-ready.zar" 2>>/var/log/nso/app-deploy.log; then
+        echo "[nso] Extracting pre-built app..." | tee -a /var/log/nso/app-deploy.log
+        mkdir -p "$APP_DIR"
+        cd "$APP_DIR"
+        tar xzf /tmp/app-ready.zar --strip-components=0 2>>/var/log/nso/app-deploy.log || true
+        # Move files/ contents to APP_DIR (zar format stores under files/)
+        if [ -d "$APP_DIR/files" ]; then
+          cp -r "$APP_DIR/files/"* "$APP_DIR/" 2>/dev/null || true
+          rm -rf "$APP_DIR/files"
+        fi
+        rm -f /tmp/app-ready.zar "$APP_DIR/.zar-manifest.json" "$APP_DIR/config.toml" 2>/dev/null || true
+        APP_DEPLOYED=1
+        echo "[nso] Pre-built app extracted to $APP_DIR" | tee -a /var/log/nso/app-deploy.log
+
+        # Install deps even for pre-built (venv/node_modules are platform-specific)
+        cd "$APP_DIR"
+        if [ -f "package.json" ]; then
+          echo "[nso] Installing Node.js dependencies..." >> /var/log/nso/app-deploy.log
+          npm install >> /var/log/nso/app-deploy.log 2>&1 || true
+        fi
+        if [ -f "requirements.txt" ]; then
+          echo "[nso] Installing Python dependencies..." >> /var/log/nso/app-deploy.log
+          python3 -m venv "$APP_DIR/venv" >> /var/log/nso/app-deploy.log 2>&1
+          "$APP_DIR/venv/bin/pip" install -r requirements.txt >> /var/log/nso/app-deploy.log 2>&1
+        fi
+      else
+        echo "[nso] Pre-built app download failed — falling back to git" | tee -a /var/log/nso/app-deploy.log
+      fi
+    fi
+
+    # Priority 2: Git clone (if no pre-built or pre-built failed)
+    if [ "$APP_DEPLOYED" = "0" ] && [ -n "$APP_GIT_URL" ]; then
+      echo "[nso] Cloning app repo: $APP_GIT_URL (branch: $APP_GIT_BRANCH)" | tee -a /var/log/nso/app-deploy.log
       git clone -b "$APP_GIT_BRANCH" "$APP_GIT_URL" "$APP_DIR" >> /var/log/nso/app-deploy.log 2>&1 || \
         git clone "$APP_GIT_URL" "$APP_DIR" >> /var/log/nso/app-deploy.log 2>&1
 

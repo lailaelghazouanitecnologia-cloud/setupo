@@ -39,6 +39,7 @@ def get_cloud_init(
     domain: str | None = None,
     git_url: str | None = None,
     git_branch: str = "main",
+    app_ready_key: str = "",
 ) -> str:
     config = INSTANCE_CONFIGS.get(instance_type, INSTANCE_CONFIGS["custom"])
     template_name = config.get("cloud_init")
@@ -68,6 +69,7 @@ def get_cloud_init(
         "{{JWT_SECRET}}": secrets.token_hex(32),
         "{{APP_GIT_URL}}": git_url or "",
         "{{APP_GIT_BRANCH}}": git_branch or "main",
+        "{{APP_READY_KEY}}": app_ready_key or "",
     }
     for placeholder, value in replacements.items():
         content = content.replace(placeholder, value)
