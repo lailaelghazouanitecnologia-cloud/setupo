@@ -288,135 +288,42 @@ write_files:
     permissions: "0755"
     content: |
       #!/bin/bash
-      # NSO SSL setup — upgrades nginx from self-signed to Let's Encrypt
-      # If Let's Encrypt certs don't exist, keeps self-signed (Cloudflare Full works with both)
+      # NSO SSL setup — upgrades nginx cert paths from self-signed to Let's Encrypt
+      # Uses sed to swap cert paths in existing configs (avoids bash/python escaping issues)
+      # If no LE certs exist, configs keep self-signed paths (Cloudflare Full works with both)
       set -e
       DOMAIN="{{DOMAIN}}"
       LE_DIR="/etc/letsencrypt/live"
-      SS_DIR="/etc/ssl/nso"
+      SS_CERT="/etc/ssl/nso/fullchain.pem"
+      SS_KEY="/etc/ssl/nso/privkey.pem"
+      CHANGED=0
 
-      # Determine best cert for main domain
+      # ── Upgrade main site cert if Let's Encrypt available ──
       if [ -f "$LE_DIR/$DOMAIN/fullchain.pem" ]; then
-        CERT="$LE_DIR/$DOMAIN/fullchain.pem"
-        KEY="$LE_DIR/$DOMAIN/privkey.pem"
-        echo "Using Let's Encrypt cert for $DOMAIN"
+        echo "Upgrading $DOMAIN to Let's Encrypt cert"
+        sed -i "s|$SS_CERT|$LE_DIR/$DOMAIN/fullchain.pem|g" /etc/nginx/sites-available/nso
+        sed -i "s|$SS_KEY|$LE_DIR/$DOMAIN/privkey.pem|g" /etc/nginx/sites-available/nso
+        CHANGED=1
       else
-        CERT="$SS_DIR/fullchain.pem"
-        KEY="$SS_DIR/privkey.pem"
-        echo "Let's Encrypt not available for $DOMAIN — keeping self-signed"
+        echo "No Let's Encrypt cert for $DOMAIN — keeping self-signed"
       fi
 
-      # ── Main site ──
-      python3 -c "
-      d, cert, key = '$DOMAIN', '$CERT', '$KEY'
-      open('/etc/nginx/sites-available/nso','w').write(f'''upstream nso_api {{ server 127.0.0.1:8000; }}
-      upstream nso_agent {{ server 127.0.0.1:8081; }}
-
-      server {{
-          listen 80;
-          server_name {d} *.{d};
-          location /.well-known/acme-challenge/ {{ root /var/www/html; }}
-          return 301 https://\\\$host\\\$request_uri;
-      }}
-
-      server {{
-          listen 443 ssl;
-          server_name {d} *.{d};
-          ssl_certificate {cert};
-          ssl_certificate_key {key};
-          ssl_protocols TLSv1.2 TLSv1.3;
-          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-          ssl_prefer_server_ciphers off;
-
-          location /api/ {{
-              proxy_pass http://nso_api;
-              proxy_set_header Host \\\$host;
-              proxy_set_header X-Real-IP \\\$remote_addr;
-              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto \\\$scheme;
-              proxy_read_timeout 300s;
-          }}
-          location /docs {{ proxy_pass http://nso_api; }}
-          location /openapi.json {{ proxy_pass http://nso_api; }}
-          location /ws/ {{
-              proxy_pass http://nso_api;
-              proxy_http_version 1.1;
-              proxy_set_header Upgrade \\\$http_upgrade;
-              proxy_set_header Connection \\\"upgrade\\\";
-              proxy_set_header Host \\\$host;
-              proxy_read_timeout 86400s;
-          }}
-          location /agent/ {{
-              proxy_pass http://nso_agent/;
-              proxy_set_header Host \\\$host;
-              proxy_set_header X-Real-IP \\\$remote_addr;
-          }}
-          location / {{
-              root /opt/nso/client/dashboard/static;
-              index index.html;
-              try_files \\\$uri \\\$uri/ /index.html;
-          }}
-      }}
-      ''')
-      "
-
-      # ── Admin site ──
+      # ── Upgrade admin site cert if Let's Encrypt available ──
       if [ -f "$LE_DIR/sonfazt.$DOMAIN/fullchain.pem" ]; then
-        ADMIN_CERT="$LE_DIR/sonfazt.$DOMAIN/fullchain.pem"
-        ADMIN_KEY="$LE_DIR/sonfazt.$DOMAIN/privkey.pem"
-        echo "Using Let's Encrypt cert for sonfazt.$DOMAIN"
+        echo "Upgrading sonfazt.$DOMAIN to Let's Encrypt cert"
+        sed -i "s|$SS_CERT|$LE_DIR/sonfazt.$DOMAIN/fullchain.pem|g" /etc/nginx/sites-available/sonfazt
+        sed -i "s|$SS_KEY|$LE_DIR/sonfazt.$DOMAIN/privkey.pem|g" /etc/nginx/sites-available/sonfazt
+        CHANGED=1
       else
-        ADMIN_CERT="$SS_DIR/fullchain.pem"
-        ADMIN_KEY="$SS_DIR/privkey.pem"
-        echo "Using self-signed cert for sonfazt.$DOMAIN"
+        echo "No Let's Encrypt cert for sonfazt.$DOMAIN — keeping self-signed"
       fi
 
-      python3 -c "
-      d, cert, key = '$DOMAIN', '$ADMIN_CERT', '$ADMIN_KEY'
-      open('/etc/nginx/sites-available/sonfazt','w').write(f'''server {{
-          listen 80;
-          server_name sonfazt.{d};
-          location /.well-known/acme-challenge/ {{ root /var/www/html; }}
-          return 301 https://\\\$host\\\$request_uri;
-      }}
-
-      server {{
-          listen 443 ssl;
-          server_name sonfazt.{d};
-          ssl_certificate {cert};
-          ssl_certificate_key {key};
-          ssl_protocols TLSv1.2 TLSv1.3;
-          ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
-          ssl_prefer_server_ciphers off;
-
-          location /api/admin/ {{
-              proxy_pass http://nso_api;
-              proxy_set_header Host \\\$host;
-              proxy_set_header X-Real-IP \\\$remote_addr;
-              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto \\\$scheme;
-              proxy_read_timeout 300s;
-          }}
-          location /api/auth/ {{
-              proxy_pass http://nso_api;
-              proxy_set_header Host \\\$host;
-              proxy_set_header X-Real-IP \\\$remote_addr;
-              proxy_set_header X-Forwarded-For \\\$proxy_add_x_forwarded_for;
-              proxy_set_header X-Forwarded-Proto \\\$scheme;
-          }}
-          location /api/ {{ return 403; }}
-          location / {{
-              root /opt/nso/client/admin/static;
-              index index.html;
-              try_files \\\$uri \\\$uri/ /index.html;
-          }}
-          location ~ /\\\\. {{ deny all; }}
-      }}
-      ''')
-      "
-
-      nginx -t && systemctl reload nginx
-      echo "SSL nginx configs applied successfully"
+      if [ "$CHANGED" = "1" ]; then
+        nginx -t && systemctl reload nginx
+        echo "Nginx reloaded with Let's Encrypt certs"
+      else
+        echo "No cert changes needed — nginx config unchanged"
+      fi
 
 runcmd:
   # ── Firewall (ufw replaces raw iptables flushed in bootcmd) ──
