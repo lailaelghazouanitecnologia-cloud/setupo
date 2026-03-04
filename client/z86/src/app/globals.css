@@ -421,28 +421,32 @@
 
   /* ── Content area ── */
   .dash-content { flex: 1; overflow-y: auto; }
-  .dash-content-inner { padding: 40px 44px; }
+  .dash-content-inner { padding: 48px 48px; }
 
-  /* ── Panel — vertical stack of panel-lines ── */
-  .panel { max-width: 920px; display: flex; flex-direction: column; gap: 10px; }
+  /* ── Panel — BECANE Root_inner: vertical stack ── */
+  .panel { max-width: 920px; display: flex; flex-direction: column; }
   .panel-line { display: flex; flex-direction: column; }
 
+  /* Panel header — BECANE PageInfo pattern: subtitle + title */
   .panel-line-header {
-    flex-direction: row; align-items: center; justify-content: space-between;
-    margin-bottom: 14px;
+    flex-direction: row; align-items: baseline; justify-content: space-between;
+    padding-bottom: 32px; border-bottom: 1px solid var(--black-4);
+    margin-bottom: 0;
   }
   .panel-title {
-    font-size: 22px; font-weight: 700; letter-spacing: -0.04em;
-    color: var(--white-1); display: flex; align-items: center; gap: 12px;
+    font-size: 24px; font-weight: 400; letter-spacing: -0.5px;
+    color: var(--white-1); display: flex; align-items: baseline; gap: 12px;
+    font-family: 'Georgia', 'Times New Roman', serif;
   }
   .panel-suffix {
-    font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.08em; color: var(--red-1);
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--white-5);
+    font-family: var(--font-mono);
   }
   .panel-loading { padding: 56px; text-align: center; color: var(--white-5); font-size: 13px; }
 
   /* ── Empty state — outer → inner ── */
-  .empty-outer { border: 1px solid var(--black-4); border-radius: var(--r-2xl); }
+  .empty-outer { border-top: 1px solid var(--black-4); border-bottom: 1px solid var(--black-4); }
   .empty-inner {
     padding: 64px 28px; text-align: center;
     display: flex; flex-direction: column; align-items: center; gap: 16px;
@@ -450,34 +454,34 @@
   .empty-inner p { color: var(--white-4); font-size: 14px; }
   .empty-icon { font-size: 28px; color: var(--white-6); }
 
-  /* ── Buttons — consistent h-11 (44px), rounded-[0.6rem] ── */
+  /* ── Buttons — BECANE Button_wrapper ── */
   .btn-primary {
-    height: 40px; padding: 0 20px; background: var(--white-1); color: var(--black-1);
-    border: none; font-size: 13px; font-weight: 500; cursor: pointer;
-    border-radius: var(--r-lg); transition: all 0.15s;
+    height: 38px; padding: 0 16px; background: var(--white-1); color: var(--black-1);
+    border: none; font-size: 12px; font-weight: 500; cursor: pointer;
+    border-radius: 6px; transition: all 0.12s;
   }
   .btn-primary:hover { background: var(--white-2); }
   .btn-primary:active { transform: scale(0.985); }
   .btn-primary:disabled { opacity: 0.3; cursor: default; transform: none; }
   .btn-secondary {
-    height: 40px; padding: 0 20px;
-    background: transparent; color: var(--white-2);
-    border: 1px solid var(--black-4); font-size: 13px; font-weight: 500; cursor: pointer;
-    border-radius: var(--r-lg); transition: all 0.15s;
+    height: 38px; padding: 0 16px;
+    background: transparent; color: var(--white-3);
+    border: 1px solid var(--black-4); font-size: 12px; font-weight: 500; cursor: pointer;
+    border-radius: 6px; transition: all 0.12s;
   }
   .btn-secondary:hover { border-color: var(--white-7); color: var(--white-1); }
   .btn-secondary:active { transform: scale(0.985); }
   .btn-back {
     background: transparent; border: 1px solid var(--black-4);
     color: var(--white-4); padding: 6px 14px; font-size: 14px;
-    cursor: pointer; border-radius: var(--r-md); transition: all 0.15s;
+    cursor: pointer; border-radius: 6px; transition: all 0.12s;
   }
   .btn-back:hover { border-color: var(--white-7); color: var(--white-2); }
   .btn-back:active { transform: scale(0.985); }
   .btn-danger-sm {
-    padding: 5px 14px; background: transparent; color: var(--red-1);
-    border: 1px solid var(--red-4); font-size: 11px; font-weight: 500; cursor: pointer;
-    border-radius: var(--r-sm); transition: all 0.15s;
+    padding: 4px 12px; background: transparent; color: var(--red-1);
+    border: 1px solid var(--red-4); font-size: 10px; font-weight: 500; cursor: pointer;
+    border-radius: 4px; transition: all 0.12s;
   }
   .btn-danger-sm:hover { background: var(--red-4); border-color: var(--red-3); }
   .btn-danger-sm:active { transform: scale(0.985); }
@@ -487,155 +491,160 @@
   }
   .link-btn:hover { color: var(--white-1); }
 
-  /* ── Stats — outer → inner pattern ── */
+  /* ── Stats — BECANE GroupBar: horizontal row of ItemBars ── */
   .panel-line-stats {
-    flex-direction: row; gap: 6px;
+    flex-direction: row; border-bottom: 1px solid var(--black-4);
   }
   .stat-outer {
-    flex: 1; background: transparent; border: 1px solid var(--black-4);
-    border-radius: var(--r-xl);
-    cursor: pointer; transition: all 0.12s;
-    text-align: left; color: inherit;
+    flex: 1; background: transparent;
+    border-right: 1px solid var(--black-4);
+    cursor: pointer; transition: background 0.08s;
+    text-align: left; color: inherit; border-radius: 0;
   }
-  .stat-outer:hover { border-color: var(--white-7); }
-  .stat-outer:active { transform: scale(0.985); }
-  .stat-inner { padding: 24px 22px; display: flex; flex-direction: column; gap: 10px; }
+  .stat-outer:last-child { border-right: none; }
+  .stat-outer:hover { background: var(--black-3); }
+  .stat-outer:active { transform: none; }
+  .stat-inner { padding: 20px 22px; display: flex; flex-direction: column; gap: 8px; }
   .stat-label {
-    font-size: 11px; color: var(--white-5); text-transform: uppercase;
+    font-size: 10px; color: var(--white-5); text-transform: uppercase;
     letter-spacing: 0.08em; font-weight: 500;
   }
-  .stat-value { font-size: 30px; font-weight: 800; letter-spacing: -0.04em; color: var(--white-1); }
+  .stat-value { font-size: 26px; font-weight: 800; letter-spacing: -0.04em; color: var(--white-1); }
 
-  /* ── Progress bar — outer → inner ── */
-  .bar-outer { border: 1px solid var(--black-4); border-radius: var(--r-xl); }
-  .bar-outer-large { border-radius: var(--r-2xl); }
-  .bar-inner { padding: 24px; }
+  /* ── Progress bar — BECANE bar pattern ── */
+  .bar-outer { border-bottom: 1px solid var(--black-4); }
+  .bar-inner { padding: 20px 22px; }
   .bar-header {
     display: flex; justify-content: space-between;
-    font-size: 13px; color: var(--white-4); margin-bottom: 12px; font-weight: 500;
+    font-size: 12px; color: var(--white-5); margin-bottom: 10px; font-weight: 400;
   }
-  .bar-track { height: 5px; background: var(--black-1); border-radius: var(--r-full); overflow: hidden; }
-  .bar-track-large { height: 8px; }
-  .bar-fill { height: 100%; background: var(--red-1); border-radius: var(--r-full); transition: width 0.5s ease; }
-  .bar-pct { font-size: 11px; color: var(--white-6); margin-top: 8px; display: block; font-family: var(--font-mono); }
+  .bar-track { height: 3px; background: var(--black-1); border-radius: 2px; overflow: hidden; }
+  .bar-track-large { height: 6px; }
+  .bar-fill { height: 100%; background: var(--red-1); border-radius: 2px; transition: width 0.5s ease; }
+  .bar-pct { font-size: 10px; color: var(--white-6); margin-top: 6px; display: block; font-family: var(--font-mono); }
   .bar-pct-large { font-size: 26px; font-weight: 800; color: var(--red-1); }
   .bar-footer {
-    display: flex; justify-content: space-between; margin-top: 12px;
-    font-size: 12px; color: var(--white-5); font-family: var(--font-mono);
+    display: flex; justify-content: space-between; margin-top: 10px;
+    font-size: 11px; color: var(--white-5); font-family: var(--font-mono);
   }
   .bar-inline {
     width: 48px; height: 3px; background: var(--black-1);
     display: inline-block; vertical-align: middle;
-    margin-right: 8px; overflow: hidden; border-radius: var(--r-full);
+    margin-right: 8px; overflow: hidden; border-radius: 2px;
   }
 
-  /* ── List — header + items (BECANE ItemBar) ── */
+  /* ── List — BECANE GroupBar → ItemBar_outer → wrapper → secondWrapper ── */
   .list-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 8px 4px 12px; font-size: 13px; font-weight: 600; color: var(--white-3);
+    padding: 14px 22px; font-size: 11px; font-weight: 600; color: var(--white-5);
+    text-transform: uppercase; letter-spacing: 0.08em;
+    border-bottom: 1px solid var(--black-4);
   }
-  .list-header-suffix { font-family: var(--font-mono); font-size: 11px; color: var(--white-6); }
+  .list-header-suffix { font-family: var(--font-mono); font-size: 10px; color: var(--white-6); }
 
   .list-item-outer {
     display: block; width: 100%; background: transparent;
-    border: 1px solid var(--black-4); cursor: pointer; text-align: left;
-    border-radius: var(--r-lg); transition: all 0.1s;
-    margin-bottom: 2px; color: inherit;
+    border-bottom: 1px solid var(--black-4);
+    cursor: pointer; text-align: left;
+    transition: background 0.08s; color: inherit;
+    border-radius: 0; border-left: none; border-right: none; border-top: none;
+    margin-bottom: 0;
   }
-  .list-item-outer:hover { border-color: var(--white-7); }
-  .list-item-outer:active { transform: scale(0.995); }
+  .list-item-outer:hover { background: var(--black-3); border-color: var(--black-4); }
+  .list-item-outer:active { transform: none; }
   .list-item-inner {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 20px;
+    padding: 14px 22px;
   }
-  .list-item-label { display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--white-2); font-weight: 500; }
-  .list-item-icon { color: var(--white-6); font-size: 14px; }
-  .list-item-suffix { font-family: var(--font-mono); font-size: 11px; color: var(--white-5); }
+  .list-item-label { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--white-2); font-weight: 500; }
+  .list-item-icon { color: var(--white-6); font-size: 13px; }
+  .list-item-suffix { font-family: var(--font-mono); font-size: 10px; color: var(--white-5); }
 
-  /* ── Code block — outer → header + inner ── */
-  .code-outer { border: 1px solid var(--black-4); border-radius: var(--r-xl); overflow: hidden; }
+  /* ── Code block — BECANE bar with inner code ── */
+  .code-outer { border-bottom: 1px solid var(--black-4); overflow: hidden; }
   .code-header {
-    padding: 14px 22px; font-size: 13px; font-weight: 600; color: var(--white-3);
+    padding: 14px 22px; font-size: 11px; font-weight: 600; color: var(--white-5);
+    text-transform: uppercase; letter-spacing: 0.08em;
   }
   .code-inner {
-    padding: 20px 24px; font-family: var(--font-mono);
-    font-size: 12px; line-height: 2.2; background: var(--black-1);
-    margin: 0 5px 5px; border-radius: 0 0 var(--r-lg) var(--r-lg);
+    padding: 16px 22px; font-family: var(--font-mono);
+    font-size: 11px; line-height: 2; background: var(--black-1);
+    margin: 0 8px 8px; border-radius: 6px;
   }
 
-  /* ── Table — outer → header-row + rows ── */
-  .table-outer { border: 1px solid var(--black-4); border-radius: var(--r-xl); overflow: hidden; }
+  /* ── Table — BECANE GroupBar → row bars ── */
+  .table-outer { overflow: hidden; }
   .table-header-row {
-    display: flex; padding: 14px 22px;
-    border-bottom: 1px solid var(--black-1);
+    display: flex; padding: 12px 22px;
+    border-bottom: 1px solid var(--black-4);
   }
   .table-th {
-    flex: 1; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    flex: 1; font-size: 10px; font-weight: 600; text-transform: uppercase;
     letter-spacing: 0.08em; color: var(--white-5);
   }
-  .table-row { transition: background 0.08s; }
-  .table-row:hover { background: var(--black-4); }
+  .table-row { transition: background 0.06s; }
+  .table-row:hover { background: var(--black-3); }
   .table-row-inner {
-    display: flex; align-items: center; padding: 14px 22px;
-    border-bottom: 1px solid rgba(59,57,55,0.5);
+    display: flex; align-items: center; padding: 12px 22px;
+    border-bottom: 1px solid rgba(59,57,55,0.4);
   }
   .table-row:last-child .table-row-inner { border-bottom: none; }
-  .table-td { flex: 1; font-size: 13px; color: var(--white-3); }
-  .table-td-mono { font-family: var(--font-mono); font-size: 12px; }
-  .table-td-muted { color: var(--white-5); font-family: var(--font-mono); font-size: 11px; }
+  .table-td { flex: 1; font-size: 12px; color: var(--white-3); }
+  .table-td-mono { font-family: var(--font-mono); font-size: 11px; }
+  .table-td-muted { color: var(--white-5); font-family: var(--font-mono); font-size: 10px; }
   .table-row-disabled { opacity: 0.3; }
 
   /* ── Status badge ── */
   .status-badge {
-    font-size: 11px; padding: 3px 10px; border-radius: var(--r-full); font-weight: 500;
+    font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 500;
   }
   .status-badge.active { color: #22c55e; background: rgba(34,197,94,0.1); }
   .status-badge.revoked { color: var(--red-1); background: var(--red-4); }
 
-  /* ── Forms ── */
-  .form-outer { border: 1px solid var(--black-4); border-radius: var(--r-xl); }
-  .form-inner { padding: 26px 28px; display: flex; flex-direction: column; gap: 16px; max-width: 460px; }
-  .form-label { display: flex; flex-direction: column; gap: 6px; }
-  .form-label span { font-size: 13px; color: var(--white-4); font-weight: 400; }
+  /* ── Forms — BECANE flat sections ── */
+  .form-outer { border-bottom: 1px solid var(--black-4); }
+  .form-inner { padding: 22px 22px; display: flex; flex-direction: column; gap: 14px; max-width: 460px; }
+  .form-label { display: flex; flex-direction: column; gap: 5px; }
+  .form-label span { font-size: 12px; color: var(--white-5); font-weight: 400; }
   .form-inner input {
-    height: 44px; padding: 0 14px; background: var(--black-1); color: var(--white-1);
-    font-size: 14px; outline: none; border: 1px solid var(--black-4);
-    border-radius: var(--r-lg); transition: border-color 0.15s;
+    height: 40px; padding: 0 14px; background: var(--black-1); color: var(--white-1);
+    font-size: 13px; outline: none; border: 1px solid var(--black-4);
+    border-radius: 6px; transition: border-color 0.12s;
   }
   .form-inner input:hover { border-color: var(--white-7); }
   .form-inner input:focus { border-color: var(--white-5); }
   .form-inner input::placeholder { color: var(--white-6); }
   .form-row { display: flex; gap: 8px; }
   .form-row input { flex: 1; }
-  .form-hint { font-size: 11px; color: var(--white-6); font-family: var(--font-mono); }
-  .form-error { font-size: 13px; color: var(--red-1); background: var(--red-4); padding: 12px 18px; border-radius: var(--r-lg); }
-  .form-msg { font-size: 13px; color: #22c55e; font-weight: 500; }
+  .form-hint { font-size: 10px; color: var(--white-6); font-family: var(--font-mono); }
+  .form-error { font-size: 12px; color: var(--red-1); background: var(--red-4); padding: 10px 14px; border-radius: 6px; }
+  .form-msg { font-size: 12px; color: #22c55e; font-weight: 500; }
 
-  /* ── Filter — outer → inner ── */
-  .filter-outer { border: 1px solid var(--black-4); border-radius: var(--r-lg); }
+  /* ── Filter — BECANE bar input ── */
+  .filter-outer { border-bottom: 1px solid var(--black-4); }
   .filter-inner {
     display: flex; align-items: center; gap: 14px; padding: 4px 4px 4px 0;
   }
   .filter-input {
-    flex: 1; padding: 12px 18px; background: transparent; color: var(--white-1);
-    font-size: 13px; font-family: var(--font-mono); outline: none; border: none;
+    flex: 1; padding: 10px 22px; background: transparent; color: var(--white-1);
+    font-size: 12px; font-family: var(--font-mono); outline: none; border: none;
   }
   .filter-input::placeholder { color: var(--white-6); }
-  .filter-suffix { font-size: 12px; color: var(--white-6); font-family: var(--font-mono); padding-right: 16px; white-space: nowrap; }
+  .filter-suffix { font-size: 11px; color: var(--white-6); font-family: var(--font-mono); padding-right: 22px; white-space: nowrap; }
 
-  /* ── Banner — outer → inner ── */
-  .banner-outer { border-radius: var(--r-xl); }
-  .banner-success { background: rgba(34,197,94,0.08); }
-  .banner-inner { padding: 28px; }
-  .banner-header { font-size: 14px; font-weight: 600; color: #22c55e; margin-bottom: 6px; }
-  .banner-sub { font-size: 12px; color: var(--white-4); margin-bottom: 20px; }
-  .key-display { display: flex; flex-direction: column; gap: 14px; margin-bottom: 20px; }
-  .key-row { display: flex; flex-direction: column; gap: 6px; }
+  /* ── Banner — BECANE notification bar ── */
+  .banner-outer { border-bottom: 1px solid var(--black-4); }
+  .banner-success { background: rgba(34,197,94,0.05); }
+  .banner-inner { padding: 22px; }
+  .banner-header { font-size: 13px; font-weight: 600; color: #22c55e; margin-bottom: 4px; }
+  .banner-sub { font-size: 11px; color: var(--white-5); margin-bottom: 18px; }
+  .key-display { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+  .key-row { display: flex; flex-direction: column; gap: 4px; }
   .key-label { font-size: 10px; color: var(--white-5); text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
   .key-value {
-    font-family: var(--font-mono); font-size: 12px; padding: 12px 16px;
+    font-family: var(--font-mono); font-size: 11px; padding: 10px 14px;
     background: var(--black-1); border: 1px solid var(--black-4);
-    word-break: break-all; border-radius: var(--r-lg); color: var(--white-2);
+    word-break: break-all; border-radius: 6px; color: var(--white-2);
   }
 
   /* ── Settings — clear hierarchy with bordered sections ── */
