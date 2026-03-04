@@ -111,7 +111,7 @@ const viewTitles: Record<DashboardView, string> = {
 };
 
 /* ═══════════════════════════════════════════
-   PROJECT / WORKSPACE SWITCHER
+   PROJECT / WORKSPACE SWITCHER (dropdown only)
    ═══════════════════════════════════════════ */
 function ProjectSwitcher() {
   const projects = useDashboardStore((s) => s.projects);
@@ -124,7 +124,7 @@ function ProjectSwitcher() {
   const projectLoading = useDashboardStore((s) => s.projectLoading);
   const setActiveView = useDashboardStore((s) => s.setActiveView);
 
-  const [projDropOpen, setProjDropOpen] = useState(false);
+  const [open, setOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const dropRef = useRef<HTMLDivElement>(null);
@@ -132,12 +132,13 @@ function ProjectSwitcher() {
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
-        setProjDropOpen(false);
+        setOpen(false);
+        setCreating(false);
       }
     }
-    if (projDropOpen) document.addEventListener("mousedown", handleClick);
+    if (open) document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [projDropOpen]);
+  }, [open]);
 
   const handleCreateProject = async () => {
     const name = newName.trim();
@@ -150,7 +151,7 @@ function ProjectSwitcher() {
       setActiveProject(proj);
       setNewName("");
       setCreating(false);
-      setProjDropOpen(false);
+      setOpen(false);
     } catch (e: any) {
       alert(e.message || "Failed to create project");
     }
@@ -158,14 +159,11 @@ function ProjectSwitcher() {
 
   const handleSelectProject = async (proj: ProjectInfo) => {
     setActiveProject(proj);
-    setProjDropOpen(false);
-    // Load workspaces for this project
     try {
       const { listWorkspaces } = await import("@/lib/api/client");
       const res = await listWorkspaces(proj.id);
       const wsList: WorkspaceInfo[] = res.workspaces || [];
       setWorkspaces(wsList);
-      // Restore last active or pick first
       const savedWsId = localStorage.getItem("nso_active_workspace");
       const restored = wsList.find((w) => w.id === savedWsId);
       setActiveWorkspace(restored || wsList[0] || null);
@@ -174,11 +172,16 @@ function ProjectSwitcher() {
     }
   };
 
+  const handleSelectWorkspace = (ws: WorkspaceInfo) => {
+    setActiveWorkspace(ws);
+    setOpen(false);
+  };
+
   // Loading
   if (projectLoading) {
     return (
       <div className="proj-switcher">
-        <div className="proj-trigger" style={{ opacity: 0.5 }}>
+        <div className="proj-trigger" style={{ opacity: 0.5, cursor: "default" }}>
           <Layers className="h-3.5 w-3.5" style={{ opacity: 0.4 }} />
           <span style={{ fontSize: 13 }}>Loading...</span>
         </div>
@@ -186,64 +189,32 @@ function ProjectSwitcher() {
     );
   }
 
-  // No projects — show create
-  if (projects.length === 0) {
-    return (
-      <div className="proj-switcher">
-        {!creating ? (
-          <button
-            className="proj-trigger proj-create-btn"
-            onClick={() => setCreating(true)}
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Create project</span>
-          </button>
-        ) : (
-          <div className="proj-create-form">
-            <input
-              className="proj-create-input"
-              placeholder="Project name..."
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
-              autoFocus
-            />
-            <button className="proj-create-ok" onClick={handleCreateProject}>
-              <Check className="h-3 w-3" />
-            </button>
-            <button className="proj-create-cancel" onClick={() => { setCreating(false); setNewName(""); }}>
-              <X className="h-3 w-3" />
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
+  // Trigger label
+  const triggerLabel = activeWorkspace
+    ? `${activeProject?.name || "project"} / ${activeWorkspace.name}`
+    : activeProject?.name || "Select project";
 
   return (
     <div className="proj-switcher" ref={dropRef}>
-      {/* Project trigger */}
-      <button
-        className="proj-trigger"
-        onClick={() => setProjDropOpen(!projDropOpen)}
-      >
+      {/* Trigger button */}
+      <button className="proj-trigger" onClick={() => setOpen(!open)}>
         <Layers className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
-        <span className="proj-trigger-name">{activeProject?.name || "Select project"}</span>
+        <span className="proj-trigger-name">{triggerLabel}</span>
         <ChevronDown
           className="h-3 w-3"
           style={{
-            opacity: 0.4,
-            marginLeft: "auto",
-            transform: projDropOpen ? "rotate(180deg)" : "rotate(0)",
+            opacity: 0.4, marginLeft: "auto", flexShrink: 0,
+            transform: open ? "rotate(180deg)" : "rotate(0)",
             transition: "transform 0.15s ease",
           }}
         />
       </button>
 
-      {/* Project dropdown */}
-      {projDropOpen && (
+      {/* Dropdown */}
+      {open && (
         <div className="proj-dropdown">
-          <div className="proj-dropdown-label">Projects</div>
+          {/* Projects section */}
+          <div className="proj-dropdown-label">Project</div>
           {projects.map((p) => (
             <button
               key={p.id}
@@ -252,15 +223,11 @@ function ProjectSwitcher() {
             >
               <Layers className="h-3 w-3" />
               <span>{p.name}</span>
-              {activeProject?.id === p.id && <Check className="h-3 w-3" style={{ marginLeft: "auto", opacity: 0.6 }} />}
+              {activeProject?.id === p.id && <Check className="h-3 w-3" style={{ marginLeft: "auto", opacity: 0.5 }} />}
             </button>
           ))}
-          <div className="proj-dropdown-sep" />
           {!creating ? (
-            <button
-              className="proj-dropdown-item create"
-              onClick={() => setCreating(true)}
-            >
+            <button className="proj-dropdown-item create" onClick={() => setCreating(true)}>
               <Plus className="h-3 w-3" />
               <span>New project</span>
             </button>
@@ -279,37 +246,35 @@ function ProjectSwitcher() {
               </button>
             </div>
           )}
+
+          {/* Workspaces section */}
+          {workspaces.length > 0 && (
+            <>
+              <div className="proj-dropdown-sep" />
+              <div className="proj-dropdown-label">Workspaces</div>
+              {workspaces.map((ws) => (
+                <button
+                  key={ws.id}
+                  className={cn("proj-dropdown-item", activeWorkspace?.id === ws.id && "active")}
+                  onClick={() => handleSelectWorkspace(ws)}
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  <span>{ws.name}</span>
+                  {activeWorkspace?.id === ws.id && <Check className="h-3 w-3" style={{ marginLeft: "auto", opacity: 0.5 }} />}
+                </button>
+              ))}
+            </>
+          )}
+
+          {/* Footer */}
           <div className="proj-dropdown-sep" />
           <button
             className="proj-dropdown-item"
-            onClick={() => { setActiveView("projects"); setProjDropOpen(false); }}
+            onClick={() => { setActiveView("projects"); setOpen(false); }}
           >
             <Settings className="h-3 w-3" />
-            <span>Manage projects</span>
+            <span>Manage</span>
           </button>
-        </div>
-      )}
-
-      {/* Workspace list */}
-      {activeProject && workspaces.length > 0 && (
-        <div className="ws-list">
-          {workspaces.map((ws) => (
-            <button
-              key={ws.id}
-              className={cn("ws-item", activeWorkspace?.id === ws.id && "active")}
-              onClick={() => setActiveWorkspace(ws)}
-            >
-              <FolderOpen className="h-3 w-3" />
-              <span>{ws.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {/* No workspaces */}
-      {activeProject && workspaces.length === 0 && (
-        <div className="ws-empty">
-          <span style={{ fontSize: 11, opacity: 0.5 }}>No workspaces</span>
         </div>
       )}
     </div>

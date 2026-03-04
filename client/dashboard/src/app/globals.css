@@ -260,7 +260,7 @@
     z-index: 999; display: flex; flex-direction: column;
     transform: translateX(-100%);
     transition: transform var(--animation-normal) ease;
-    overflow: hidden;
+    overflow-y: auto; overflow-x: visible;
   }
   .fsidebar.visible { transform: translateX(0); }
   .fsidebar-header {
