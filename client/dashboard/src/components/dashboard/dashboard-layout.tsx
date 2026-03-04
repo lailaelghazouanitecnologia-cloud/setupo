@@ -192,9 +192,7 @@ function ProjectSwitcher() {
   }
 
   // Trigger label
-  const triggerLabel = activeWorkspace
-    ? `${activeProject?.name || "project"} / ${activeWorkspace.name}`
-    : activeProject?.name || "Select project";
+  const triggerLabel = activeProject?.name || "Select project";
 
   return (
     <div className="proj-switcher" ref={dropRef}>
@@ -257,25 +255,6 @@ function ProjectSwitcher() {
                 <Check className="h-3 w-3" />
               </button>
             </div>
-          )}
-
-          {/* Workspaces section */}
-          {workspaces.length > 0 && (
-            <>
-              <div className="proj-dropdown-sep" />
-              <div className="proj-dropdown-label">Workspaces</div>
-              {workspaces.map((ws) => (
-                <button
-                  key={ws.id}
-                  className={cn("proj-dropdown-item", activeWorkspace?.id === ws.id && "active")}
-                  onClick={() => handleSelectWorkspace(ws)}
-                >
-                  <FolderOpen className="h-3 w-3" />
-                  <span>{ws.name}</span>
-                  {activeWorkspace?.id === ws.id && <Check className="h-3 w-3" style={{ marginLeft: "auto", opacity: 0.5 }} />}
-                </button>
-              ))}
-            </>
           )}
 
           {/* Footer */}
