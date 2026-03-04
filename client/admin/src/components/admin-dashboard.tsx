@@ -3,7 +3,7 @@
 import React from "react";
 import {
   BarChart3, Users, TrendingUp, Shield, Link2, ArrowDownUp,
-  LogOut, Sun, Moon, X, Server,
+  LogOut, Sun, Moon, X, Server, Activity, Network,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminStore, type AdminView } from "@/stores/admin-store";
@@ -18,6 +18,8 @@ const navItems: { id: AdminView; label: string; icon: React.ElementType }[] = [
   { id: "analytics", label: "Analytics", icon: TrendingUp },
   { id: "fraud", label: "Fraud", icon: Shield },
   { id: "ledger", label: "Ledger", icon: Link2 },
+  { id: "orchestrator", label: "Orchestrator", icon: Activity },
+  { id: "loadbalancer", label: "Load Balancer", icon: Network },
 ];
 
 const viewTitles: Record<AdminView, string> = {
@@ -28,6 +30,8 @@ const viewTitles: Record<AdminView, string> = {
   analytics: "Analytics",
   fraud: "Fraud Detection",
   ledger: "Blockchain Ledger",
+  orchestrator: "Orchestrator",
+  loadbalancer: "Load Balancer",
 };
 
 function SonfaztLogo({ size = 16 }: { size?: number }) {

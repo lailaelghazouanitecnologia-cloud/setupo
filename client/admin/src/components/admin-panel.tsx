@@ -7,6 +7,7 @@ import {
   XCircle, BarChart3, Activity, Link2, ArrowDownUp,
   FolderOpen, ChevronDown, Plus, Server, UserPlus,
   Database, HardDrive, Play, Square, Trash2,
+  Cpu, Clock, Zap, Network, Route, Settings, Copy,
 } from "lucide-react";
 import {
   getAdminOverview,
@@ -33,6 +34,27 @@ import {
   getUserLedger,
   verifyUserChain,
   getBalanceProof,
+  getOrchestratorOverview,
+  listPoolNodes,
+  updatePoolNode,
+  listBuilds,
+  cancelBuild,
+  getScalingRecommendations,
+  getOrchestratorAlerts,
+  resolveOrchestratorAlert,
+  rebalancePool,
+  getLBOverview,
+  listLBPools,
+  createLBPool,
+  deleteLBPool,
+  addLBBackend,
+  removeLBBackend,
+  listLBRules,
+  createLBRule,
+  deleteLBRule,
+  syncLBWithOrchestrator,
+  drainLBInstance,
+  getLBNginxConfig,
   type AdminUser,
   type DashboardOverview,
   type RevenueSummary,
@@ -48,9 +70,16 @@ import {
   type DbOverview,
   type DbTableDetail,
   type StorageOverview,
+  type OrchestratorOverview,
+  type PoolNode,
+  type BuildJob,
+  type LBOverview,
+  type LBPool,
+  type LBBackend,
+  type LBRule,
 } from "@/lib/api/client";
 
-type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger";
+type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger" | "orchestrator" | "loadbalancer";
 
 export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
   return (
@@ -62,6 +91,8 @@ export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "fraud" && <FraudTab />}
       {tab === "ledger" && <LedgerTab />}
+      {tab === "orchestrator" && <OrchestratorTab />}
+      {tab === "loadbalancer" && <LoadBalancerTab />}
     </div>
   );
 }
@@ -1474,6 +1505,730 @@ function StorageView() {
           <div className="admin-empty">No objects{prefix ? ` under ${prefix}` : ""}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   ORCHESTRATOR TAB
+   ═══════════════════════════════════════ */
+function OrchestratorTab() {
+  const [view, setView] = useState<"overview" | "nodes" | "builds" | "alerts">("overview");
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {(["overview", "nodes", "builds", "alerts"] as const).map((v) => (
+          <button
+            key={v}
+            className={`admin-period-btn ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {v === "overview" && <><BarChart3 className="h-3 w-3" /> Overview</>}
+            {v === "nodes" && <><Server className="h-3 w-3" /> Nodes</>}
+            {v === "builds" && <><Play className="h-3 w-3" /> Builds</>}
+            {v === "alerts" && <><AlertTriangle className="h-3 w-3" /> Alerts</>}
+          </button>
+        ))}
+      </div>
+      {view === "overview" && <OrcOverview />}
+      {view === "nodes" && <OrcNodes />}
+      {view === "builds" && <OrcBuilds />}
+      {view === "alerts" && <OrcAlerts />}
+    </div>
+  );
+}
+
+function OrcOverview() {
+  const [data, setData] = useState<OrchestratorOverview | null>(null);
+  const [recs, setRecs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [overview, recommendations] = await Promise.all([
+        getOrchestratorOverview(),
+        getScalingRecommendations(),
+      ]);
+      setData(overview);
+      setRecs(recommendations);
+    } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading orchestrator...</div>;
+  if (!data) return <div className="admin-empty">Failed to load orchestrator data</div>;
+
+  return (
+    <div>
+      <div className="admin-cards-grid sm">
+        <div className="admin-card sm">
+          <div className="admin-card-label">Nodes</div>
+          <div className="admin-card-value">{data.active_nodes}/{data.total_nodes}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Avg CPU</div>
+          <div className={`admin-card-value ${data.avg_cpu > 80 ? "red" : data.avg_cpu > 60 ? "" : "teal"}`}>{data.avg_cpu}%</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Avg Memory</div>
+          <div className={`admin-card-value ${data.avg_mem > 80 ? "red" : data.avg_mem > 60 ? "" : "teal"}`}>{data.avg_mem}%</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Builders</div>
+          <div className="admin-card-value">{data.builders}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Queued</div>
+          <div className={`admin-card-value ${data.queued_builds > 3 ? "red" : ""}`}>{data.queued_builds}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Active Builds</div>
+          <div className="admin-card-value">{data.active_builds}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Done (24h)</div>
+          <div className="admin-card-value teal">{data.completed_builds_24h}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Failed (24h)</div>
+          <div className={`admin-card-value ${data.failed_builds_24h > 0 ? "red" : ""}`}>{data.failed_builds_24h}</div>
+        </div>
+      </div>
+
+      {recs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="admin-subsection-title">Scaling Recommendations</div>
+          {recs.map((r: any, i: number) => (
+            <div key={i} className="admin-fraud-item" style={{ marginBottom: 6 }}>
+              <TrendingUp className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
+              <span style={{ fontWeight: 500, fontSize: 13 }}>{r.reason}</span>
+              <span className="admin-muted">{r.action}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data.alerts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="admin-subsection-title">Active Alerts ({data.alerts.length})</div>
+          {data.alerts.slice(0, 5).map((a: any) => (
+            <div key={a.id} className="admin-fraud-item" style={{ marginBottom: 4 }}>
+              <AlertTriangle className="h-3.5 w-3.5" style={{ color: "var(--color-red)" }} />
+              <span style={{ fontSize: 13 }}>{a.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrcNodes() {
+  const [data, setData] = useState<OrchestratorOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await getOrchestratorOverview()); } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleToggle = async (node: PoolNode, newStatus: string) => {
+    try {
+      await updatePoolNode(node.id, { status: newStatus });
+      load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading nodes...</div>;
+  if (!data) return <div className="admin-empty">No data</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{data.total_nodes} nodes</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button className="admin-filter-btn" onClick={async () => { await rebalancePool(); load(); }} title="Rebalance">
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+
+      <div className="admin-users-list">
+        {data.nodes.map((n) => (
+          <div key={n.id} className="admin-user-row">
+            <div className="admin-user-info">
+              <div className="admin-user-avatar" style={{
+                background: n.status === "active" ? "var(--color-green, green)" :
+                  n.status === "draining" ? "var(--color-yellow, orange)" : "var(--color-red, red)",
+              }}>
+                <Server className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <div className="admin-user-email">{n.label || n.id.slice(0, 12)}</div>
+                <div className="admin-user-meta">
+                  {n.role} — {n.region} — {n.plan} — CPU {n.cpu_percent.toFixed(0)}% / Mem {n.mem_percent.toFixed(0)}% / Disk {n.disk_percent.toFixed(0)}%
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+              <span style={{ fontFamily: "monospace", opacity: 0.6 }}>{n.ip || "—"}</span>
+              <span className="admin-badge" style={{
+                color: n.status === "active" ? "var(--color-green, green)" :
+                  n.status === "draining" ? "var(--color-yellow, orange)" : undefined,
+              }}>{n.status}</span>
+              <span className="admin-muted">{n.active_builds}/{n.max_concurrent_builds} builds</span>
+              {n.status === "active" ? (
+                <button className="admin-filter-btn" title="Drain" onClick={() => handleToggle(n, "draining")}>
+                  <Square className="h-3 w-3" />
+                </button>
+              ) : (
+                <button className="admin-filter-btn" title="Activate" onClick={() => handleToggle(n, "active")}>
+                  <Play className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OrcBuilds() {
+  const [builds, setBuilds] = useState<BuildJob[]>([]);
+  const [filter, setFilter] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      setBuilds(await listBuilds(filter || undefined, 100));
+    } catch {}
+    setLoading(false);
+  }, [filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCancel = async (id: string) => {
+    try { await cancelBuild(id); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  const orcTimeAgo = (iso: string): string => {
+    const diff = Date.now() - new Date(iso).getTime();
+    const secs = Math.floor(diff / 1000);
+    if (secs < 60) return `${secs}s ago`;
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return `${Math.floor(hours / 24)}d ago`;
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading builds...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, alignItems: "center" }}>
+        {["", "queued", "building", "done", "failed"].map((f) => (
+          <button key={f} className={`admin-period-btn ${filter === f ? "active" : ""}`} onClick={() => setFilter(f)}>
+            {f || "All"}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      {builds.length === 0 ? (
+        <div className="admin-empty">No builds found</div>
+      ) : (
+        <div className="admin-users-list">
+          {builds.map((b) => (
+            <div key={b.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{
+                  background: b.status === "done" ? "var(--color-green, green)" :
+                    b.status === "failed" ? "var(--color-red, red)" :
+                    b.status === "building" ? "var(--color-blue, #3b82f6)" : "var(--color-yellow, orange)",
+                }}>
+                  <Play className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{b.workspace} / {b.branch}</div>
+                  <div className="admin-user-meta">
+                    {b.id.slice(0, 16)} — {orcTimeAgo(b.queued_at)}
+                    {b.assigned_node_id && ` — node ${b.assigned_node_id.slice(0, 12)}`}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
+                <span className="admin-badge" style={{
+                  color: b.status === "done" ? "var(--color-green, green)" :
+                    b.status === "failed" ? "var(--color-red, red)" : undefined,
+                }}>{b.status}</span>
+                {(b.status === "queued" || b.status === "assigned") && (
+                  <button className="admin-filter-btn" title="Cancel" onClick={() => handleCancel(b.id)}>
+                    <XCircle className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OrcAlerts() {
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setAlerts(await getOrchestratorAlerts()); } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleResolve = async (id: string) => {
+    try { await resolveOrchestratorAlert(id); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading alerts...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{alerts.length} alerts</span>
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      {alerts.length === 0 ? (
+        <div className="admin-empty" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <CheckCircle className="h-4 w-4" style={{ color: "var(--color-green, green)" }} />
+          No active alerts
+        </div>
+      ) : (
+        <div className="admin-users-list">
+          {alerts.map((a: any) => (
+            <div key={a.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{
+                  background: a.severity === "critical" ? "var(--color-red, red)" : "var(--color-yellow, orange)",
+                }}>
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{a.message}</div>
+                  <div className="admin-user-meta">
+                    {a.alert_type} — {a.value?.toFixed(1)}% (threshold: {a.threshold}%)
+                  </div>
+                </div>
+              </div>
+              <button className="panel-btn-sm" onClick={() => handleResolve(a.id)}>
+                <CheckCircle className="h-3 w-3" /> Resolve
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   LOAD BALANCER TAB
+   ═══════════════════════════════════════ */
+function LoadBalancerTab() {
+  const [view, setView] = useState<"overview" | "pools" | "rules" | "nginx">("overview");
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {(["overview", "pools", "rules", "nginx"] as const).map((v) => (
+          <button
+            key={v}
+            className={`admin-period-btn ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {v === "overview" && <><BarChart3 className="h-3 w-3" /> Overview</>}
+            {v === "pools" && <><Network className="h-3 w-3" /> Pools</>}
+            {v === "rules" && <><Route className="h-3 w-3" /> Rules</>}
+            {v === "nginx" && <><Settings className="h-3 w-3" /> Nginx</>}
+          </button>
+        ))}
+      </div>
+      {view === "overview" && <LBOverviewView />}
+      {view === "pools" && <LBPoolsView />}
+      {view === "rules" && <LBRulesView />}
+      {view === "nginx" && <LBNginxView />}
+    </div>
+  );
+}
+
+function LBOverviewView() {
+  const [data, setData] = useState<LBOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setData(await getLBOverview()); } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await syncLBWithOrchestrator();
+      load();
+    } catch (e: any) { alert(e.message); }
+    setSyncing(false);
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading load balancer...</div>;
+  if (!data) return <div className="admin-empty">Failed to load LB data</div>;
+
+  const fmtNum = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : String(n);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 12 }}>
+        <button className="panel-btn-sm" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className="h-3 w-3" /> {syncing ? "Syncing..." : "Sync Orchestrator"}
+        </button>
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      <div className="admin-cards-grid sm">
+        <div className="admin-card sm">
+          <div className="admin-card-label">Pools</div>
+          <div className="admin-card-value">{data.active_pools}/{data.total_pools}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Backends</div>
+          <div className="admin-card-value">{data.total_backends}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Healthy</div>
+          <div className="admin-card-value teal">{data.healthy_backends}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Unhealthy</div>
+          <div className={`admin-card-value ${data.unhealthy_backends > 0 ? "red" : ""}`}>{data.unhealthy_backends}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Rules</div>
+          <div className="admin-card-value">{data.total_rules}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Total Requests</div>
+          <div className="admin-card-value">{fmtNum(data.total_requests)}</div>
+        </div>
+      </div>
+
+      {data.pools.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="admin-subsection-title">Pools</div>
+          <div className="admin-users-list">
+            {data.pools.map((pool) => (
+              <div key={pool.id} className="admin-user-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div className="admin-user-info">
+                    <div className="admin-user-avatar" style={{ background: pool.active ? "var(--color-green, green)" : "var(--color-red, red)" }}>
+                      <Network className="h-3.5 w-3.5" />
+                    </div>
+                    <div>
+                      <div className="admin-user-email">{pool.name}</div>
+                      <div className="admin-user-meta">{pool.algorithm} — {pool.backends.filter((b) => b.status === "healthy").length}/{pool.backends.length} healthy</div>
+                    </div>
+                  </div>
+                  <span className="admin-badge">{pool.active ? "active" : "inactive"}</span>
+                </div>
+                {pool.backends.length > 0 && (
+                  <div style={{ paddingLeft: 42, marginTop: 6 }}>
+                    {pool.backends.map((b) => (
+                      <div key={b.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 12, padding: "3px 0", borderTop: "1px solid var(--border)" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: b.status === "healthy" ? "var(--color-green, green)" : "var(--color-red, red)", flexShrink: 0 }} />
+                        <span style={{ fontFamily: "monospace" }}>{b.ip}:{b.port}</span>
+                        <span className="admin-muted">w={b.weight}</span>
+                        <span className="admin-muted">{b.active_connections} conn</span>
+                        <span className="admin-muted">{fmtNum(b.total_requests)} req</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LBPoolsView() {
+  const [pools, setPools] = useState<LBPool[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newAlgo, setNewAlgo] = useState("round_robin");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setPools(await listLBPools()); } catch {}
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!newName.trim()) return;
+    try {
+      await createLBPool({ name: newName.trim(), algorithm: newAlgo });
+      setNewName(""); setCreating(false); load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this pool and all its backends?")) return;
+    try { await deleteLBPool(id); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  const handleRemoveBackend = async (backendId: string) => {
+    try { await removeLBBackend(backendId); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDrain = async (instanceId: string) => {
+    try { await drainLBInstance(instanceId); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading pools...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{pools.length} pools</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button className="panel-btn-sm" onClick={() => setCreating(!creating)} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Plus className="h-3 w-3" /> New Pool
+          </button>
+          <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+        </div>
+      </div>
+
+      {creating && (
+        <div style={{ padding: 12, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 10, display: "flex", gap: 8, alignItems: "center" }}>
+          <input className="settings-input" placeholder="Pool name..." value={newName} onChange={(e) => setNewName(e.target.value)} style={{ flex: 1 }} />
+          <select className="settings-input" value={newAlgo} onChange={(e) => setNewAlgo(e.target.value)} style={{ width: 140 }}>
+            <option value="round_robin">Round Robin</option>
+            <option value="least_conn">Least Conn</option>
+            <option value="weighted">Weighted</option>
+            <option value="ip_hash">IP Hash</option>
+          </select>
+          <button className="panel-btn" onClick={handleCreate}>Create</button>
+        </div>
+      )}
+
+      <div className="admin-users-list">
+        {pools.map((pool) => (
+          <div key={pool.id} className="admin-user-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{ background: pool.active ? "var(--color-green, green)" : "var(--color-red, red)" }}>
+                  <Network className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{pool.name}</div>
+                  <div className="admin-user-meta">{pool.algorithm} — health: {pool.health_check_path} every {pool.health_check_interval}s</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                <span className="admin-badge">{pool.algorithm}</span>
+                <button className="admin-filter-btn" onClick={() => handleDelete(pool.id)} title="Delete">
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+
+            {pool.backends.length > 0 && (
+              <div style={{ paddingLeft: 42, marginTop: 6 }}>
+                {pool.backends.map((b) => (
+                  <div key={b.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12, padding: "4px 0", borderTop: "1px solid var(--border)" }}>
+                    <span className="admin-badge" style={{
+                      color: b.status === "healthy" ? "var(--color-green, green)" :
+                        b.status === "draining" ? "var(--color-yellow, orange)" : "var(--color-red, red)",
+                    }}>{b.status}</span>
+                    <span style={{ fontFamily: "monospace" }}>{b.ip}:{b.port}</span>
+                    <span className="admin-muted">w={b.weight}</span>
+                    <span className="admin-muted">{b.active_connections} conn</span>
+                    <span className="admin-muted">{b.failed_health_checks} fails</span>
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                      {b.status === "healthy" && (
+                        <button className="admin-filter-btn" onClick={() => handleDrain(b.instance_id)} title="Drain">
+                          <ArrowDownUp className="h-3 w-3" />
+                        </button>
+                      )}
+                      <button className="admin-filter-btn" onClick={() => handleRemoveBackend(b.id)} title="Remove">
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LBRulesView() {
+  const [rules, setRules] = useState<LBRule[]>([]);
+  const [pools, setPools] = useState<LBPool[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [newPoolId, setNewPoolId] = useState("");
+  const [newType, setNewType] = useState("prefix");
+  const [newValue, setNewValue] = useState("/");
+  const [newPriority, setNewPriority] = useState(0);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [r, p] = await Promise.all([listLBRules(), listLBPools()]);
+      setRules(r); setPools(p);
+      if (p.length > 0 && !newPoolId) setNewPoolId(p[0].id);
+    } catch {}
+    setLoading(false);
+  }, [newPoolId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCreate = async () => {
+    if (!newPoolId || !newValue.trim()) return;
+    try {
+      await createLBRule({ pool_id: newPoolId, match_type: newType, match_value: newValue.trim(), priority: newPriority });
+      setCreating(false); load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDelete = async (id: string) => {
+    try { await deleteLBRule(id); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading rules...</div>;
+
+  const poolName = (id: string) => pools.find((p) => p.id === id)?.name || id.slice(0, 16);
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{rules.length} rules</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button className="panel-btn-sm" onClick={() => setCreating(!creating)} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+            <Plus className="h-3 w-3" /> New Rule
+          </button>
+          <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+        </div>
+      </div>
+
+      {creating && (
+        <div style={{ padding: 12, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select className="settings-input" value={newType} onChange={(e) => setNewType(e.target.value)} style={{ width: 100 }}>
+            <option value="prefix">Prefix</option>
+            <option value="exact">Exact</option>
+            <option value="host">Host</option>
+          </select>
+          <input className="settings-input" placeholder={newType === "host" ? "app.nso.dev" : "/api/"} value={newValue} onChange={(e) => setNewValue(e.target.value)} style={{ flex: 1, minWidth: 120 }} />
+          <select className="settings-input" value={newPoolId} onChange={(e) => setNewPoolId(e.target.value)} style={{ width: 140 }}>
+            {pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <input className="settings-input" type="number" placeholder="Priority" value={newPriority} onChange={(e) => setNewPriority(parseInt(e.target.value) || 0)} style={{ width: 70 }} />
+          <button className="panel-btn" onClick={handleCreate}>Create</button>
+        </div>
+      )}
+
+      {rules.length === 0 ? (
+        <div className="admin-empty">No routing rules</div>
+      ) : (
+        <div className="admin-users-list">
+          {rules.map((r) => (
+            <div key={r.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{ background: r.active ? "var(--color-green, green)" : "var(--color-red, red)" }}>
+                  <Route className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">
+                    <span className="admin-badge" style={{ marginRight: 6 }}>{r.match_type}</span>
+                    <span style={{ fontFamily: "monospace" }}>{r.match_value}</span>
+                  </div>
+                  <div className="admin-user-meta">Priority {r.priority} — Pool: {poolName(r.pool_id)}</div>
+                </div>
+              </div>
+              <button className="admin-filter-btn" onClick={() => handleDelete(r.id)} title="Delete">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LBNginxView() {
+  const [config, setConfig] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try { setConfig(await getLBNginxConfig()); } catch (e: any) { setConfig(`# Error: ${e.message}`); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(config);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Generating nginx config...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 10 }}>
+        <button className="panel-btn-sm" onClick={handleCopy} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <Copy className="h-3 w-3" /> {copied ? "Copied!" : "Copy"}
+        </button>
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+      <pre style={{
+        background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
+        padding: 16, fontSize: 12, lineHeight: 1.5, overflow: "auto",
+        maxHeight: "calc(100vh - 280px)", fontFamily: "monospace", whiteSpace: "pre-wrap",
+      }}>
+        {config}
+      </pre>
     </div>
   );
 }
