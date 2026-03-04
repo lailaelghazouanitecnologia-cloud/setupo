@@ -20,243 +20,185 @@ export default function Home() {
 
 function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
   return (
-    <div className="landing-page">
-      <nav className="landing-nav">
-        <div className="landing-nav-inner">
-          <div className="landing-nav-left">
-            <Z86Logo size={18} />
-            <span className="landing-nav-brand">z86</span>
+    <div className="lp">
+      {/* ── Fixed right panel (36%) ── */}
+      <div className="lp-fixed">
+        <div className="lp-fixed-inner">
+          <div className="lp-fixed-top">
+            <Z86Logo size={32} />
+            <span className="lp-brand">z86</span>
           </div>
-          <div className="landing-nav-right">
-            <div className="landing-nav-links">
-              <button className="landing-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
-              <span className="landing-slash">/</span>
-              <button className="landing-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
-              <span className="landing-slash">/</span>
-              <button className="landing-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
-            </div>
-            <span className="landing-slash" style={{ margin: "0 16px" }} />
-            <button className="landing-nav-link" onClick={onLogin}>Sign in</button>
-            <span className="landing-slash" />
-            <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ marginLeft: 2 }}>Get started</button>
-          </div>
-        </div>
-      </nav>
-
-      <main>
-        <section className="landing-hero">
-          <div className="landing-container">
-            <div className="landing-hero-top">
-              <div className="landing-hero-badge">
-                <span className="landing-hero-badge-dot" />
-                S3-compatible &mdash; drop-in replacement
-              </div>
-              <h1 className="landing-hero-title">Object storage<br />without the complexity</h1>
-              <p className="landing-hero-sub">
-                S3-compatible API. No egress fees. No vendor lock-in. Store files, assets, backups, and deploy artifacts on infrastructure you control.
-              </p>
-              <div className="landing-hero-actions">
-                <button className="landing-btn landing-btn-primary" onClick={onRegister}>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                  Start storing
-                </button>
-                <button className="landing-btn landing-btn-secondary" onClick={onLogin}>Sign in</button>
-              </div>
-            </div>
-            <div className="landing-terminal">
-              <div className="landing-terminal-bar">
+          <div className="lp-fixed-center">
+            <div className="lp-terminal">
+              <div className="lp-terminal-bar">
                 <span className="landing-terminal-dot" />
                 <span className="landing-terminal-dot" />
                 <span className="landing-terminal-dot" />
                 <span className="landing-terminal-title">~/my-app</span>
               </div>
-              <div className="landing-terminal-body">
-                <div><span className="t-comment"># Works with any S3 client — aws cli, boto3, minio, etc.</span></div>
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./backup.tar.gz</span> <span className="t-flag">s3://my-bucket/backups/</span></div>
-                <div><span className="t-out">upload: ./backup.tar.gz → s3://my-bucket/backups/backup.tar.gz</span></div>
-                <div style={{ height: 6 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://my-bucket/</span> <span className="t-flag">--endpoint-url</span> <span className="t-arg">https://s3.z86.dev</span></div>
+              <div className="lp-terminal-body">
+                <div><span className="t-comment"># Works with any S3 client</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./backup.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
+                <div><span className="t-out">upload: ./backup.tar.gz → s3://bucket/backup.tar.gz</span></div>
+                <div style={{ height: 4 }} />
+                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://bucket/</span></div>
                 <div><span className="t-out">2026-03-04  backups/</span></div>
                 <div><span className="t-out">2026-03-04  assets/</span></div>
-                <div><span className="t-out">2026-03-04  deploys/</span></div>
-                <div style={{ height: 6 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">curl</span> <span className="t-flag">-I</span> <span className="t-arg">https://s3.z86.dev/my-bucket/assets/logo.png</span></div>
+                <div style={{ height: 4 }} />
+                <div><span className="t-prompt">$</span> <span className="t-cmd">curl</span> <span className="t-flag">-I</span> <span className="t-arg">https://s3.z86.dev/bucket/logo.png</span></div>
                 <div><span className="t-out">HTTP/2 200</span> <span className="t-ok">OK</span></div>
-                <div><span className="t-out">content-length: 24576</span></div>
-                <div><span className="t-out">etag: &quot;a1b2c3d4e5f6...&quot;</span></div>
                 <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
               </div>
             </div>
           </div>
-        </section>
-
-        <section className="landing-capabilities" id="features">
-          <div className="landing-container">
-            <div className="landing-cap-layout">
-              <div className="landing-cap-intro">
-                <div className="landing-s-label">Features</div>
-                <h2 className="landing-s-title">Everything you need from object storage</h2>
-                <p>S3-compatible object storage with a built-in dashboard. Create buckets, manage keys, upload objects, and monitor usage.</p>
-              </div>
-              <div className="landing-cap-list">
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">01</span>
-                  <div>
-                    <h3 className="landing-cap-h">S3-Compatible API</h3>
-                    <p className="landing-cap-p">PUT, GET, DELETE, HEAD, LIST &mdash; all the standard S3 operations. Use aws-cli, boto3, minio, or any S3 SDK.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">AWS4-HMAC</span><span className="landing-tag">REST API</span></div>
-                </div>
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">02</span>
-                  <div>
-                    <h3 className="landing-cap-h">Zero Egress Fees</h3>
-                    <p className="landing-cap-p">Download your data as much as you want. No bandwidth charges, no surprise bills.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">free egress</span><span className="landing-tag">predictable</span></div>
-                </div>
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">03</span>
-                  <div>
-                    <h3 className="landing-cap-h">Dashboard</h3>
-                    <p className="landing-cap-p">Browse buckets, upload files, manage access keys, and track usage &mdash; all from the web dashboard.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">web UI</span><span className="landing-tag">real-time</span></div>
-                </div>
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">04</span>
-                  <div>
-                    <h3 className="landing-cap-h">Access Key Management</h3>
-                    <p className="landing-cap-p">Create, rotate, and revoke HMAC keys. Scope keys to specific buckets for fine-grained access control.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">HMAC keys</span><span className="landing-tag">bucket scoping</span></div>
-                </div>
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">05</span>
-                  <div>
-                    <h3 className="landing-cap-h">SHA-256 Integrity</h3>
-                    <p className="landing-cap-p">Every object is checksummed on upload. Verify integrity at any time. No silent data corruption.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">checksums</span><span className="landing-tag">integrity</span></div>
-                </div>
-                <div className="landing-cap-item">
-                  <span className="landing-cap-num">06</span>
-                  <div>
-                    <h3 className="landing-cap-h">Self-Hosted</h3>
-                    <p className="landing-cap-p">Your data stays on your infrastructure. No third-party dependencies, no vendor lock-in.</p>
-                  </div>
-                  <div className="landing-cap-tags"><span className="landing-tag">self-hosted</span><span className="landing-tag">privacy</span></div>
-                </div>
-              </div>
+          <div className="lp-fixed-bottom">
+            <div className="lp-fixed-actions">
+              <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ flex: 1, justifyContent: "center" }}>Get started</button>
+              <button className="landing-btn landing-btn-secondary" onClick={onLogin} style={{ flex: 1, justifyContent: "center" }}>Sign in</button>
             </div>
-          </div>
-        </section>
-
-        <section className="landing-how" id="how">
-          <div className="landing-container">
-            <div className="landing-s-label">How it works</div>
-            <h2 className="landing-s-title">Three steps to start storing</h2>
-            <div className="landing-how-grid">
-              <div className="landing-how-card">
-                <div className="landing-how-num">01</div>
-                <h3>Create an account</h3>
-                <p>Sign up at z86.dev. Free tier includes 1 GB of storage with no credit card required.</p>
-                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">open</span> <span className="t-arg">https://z86.dev</span></div>
-              </div>
-              <div className="landing-how-card">
-                <div className="landing-how-num">02</div>
-                <h3>Get your keys</h3>
-                <p>Create an access key from the dashboard. Point any S3 client to s3.z86.dev.</p>
-                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">aws configure</span> <span className="t-flag">--endpoint</span> <span className="t-arg">s3.z86.dev</span></div>
-              </div>
-              <div className="landing-how-card">
-                <div className="landing-how-num">03</div>
-                <h3>Store &amp; retrieve</h3>
-                <p>Upload objects, list buckets, download files. Same S3 API you already know.</p>
-                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">file.zip</span> <span className="t-flag">s3://bucket/</span></div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-pricing" id="pricing">
-          <div className="landing-container">
-            <div className="landing-s-label">Pricing</div>
-            <h2 className="landing-s-title">Simple, predictable pricing</h2>
-            <div className="landing-pricing-grid">
-              <div className="landing-pricing-card">
-                <div className="landing-pricing-tier">Free</div>
-                <div className="landing-pricing-price">$0<span>/mo</span></div>
-                <ul className="landing-pricing-features">
-                  <li>1 GB storage</li>
-                  <li>3 buckets</li>
-                  <li>2 access keys</li>
-                  <li>Unlimited egress</li>
-                  <li>S3-compatible API</li>
-                </ul>
-                <button className="landing-btn landing-btn-secondary" onClick={onRegister} style={{ width: "100%", justifyContent: "center" }}>Get started free</button>
-              </div>
-              <div className="landing-pricing-card landing-pricing-featured">
-                <div className="landing-pricing-tier">Pro</div>
-                <div className="landing-pricing-price">$5<span>/mo</span></div>
-                <ul className="landing-pricing-features">
-                  <li>100 GB storage</li>
-                  <li>50 buckets</li>
-                  <li>10 access keys</li>
-                  <li>Unlimited egress</li>
-                  <li>Priority support</li>
-                </ul>
-                <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ width: "100%", justifyContent: "center" }}>Start with Pro</button>
-              </div>
-              <div className="landing-pricing-card">
-                <div className="landing-pricing-tier">Enterprise</div>
-                <div className="landing-pricing-price">Custom</div>
-                <ul className="landing-pricing-features">
-                  <li>Unlimited storage</li>
-                  <li>Dedicated infrastructure</li>
-                  <li>SLA guarantee</li>
-                  <li>Custom integrations</li>
-                  <li>White-glove onboarding</li>
-                </ul>
-                <button className="landing-btn landing-btn-secondary" onClick={onLogin} style={{ width: "100%", justifyContent: "center" }}>Contact us</button>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="landing-cta">
-          <div className="landing-container">
-            <div className="landing-cta-card">
-              <div className="landing-cta-inner">
-                <div>
-                  <h2>Start storing in minutes</h2>
-                  <p>Create a free account and get 1 GB of S3-compatible object storage. No credit card required.</p>
-                </div>
-                <div className="landing-cta-actions">
-                  <button className="landing-btn landing-btn-primary" onClick={onRegister}>
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Create free account
-                  </button>
-                  <button className="landing-btn landing-btn-secondary" onClick={onLogin}>Sign in</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="landing-footer">
-        <div className="landing-container">
-          <div className="landing-footer-inner">
-            <div className="landing-footer-links">
-              <button onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
-              <button onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
-              <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
-            </div>
-            <span className="landing-footer-copy">&copy; 2026 z86</span>
           </div>
         </div>
-      </footer>
+      </div>
+
+      {/* ── Scrollable left panel (64%) ── */}
+      <div className="lp-scroll">
+        {/* Nav bar */}
+        <nav className="lp-nav">
+          <div className="lp-nav-inner">
+            <div className="lp-nav-left">
+              <Z86Logo size={16} />
+              <span className="lp-nav-brand">z86</span>
+            </div>
+            <div className="lp-nav-right">
+              <button className="lp-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
+              <button className="lp-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
+              <button className="lp-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
+            </div>
+          </div>
+        </nav>
+
+        {/* Hero */}
+        <section className="lp-hero">
+          <div className="lp-badge">
+            <span className="lp-badge-dot" />
+            S3-compatible &mdash; drop-in replacement
+          </div>
+          <h1 className="lp-title">Object storage<br />without the<br />complexity</h1>
+          <p className="lp-sub">
+            S3-compatible API. No egress fees. No vendor lock-in.<br />
+            Store files, assets, backups on infrastructure you control.
+          </p>
+        </section>
+
+        {/* Features */}
+        <section className="lp-section" id="features">
+          <div className="lp-section-header">
+            <span className="lp-label">Features</span>
+            <span className="lp-label-suffix">06</span>
+          </div>
+          {[
+            { n: "01", h: "S3-Compatible API", p: "PUT, GET, DELETE, HEAD, LIST — all standard S3 operations. Use aws-cli, boto3, minio, or any S3 SDK.", tags: ["AWS4-HMAC", "REST API"] },
+            { n: "02", h: "Zero Egress Fees", p: "Download your data as much as you want. No bandwidth charges, no surprise bills.", tags: ["free egress", "predictable"] },
+            { n: "03", h: "Dashboard", p: "Browse buckets, upload files, manage access keys, and track usage from the web.", tags: ["web UI", "real-time"] },
+            { n: "04", h: "Access Key Management", p: "Create, rotate, and revoke HMAC keys. Scope keys to specific buckets.", tags: ["HMAC keys", "scoping"] },
+            { n: "05", h: "SHA-256 Integrity", p: "Every object is checksummed on upload. Verify integrity at any time.", tags: ["checksums", "integrity"] },
+            { n: "06", h: "Self-Hosted", p: "Your data stays on your infrastructure. No third-party dependencies.", tags: ["self-hosted", "privacy"] },
+          ].map((f) => (
+            <div key={f.n} className="lp-item-outer">
+              <div className="lp-item-inner">
+                <span className="lp-item-left">
+                  <span className="lp-item-num">{f.n}</span>
+                  <span className="lp-item-content">
+                    <span className="lp-item-h">{f.h}</span>
+                    <span className="lp-item-p">{f.p}</span>
+                  </span>
+                </span>
+                <span className="lp-item-suffix">
+                  {f.tags.map(t => <span key={t} className="lp-tag">{t}</span>)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </section>
+
+        {/* How it works */}
+        <section className="lp-section" id="how">
+          <div className="lp-section-header">
+            <span className="lp-label">How it works</span>
+            <span className="lp-label-suffix">03</span>
+          </div>
+          <div className="lp-steps">
+            {[
+              { n: "01", h: "Create an account", p: "Sign up at z86.dev. Free tier includes 1 GB with no credit card.", cmd: "$ open https://z86.dev" },
+              { n: "02", h: "Get your keys", p: "Create an access key from the dashboard. Point any S3 client to s3.z86.dev.", cmd: "$ aws configure --endpoint s3.z86.dev" },
+              { n: "03", h: "Store & retrieve", p: "Upload objects, list buckets, download files. Same S3 API you already know.", cmd: "$ aws s3 cp file.zip s3://bucket/" },
+            ].map((s) => (
+              <div key={s.n} className="lp-step-outer">
+                <div className="lp-step-inner">
+                  <span className="lp-step-num">{s.n}</span>
+                  <h3 className="lp-step-h">{s.h}</h3>
+                  <p className="lp-step-p">{s.p}</p>
+                  <div className="lp-step-code">{s.cmd}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Pricing */}
+        <section className="lp-section" id="pricing">
+          <div className="lp-section-header">
+            <span className="lp-label">Pricing</span>
+            <span className="lp-label-suffix">03</span>
+          </div>
+          <div className="lp-pricing">
+            {[
+              { tier: "Free", price: "$0", per: "/mo", items: ["1 GB storage", "3 buckets", "2 access keys", "Unlimited egress", "S3-compatible API"], btn: "Get started free", action: onRegister, featured: false },
+              { tier: "Pro", price: "$5", per: "/mo", items: ["100 GB storage", "50 buckets", "10 access keys", "Unlimited egress", "Priority support"], btn: "Start with Pro", action: onRegister, featured: true },
+              { tier: "Enterprise", price: "Custom", per: "", items: ["Unlimited storage", "Dedicated infrastructure", "SLA guarantee", "Custom integrations", "White-glove onboarding"], btn: "Contact us", action: onLogin, featured: false },
+            ].map((p) => (
+              <div key={p.tier} className={`lp-price-outer${p.featured ? " lp-price-featured" : ""}`}>
+                <div className="lp-price-inner">
+                  <span className="lp-price-tier">{p.tier}</span>
+                  <span className="lp-price-amount">{p.price}<span>{p.per}</span></span>
+                  <ul className="lp-price-list">
+                    {p.items.map(i => <li key={i}>{i}</li>)}
+                  </ul>
+                  <button className={`landing-btn ${p.featured ? "landing-btn-primary" : "landing-btn-secondary"}`} onClick={p.action} style={{ width: "100%", justifyContent: "center" }}>
+                    {p.btn}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Footer — BECANE manifesto + bars */}
+        <footer className="lp-footer">
+          <div className="lp-footer-manifesto">
+            S3-compatible object storage. Fast, simple, and on your terms. No egress fees, no vendor lock-in, no complexity. Just store.
+          </div>
+          <nav className="lp-footer-bars">
+            <div className="lp-footer-bar lp-footer-bar-left">
+              <button className="lp-footer-btn" onClick={onRegister}>
+                <span>Get started</span>
+              </button>
+            </div>
+            <div className="lp-footer-bar lp-footer-bar-right">
+              <button className="lp-footer-btn" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>
+                <span>Features</span>
+              </button>
+              <button className="lp-footer-btn" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>
+                <span>Pricing</span>
+              </button>
+              <button className="lp-footer-btn" onClick={onLogin}>
+                <span>Sign in</span>
+              </button>
+              <span className="lp-footer-copy">&copy; 2026 z86</span>
+            </div>
+          </nav>
+        </footer>
+      </div>
     </div>
   );
 }

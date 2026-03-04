@@ -24,8 +24,7 @@ export function ObjectsPanel() {
     setLoading(true);
     dashApi.listObjects(activeBucket, prefix)
       .then((r) => setObjects(r.objects || []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .catch(() => {}).finally(() => setLoading(false));
   };
 
   useEffect(() => { load(); }, [activeBucket, prefix]);
@@ -33,9 +32,11 @@ export function ObjectsPanel() {
   if (!activeBucket) {
     return (
       <div className="panel">
-        <div className="panel-empty">
-          <p>Select a bucket to browse objects</p>
-          <button className="btn-secondary" onClick={() => setPanel("buckets")}>Go to Buckets</button>
+        <div className="panel-line">
+          <div className="empty-outer"><div className="empty-inner">
+            <p>Select a bucket to browse objects</p>
+            <button className="btn-secondary" onClick={() => setPanel("buckets")}>Go to Buckets</button>
+          </div></div>
         </div>
       </div>
     );
@@ -46,96 +47,76 @@ export function ObjectsPanel() {
     setUploading(true);
     for (const file of Array.from(files)) {
       const key = prefix ? `${prefix}${file.name}` : file.name;
-      try {
-        await dashApi.uploadObject(activeBucket, key, file);
-      } catch (err: any) {
-        alert(`Upload failed: ${err.message}`);
-      }
+      try { await dashApi.uploadObject(activeBucket, key, file); }
+      catch (err: any) { alert(`Upload failed: ${err.message}`); }
     }
-    setUploading(false);
-    load();
+    setUploading(false); load();
   };
 
   const deleteObj = async (key: string) => {
     if (!confirm(`Delete "${key}"?`)) return;
-    try {
-      await dashApi.deleteObject(activeBucket, key);
-      load();
-    } catch (err: any) {
-      alert(err.message);
-    }
+    try { await dashApi.deleteObject(activeBucket, key); load(); }
+    catch (err: any) { alert(err.message); }
   };
 
   return (
     <div className="panel">
-      <div className="panel-header">
-        <div className="panel-header-left">
-          <button className="btn-back" onClick={() => setPanel("buckets")}>&larr;</button>
-          <h1>{activeBucket}</h1>
-        </div>
-        <div className="panel-header-right">
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            style={{ display: "none" }}
-            onChange={(e) => upload(e.target.files)}
-          />
-          <button
-            className="btn-primary"
-            onClick={() => fileRef.current?.click()}
-            disabled={uploading}
-          >
+      <div className="panel-line panel-line-header">
+        <span className="panel-title">
+          <button className="btn-back" onClick={() => setPanel("buckets")}>←</button>
+          {activeBucket}
+        </span>
+        <span className="panel-suffix">
+          <input ref={fileRef} type="file" multiple style={{ display: "none" }} onChange={(e) => upload(e.target.files)} />
+          <button className="btn-primary" onClick={() => fileRef.current?.click()} disabled={uploading}>
             {uploading ? "Uploading..." : "Upload"}
           </button>
-        </div>
+        </span>
       </div>
 
-      <div className="filter-bar">
-        <input
-          type="text"
-          value={prefix}
-          onChange={e => setPrefix(e.target.value)}
-          placeholder="Filter by prefix..."
-          className="filter-input"
-        />
-        <span className="filter-count">{objects.length} objects</span>
+      <div className="panel-line">
+        <div className="filter-outer">
+          <div className="filter-inner">
+            <input type="text" value={prefix} onChange={e => setPrefix(e.target.value)} placeholder="Filter by prefix..." className="filter-input" />
+            <span className="filter-suffix">{objects.length} objects</span>
+          </div>
+        </div>
       </div>
 
       {loading ? (
         <div className="panel-loading">Loading...</div>
       ) : objects.length === 0 ? (
-        <div className="panel-empty">
-          <span className="empty-icon">☁</span>
-          <p>No objects{prefix ? ` matching "${prefix}"` : ""}</p>
-          <button className="btn-secondary" onClick={() => fileRef.current?.click()}>Upload files</button>
+        <div className="panel-line">
+          <div className="empty-outer"><div className="empty-inner">
+            <span className="empty-icon">☁</span>
+            <p>No objects{prefix ? ` matching "${prefix}"` : ""}</p>
+            <button className="btn-secondary" onClick={() => fileRef.current?.click()}>Upload files</button>
+          </div></div>
         </div>
       ) : (
-        <div className="table-wrapper">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Key</th>
-                <th>Size</th>
-                <th>Type</th>
-                <th>Modified</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {objects.map((o: any) => (
-                <tr key={o.key}>
-                  <td className="obj-key">{o.key}</td>
-                  <td>{formatBytes(o.size)}</td>
-                  <td className="obj-type">{o.content_type}</td>
-                  <td>{new Date(o.updated_at).toLocaleDateString()}</td>
-                  <td>
+        <div className="panel-line panel-line-table">
+          <div className="table-outer">
+            <div className="table-header-row">
+              <span className="table-th" style={{ flex: 2 }}>Key</span>
+              <span className="table-th">Size</span>
+              <span className="table-th">Type</span>
+              <span className="table-th">Modified</span>
+              <span className="table-th" style={{ width: 60 }} />
+            </div>
+            {objects.map((o: any) => (
+              <div key={o.key} className="table-row">
+                <div className="table-row-inner">
+                  <span className="table-td table-td-mono" style={{ flex: 2 }}>{o.key}</span>
+                  <span className="table-td">{formatBytes(o.size)}</span>
+                  <span className="table-td table-td-muted">{o.content_type}</span>
+                  <span className="table-td">{new Date(o.updated_at).toLocaleDateString()}</span>
+                  <span className="table-td" style={{ width: 60 }}>
                     <button className="btn-danger-sm" onClick={() => deleteObj(o.key)}>Delete</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </div>
