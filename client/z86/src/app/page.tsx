@@ -63,7 +63,7 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
     <div className="lp">
       {/* ── Fixed left panel (36%) ── */}
       <div className="lp-fixed">
-        <NoiseBackground />
+        <ShaderBackground />
         <div className="lp-fixed-inner">
           <div className="lp-fixed-top">
             <Z86Logo width={80} height={32} />
@@ -211,26 +211,145 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
   );
 }
 
-function NoiseBackground() {
+function ShaderBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const rafRef = useRef<number>(0);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
+    const gl = canvas.getContext("webgl", { alpha: false, antialias: false });
+    if (!gl) return;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = canvas.parentElement!.getBoundingClientRect();
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
-    const img = ctx.createImageData(canvas.width, canvas.height);
-    const px = img.data;
-    for (let i = 0; i < px.length; i += 4) {
-      const v = Math.floor(Math.random() * 18);
-      px[i] = v; px[i + 1] = v; px[i + 2] = v; px[i + 3] = 30;
-    }
-    ctx.putImageData(img, 0, 0);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+
+    // Vertex shader — fullscreen quad
+    const vs = gl.createShader(gl.VERTEX_SHADER)!;
+    gl.shaderSource(vs, `
+      attribute vec2 p;
+      varying vec2 uv;
+      void main() {
+        uv = p * 0.5 + 0.5;
+        gl_Position = vec4(p, 0.0, 1.0);
+      }
+    `);
+    gl.compileShader(vs);
+
+    // Fragment shader — dark red bg with flowing white lines
+    const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
+    gl.shaderSource(fs, `
+      precision mediump float;
+      varying vec2 uv;
+      uniform float t;
+      uniform vec2 res;
+
+      // Noise helper
+      float hash(vec2 p) {
+        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+      }
+
+      float noise(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = hash(i);
+        float b = hash(i + vec2(1.0, 0.0));
+        float c = hash(i + vec2(0.0, 1.0));
+        float d = hash(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+      }
+
+      void main() {
+        vec2 p = uv;
+        float aspect = res.x / res.y;
+
+        // Dark red base with subtle gradient
+        vec3 bg1 = vec3(0.18, 0.02, 0.02);  // deep dark red
+        vec3 bg2 = vec3(0.12, 0.01, 0.03);  // darker red-black
+        vec3 bg = mix(bg1, bg2, uv.y * 0.8 + noise(uv * 2.0 + t * 0.05) * 0.2);
+
+        // Flowing white lines — multiple layers
+        float lines = 0.0;
+
+        // Layer 1: horizontal flowing curves
+        for (float i = 0.0; i < 8.0; i++) {
+          float y0 = (i + 0.5) / 8.0;
+          float wave = sin(p.x * (3.0 + i * 0.7) + t * (0.3 + i * 0.05) + i * 1.7) * 0.06;
+          wave += sin(p.x * (5.0 + i * 1.3) - t * (0.2 + i * 0.03)) * 0.03;
+          float d = abs(p.y - y0 - wave);
+          float thickness = 0.002 + 0.001 * sin(t * 0.5 + i);
+          lines += smoothstep(thickness * 2.0, thickness * 0.3, d) * (0.15 + 0.1 * sin(i * 2.0 + t * 0.4));
+        }
+
+        // Layer 2: diagonal lines moving slowly
+        for (float i = 0.0; i < 5.0; i++) {
+          float angle = 0.3 + i * 0.15;
+          float pos = p.x * cos(angle) + p.y * sin(angle);
+          float wave = sin(pos * 12.0 + t * (0.2 + i * 0.04) + i * 3.0);
+          wave = smoothstep(0.92, 1.0, wave) * (0.12 + 0.06 * sin(t * 0.3 + i));
+          lines += wave;
+        }
+
+        // Layer 3: subtle noise-displaced grid lines
+        float n1 = noise(vec2(p.x * 3.0 + t * 0.1, p.y * 15.0));
+        float grid = smoothstep(0.48, 0.5, fract(p.y * 40.0 + n1 * 0.3 + t * 0.05));
+        grid *= smoothstep(0.5, 0.52, fract(p.y * 40.0 + n1 * 0.3 + t * 0.05));
+        lines += grid * 0.06;
+
+        // White lines with slight warmth
+        vec3 lineColor = vec3(0.95, 0.90, 0.88);
+        vec3 col = bg + lineColor * lines;
+
+        // Vignette
+        float vig = 1.0 - smoothstep(0.3, 1.5, length((uv - 0.5) * 1.6));
+        col *= vig * 0.85 + 0.15;
+
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `);
+    gl.compileShader(fs);
+
+    const prog = gl.createProgram()!;
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    // Fullscreen quad
+    const buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+    const pLoc = gl.getAttribLocation(prog, "p");
+    gl.enableVertexAttribArray(pLoc);
+    gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const tLoc = gl.getUniformLocation(prog, "t");
+    const rLoc = gl.getUniformLocation(prog, "res");
+    gl.uniform2f(rLoc, canvas.width, canvas.height);
+
+    let start = 0;
+    const render = (now: number) => {
+      if (!start) start = now;
+      const elapsed = (now - start) * 0.001;
+      gl.uniform1f(tLoc, elapsed);
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      rafRef.current = requestAnimationFrame(render);
+    };
+    rafRef.current = requestAnimationFrame(render);
+
+    return () => cancelAnimationFrame(rafRef.current);
   }, []);
-  return <canvas ref={canvasRef} className="lp-noise" />;
+
+  return (
+    <>
+      <canvas ref={canvasRef} className="lp-shader" />
+      <div className="lp-shader-blur" />
+    </>
+  );
 }
 
 function Z86Logo({ width = 72, height = 28 }: { width?: number; height?: number }) {
