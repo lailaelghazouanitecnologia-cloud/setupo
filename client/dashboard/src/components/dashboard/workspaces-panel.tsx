@@ -192,7 +192,12 @@ export function WorkspacesPanel() {
   }
 
   return (
-    <div style={{ display: "flex", height: "100%", gap: 0 }}>
+    <div style={{
+      display: "flex", gap: 0,
+      height: "calc(100vh - 100px)",
+      border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden",
+      background: "var(--card)",
+    }}>
       {/* Sidebar: workspace list */}
       <div style={{
         width: 220, minWidth: 220, borderRight: "1px solid var(--border)",

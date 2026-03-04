@@ -2,200 +2,179 @@
 
 import { useState, useEffect } from "react";
 import {
-  FolderOpen, Plus, RefreshCw, FileText,
-  Trash2, FolderTree, Rocket, GitBranch,
-  Package,
+  Layers, Plus, RefreshCw, Trash2, Key, Copy, Check,
+  RotateCw, ChevronRight, FolderOpen, Server, Clock,
 } from "lucide-react";
 import {
-  listProjects, createProject as apiCreateProject, listWorkspaces, createWorkspace,
-  deleteWorkspace as apiDeleteWorkspace, getWorkspaceFiles,
-  listFiles, zarVersions,
+  listProjects, createProject as apiCreateProject,
+  deleteProject as apiDeleteProject, rotateProjectKey,
+  listWorkspaces, listInstances,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@/components/ui/select";
 
 interface Project {
   id: string;
   name: string;
-}
-
-interface Workspace {
-  id: string;
-  name: string;
-  path: string;
-  ws_type: string;
-  stack: string;
-  description: string;
-  branch: string;
-  created_at: string;
-  exists: boolean;
-  is_git: boolean;
-  instance_id: string;
-  config?: { name: string; type: string; description: string };
-}
-
-function wsTypeLabel(ws: Workspace): string {
-  // Prefer config.type, then stack, then ws_type
-  const t = ws.config?.type || ws.stack || ws.ws_type || "custom";
-  if (t === "custom") return "workspace";
-  return t;
+  owner?: string;
+  created_at?: string;
+  settings?: Record<string, any>;
 }
 
 export function ProjectsPanel() {
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
-  const [newProjectName, setNewProjectName] = useState("");
-  const [newName, setNewName] = useState("");
-  const [newStack, setNewStack] = useState("node");
-  const [selected, setSelected] = useState<Workspace | null>(null);
-  const [selectedFiles, setSelectedFiles] = useState<any[]>([]);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [wsVersions, setWsVersions] = useState<string[]>([]);
-  const [wsBranches, setWsBranches] = useState<string[]>([]);
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const setActiveProject = useDashboardStore((s) => s.setActiveProject);
+  const storeProjects = useDashboardStore((s) => s.projects);
+  const setProjects = useDashboardStore((s) => s.setProjects);
+  const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
   const setActiveView = useDashboardStore((s) => s.setActiveView);
 
-  const fetchProjects = async () => {
-    try {
-      const res = await listProjects();
-      setProjects(res.projects || []);
-      if (res.projects?.length && !selectedProject) {
-        setSelectedProject(res.projects[0]);
-      }
-    } catch {
-      setProjects([]);
-    }
-  };
+  const [projects, setLocalProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState("");
 
-  const fetchWorkspaces = async (projectId?: string) => {
-    const pid = projectId || selectedProject?.id;
-    if (!pid) return;
+  // Selected project detail
+  const [selected, setSelected] = useState<Project | null>(null);
+  const [wsCount, setWsCount] = useState(0);
+  const [instCount, setInstCount] = useState(0);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  // API key
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [keyVisible, setKeyVisible] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [rotating, setRotating] = useState(false);
+
+  const fetchProjects = async () => {
     setLoading(true);
     setError("");
     try {
-      const res = await listWorkspaces(pid);
-      setWorkspaces(res.workspaces || []);
+      const res = await listProjects();
+      const projs = res.projects || [];
+      setLocalProjects(projs);
+      setProjects(projs);
     } catch (e: any) {
-      setWorkspaces([]);
-      setError(e.message?.includes("401") ? "Not authorized — log out and log back in" : "Failed to load workspaces");
+      setError("Failed to load projects");
     }
     setLoading(false);
   };
 
   useEffect(() => { fetchProjects(); }, []);
-  useEffect(() => {
-    if (selectedProject) {
-      fetchWorkspaces(selectedProject.id);
-      setSelected(null);
-      setSelectedFiles([]);
-    }
-  }, [selectedProject?.id]);
 
-  const handleCreateProject = async () => {
-    const name = newProjectName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
-    if (!name) return;
-    try {
-      await apiCreateProject(name);
-      setNewProjectName("");
-      setCreatingProject(false);
-      fetchProjects();
-    } catch (e: any) {
-      setError(e.message || "Create project failed");
+  // Auto-select active project
+  useEffect(() => {
+    if (activeProject && !selected) {
+      const p = projects.find((pr) => pr.id === activeProject.id);
+      if (p) selectProject(p);
     }
+  }, [projects, activeProject]);
+
+  const selectProject = async (proj: Project) => {
+    setSelected(proj);
+    setApiKey(null);
+    setKeyVisible(false);
+    setDetailLoading(true);
+    try {
+      const [wsRes, instRes] = await Promise.all([
+        listWorkspaces(proj.id).catch(() => ({ workspaces: [] })),
+        listInstances(proj.id).catch(() => ({ instances: [] })),
+      ]);
+      setWsCount((wsRes.workspaces || []).length);
+      setInstCount((instRes.instances || []).length);
+    } catch {
+      setWsCount(0);
+      setInstCount(0);
+    }
+    setDetailLoading(false);
   };
 
   const handleCreate = async () => {
     const name = newName.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
-    if (!name || !selectedProject) return;
+    if (!name) return;
+    setError("");
     try {
-      await createWorkspace(selectedProject.id, name, newStack);
+      const res = await apiCreateProject(name);
       setNewName("");
-      setNewStack("node");
       setCreating(false);
-      fetchWorkspaces();
+      // Show API key for new project
+      if (res.api_key) {
+        setApiKey(res.api_key);
+        setKeyVisible(true);
+      }
+      await fetchProjects();
+      // Select the new project
+      const newProj = { id: res.project.id, name: res.project.name, ...res.project };
+      setSelected(newProj);
+      setActiveProject(newProj);
     } catch (e: any) {
-      setError(e.message || "Create failed");
+      setError(e.message || "Failed to create project");
     }
   };
 
-  const handleDelete = async (ws: Workspace) => {
-    if (!selectedProject) return;
-    if (!confirm(`Delete workspace "${ws.name}"? This will remove the directory and all its contents.`)) return;
+  const handleDelete = async (proj: Project) => {
+    if (!confirm(`Delete project "${proj.name}"?\n\nThis will permanently remove the project and all associated data.`)) return;
+    setError("");
     try {
-      await apiDeleteWorkspace(selectedProject.id, ws.name);
-      if (selected?.name === ws.name) {
+      await apiDeleteProject(proj.id);
+      if (selected?.id === proj.id) {
         setSelected(null);
-        setSelectedFiles([]);
+        setApiKey(null);
       }
-      fetchWorkspaces();
-    } catch {}
+      if (activeProject?.id === proj.id) {
+        setActiveProject(null);
+        setWorkspaces([]);
+        setActiveWorkspace(null);
+      }
+      await fetchProjects();
+    } catch (e: any) {
+      setError(e.message || "Failed to delete project");
+    }
   };
 
-  const selectWorkspace = async (ws: Workspace) => {
-    setSelected(ws);
-    if (!selectedProject) return;
-    setFilesLoading(true);
-    // Try workspace API first, fall back to agent endpoint
+  const handleRotateKey = async () => {
+    if (!selected) return;
+    if (!confirm("Rotate API key? The current key will stop working immediately.")) return;
+    setRotating(true);
     try {
-      const res = await getWorkspaceFiles(selectedProject.id, ws.name);
-      setSelectedFiles(res.items || []);
-    } catch {
-      try {
-        const res = await listFiles(ws.path);
-        setSelectedFiles(res.items || []);
-      } catch {
-        setSelectedFiles([]);
-      }
+      const res = await rotateProjectKey(selected.id);
+      setApiKey(res.api_key);
+      setKeyVisible(true);
+    } catch (e: any) {
+      setError(e.message || "Failed to rotate key");
     }
-    setFilesLoading(false);
-    // Fetch versions info
-    zarVersions(selectedProject.id, ws.name, ws.branch || "main")
-      .then((r) => {
-        setWsVersions(r.versions || []);
-        const br = r.branches;
-        setWsBranches(Array.isArray(br) ? br : typeof br === "object" && br ? Object.keys(br) : []);
+    setRotating(false);
+  };
+
+  const handleCopyKey = () => {
+    if (!apiKey) return;
+    navigator.clipboard.writeText(apiKey);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleSwitchTo = (proj: Project) => {
+    setActiveProject(proj);
+    // Load workspaces for this project
+    listWorkspaces(proj.id)
+      .then((res) => {
+        const wsList = res.workspaces || [];
+        setWorkspaces(wsList);
+        setActiveWorkspace(wsList[0] || null);
       })
-      .catch(() => { setWsVersions([]); setWsBranches([]); });
+      .catch(() => { setWorkspaces([]); });
   };
 
   return (
     <div>
-      {/* Project selector */}
-      {projects.length > 1 && (
-        <div className="panel-header-row" style={{ marginBottom: 8 }}>
-          <Select
-            value={selectedProject?.id || ""}
-            onValueChange={(id) => {
-              const p = projects.find((pr) => pr.id === id);
-              if (p) setSelectedProject(p);
-            }}
-          >
-            <SelectTrigger style={{ maxWidth: 240 }}>
-              <SelectValue placeholder="Select project..." />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((p) => (
-                <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
       {/* Header */}
       <div className="panel-header-row">
         <span className="panel-count">
-          {selectedProject ? `${selectedProject.name} — ` : ""}
-          {workspaces.length} workspace{workspaces.length !== 1 ? "s" : ""}
+          {projects.length} project{projects.length !== 1 ? "s" : ""}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn-sm" onClick={() => fetchWorkspaces()} disabled={loading}>
+          <button className="panel-btn-sm" onClick={fetchProjects} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
           <button className="panel-btn-sm" onClick={() => setCreating(true)}>
@@ -211,14 +190,14 @@ export function ProjectsPanel() {
         </div>
       )}
 
-      {/* Create workspace */}
+      {/* Create project form */}
       {creating && (
-        <div className="proj-create">
-          <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <div className="proj-create" style={{ margin: "8px 0" }}>
+          <div style={{ display: "flex", gap: 8 }}>
             <input
               className="proj-input"
               type="text"
-              placeholder="Workspace name (e.g. my-app)"
+              placeholder="Project name (e.g. my-app)"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
@@ -228,19 +207,6 @@ export function ProjectsPanel() {
               style={{ flex: 1 }}
               autoFocus
             />
-            <Select value={newStack} onValueChange={setNewStack}>
-              <SelectTrigger style={{ minWidth: 90 }}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="node">Node</SelectItem>
-                <SelectItem value="python">Python</SelectItem>
-                <SelectItem value="static">Static</SelectItem>
-                <SelectItem value="custom">Custom</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div style={{ display: "flex", gap: 6 }}>
             <button className="panel-btn-sm" onClick={handleCreate} disabled={!newName.trim()}>
               Create
             </button>
@@ -251,80 +217,71 @@ export function ProjectsPanel() {
         </div>
       )}
 
-      {!selectedProject && !loading ? (
+      {/* API key alert (shown after create or rotate) */}
+      {apiKey && keyVisible && (
+        <div style={{
+          margin: "8px 0", padding: "10px 12px", borderRadius: 6,
+          background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)",
+        }}>
+          <div style={{ fontSize: "var(--font-xs)", fontWeight: 600, color: "var(--color-teal)", marginBottom: 6 }}>
+            API Key — save it now, it won't be shown again
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <code style={{
+              flex: 1, padding: "6px 8px", fontSize: 11, fontFamily: "var(--font-mono, monospace)",
+              background: "var(--card)", border: "1px solid var(--border)", borderRadius: 4,
+              wordBreak: "break-all", color: "var(--foreground)",
+            }}>
+              {apiKey}
+            </code>
+            <button className="panel-btn-sm" onClick={handleCopyKey} title="Copy">
+              {copied ? <Check className="h-3 w-3" style={{ color: "var(--color-teal)" }} /> : <Copy className="h-3 w-3" />}
+            </button>
+            <button className="panel-btn-sm" onClick={() => setKeyVisible(false)} title="Dismiss">
+              &times;
+            </button>
+          </div>
+        </div>
+      )}
+
+      {projects.length === 0 && !loading ? (
         <div className="panel-empty">
-          <FolderTree className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+          <Layers className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
           <div className="panel-empty-title">No projects</div>
           <div className="panel-empty-sub">Create a project to get started.</div>
-          {creatingProject ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, width: "100%", maxWidth: 300 }}>
-              <input
-                className="proj-input"
-                type="text"
-                placeholder="Project name (e.g. my-app)"
-                value={newProjectName}
-                onChange={(e) => setNewProjectName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreateProject();
-                  if (e.key === "Escape") { setCreatingProject(false); setNewProjectName(""); }
-                }}
-                autoFocus
-              />
-              <div style={{ display: "flex", gap: 6 }}>
-                <button className="panel-btn-sm" onClick={handleCreateProject} disabled={!newProjectName.trim()}>
-                  Create
-                </button>
-                <button className="panel-btn-sm" onClick={() => { setCreatingProject(false); setNewProjectName(""); }}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button className="panel-btn" onClick={() => setCreatingProject(true)}>
-              <Plus className="h-3.5 w-3.5" />
-              <span>Create project</span>
-            </button>
-          )}
-        </div>
-      ) : workspaces.length === 0 && !loading ? (
-        <div className="panel-empty">
-          <FolderTree className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-          <div className="panel-empty-title">No workspaces</div>
-          <div className="panel-empty-sub">Create a workspace to get started.</div>
           <button className="panel-btn" onClick={() => setCreating(true)}>
             <Plus className="h-3.5 w-3.5" />
-            <span>Create workspace</span>
+            <span>Create project</span>
           </button>
         </div>
       ) : (
         <div className="proj-layout">
-          {/* Workspace list */}
+          {/* Project list */}
           <div className="proj-list">
-            {workspaces.map((ws) => (
+            {projects.map((proj) => (
               <div
-                key={ws.name}
-                className={`proj-card ${selected?.name === ws.name ? "active" : ""}`}
-                onClick={() => selectWorkspace(ws)}
+                key={proj.id}
+                className={`proj-card ${selected?.id === proj.id ? "active" : ""}`}
+                onClick={() => selectProject(proj)}
               >
                 <div className="proj-card-icon">
-                  <FolderOpen className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
+                  <Layers className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
                 </div>
                 <div className="proj-card-info">
-                  <div className="proj-card-name">{ws.name}</div>
+                  <div className="proj-card-name">{proj.name}</div>
                   <div className="proj-card-meta">
-                    {wsTypeLabel(ws)}{ws.branch ? ` / ${ws.branch}` : ""}
-                    {ws.is_git && " (git)"}
+                    {proj.id}
                   </div>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span className={`inst-badge ${ws.exists ? "green" : "yellow"}`}>
-                    {ws.exists ? "ready" : "missing"}
-                  </span>
+                  {activeProject?.id === proj.id && (
+                    <span className="inst-badge green" style={{ fontSize: 9 }}>active</span>
+                  )}
                   <div className="proj-card-actions">
                     <button
                       className="svc-btn red"
-                      title="Delete"
-                      onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
+                      title="Delete project"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(proj); }}
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -334,69 +291,112 @@ export function ProjectsPanel() {
             ))}
           </div>
 
-          {/* Workspace detail */}
+          {/* Project detail */}
           {selected && (
             <div className="proj-detail">
               <div className="proj-detail-header">
-                <FolderOpen className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
+                <Layers className="h-4 w-4" style={{ color: "var(--color-teal)" }} />
                 <span className="proj-detail-name">{selected.name}</span>
-                <span className="proj-detail-path">{wsTypeLabel(selected)}</span>
+                <span className="proj-detail-path">{selected.id}</span>
               </div>
-              {/* Info bar: branch, versions, deploy button */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
-                <div className="pill">
-                  <GitBranch className="h-3 w-3" style={{ color: "var(--color-purple)" }} />
-                  <span>{selected.branch || "main"}</span>
+
+              {/* Stats row */}
+              <div style={{
+                display: "flex", gap: 16, padding: "12px 14px",
+                borderBottom: "1px solid var(--border)",
+              }}>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "var(--font-xs)" }}
+                  onClick={() => setActiveView("workspaces")}
+                >
+                  <FolderOpen className="h-3.5 w-3.5" style={{ color: "var(--color-blue)" }} />
+                  <span>{detailLoading ? "..." : wsCount} workspaces</span>
+                  <ChevronRight className="h-3 w-3" style={{ opacity: 0.3 }} />
                 </div>
-                {wsBranches.length > 0 && (
-                  <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)" }}>
-                    {wsBranches.length} branch{wsBranches.length !== 1 ? "es" : ""}
-                  </span>
-                )}
-                {wsVersions.length > 0 && (
-                  <div className="pill">
-                    <Package className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
-                    <span>{wsVersions.length} version{wsVersions.length !== 1 ? "s" : ""}</span>
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "var(--font-xs)" }}
+                  onClick={() => setActiveView("instances")}
+                >
+                  <Server className="h-3.5 w-3.5" style={{ color: "var(--color-purple)" }} />
+                  <span>{detailLoading ? "..." : instCount} instances</span>
+                  <ChevronRight className="h-3 w-3" style={{ opacity: 0.3 }} />
+                </div>
+                {selected.created_at && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>{new Date(selected.created_at).toLocaleDateString()}</span>
                   </div>
                 )}
-                <div style={{ marginLeft: "auto" }}>
+              </div>
+
+              {/* Actions */}
+              <div style={{ padding: "12px 14px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+                {/* Switch active project */}
+                {activeProject?.id !== selected.id && (
                   <button
                     className="deploy-action-btn teal"
-                    style={{ padding: "3px 10px", fontSize: "var(--font-xs)" }}
-                    onClick={() => setActiveView("deploy")}
+                    style={{ padding: "6px 12px", fontSize: "var(--font-xs)", width: "fit-content" }}
+                    onClick={() => handleSwitchTo(selected)}
                   >
-                    <Rocket className="h-3 w-3" />
-                    <span>Deploy</span>
+                    <Check className="h-3 w-3" />
+                    <span>Set as active project</span>
                   </button>
+                )}
+
+                {/* API Key section */}
+                <div style={{ fontSize: "var(--font-xs)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                    <Key className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
+                    <span style={{ fontWeight: 500 }}>API Key</span>
+                  </div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button
+                      className="panel-btn-sm"
+                      onClick={handleRotateKey}
+                      disabled={rotating}
+                    >
+                      <RotateCw className={`h-3 w-3 ${rotating ? "animate-spin" : ""}`} />
+                      <span>Rotate key</span>
+                    </button>
+                  </div>
+                  <div style={{ marginTop: 4, fontSize: 10, color: "var(--muted-foreground)" }}>
+                    Rotating generates a new key. The old key stops working immediately.
+                  </div>
                 </div>
               </div>
-              {selected.description && (
-                <div style={{ padding: "6px 14px", fontSize: "var(--font-xs)", color: "var(--muted-foreground)" }}>
-                  {selected.description}
-                </div>
-              )}
-              <div className="proj-detail-files">
-                {filesLoading ? (
-                  <div style={{ padding: 20, textAlign: "center", color: "var(--muted-foreground)", fontSize: "var(--font-xs)" }}>
-                    Loading...
-                  </div>
-                ) : selectedFiles.length === 0 ? (
-                  <div style={{ padding: 20, textAlign: "center", color: "var(--muted-foreground)", fontSize: "var(--font-xs)" }}>
-                    Empty workspace
-                  </div>
-                ) : (
-                  selectedFiles.map((f: any) => (
-                    <div key={f.name} className="proj-file-row">
-                      {f.type === "dir"
-                        ? <FolderOpen className="h-3.5 w-3.5" style={{ color: "var(--color-blue)" }} />
-                        : <FileText className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />}
-                      <span className="proj-file-name">{f.name}</span>
-                      {f.size != null && f.type !== "dir" && (
-                        <span className="proj-file-size">{formatSize(f.size)}</span>
-                      )}
-                    </div>
-                  ))
-                )}
+
+              {/* Quick actions */}
+              <div style={{ padding: "12px 14px", display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <button
+                  className="panel-btn-sm"
+                  onClick={() => setActiveView("workspaces")}
+                >
+                  <FolderOpen className="h-3 w-3" />
+                  <span>Workspaces</span>
+                </button>
+                <button
+                  className="panel-btn-sm"
+                  onClick={() => setActiveView("deploy")}
+                >
+                  <ChevronRight className="h-3 w-3" />
+                  <span>Deploy</span>
+                </button>
+                <button
+                  className="panel-btn-sm"
+                  onClick={() => setActiveView("secrets")}
+                >
+                  <Key className="h-3 w-3" />
+                  <span>Secrets</span>
+                </button>
+                <button
+                  className="svc-btn red"
+                  style={{ marginLeft: "auto" }}
+                  onClick={() => handleDelete(selected)}
+                  title="Delete project"
+                >
+                  <Trash2 className="h-3 w-3" />
+                  <span style={{ fontSize: 11 }}>Delete</span>
+                </button>
               </div>
             </div>
           )}
@@ -404,10 +404,4 @@ export function ProjectsPanel() {
       )}
     </div>
   );
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

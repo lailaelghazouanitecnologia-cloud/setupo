@@ -249,6 +249,18 @@ export async function createProject(name: string, description = "") {
   });
 }
 
+export async function deleteProject(projectId: string) {
+  return centralApi<{ deleted: boolean }>(`/api/projects/${projectId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function rotateProjectKey(projectId: string) {
+  return centralApi<{ api_key: string }>(`/api/projects/${projectId}/rotate-key`, {
+    method: "POST",
+  });
+}
+
 export async function listWorkspaces(projectId: string) {
   return centralApi<{ workspaces: any[] }>(`/api/projects/${projectId}/workspaces`);
 }
