@@ -5,6 +5,9 @@ import {
   Users, TrendingUp, Shield, Search, ChevronRight,
   RefreshCw, AlertTriangle, CheckCircle, Key, Eye,
   XCircle, BarChart3, Activity, Link2, ArrowDownUp,
+  Server, Cpu, HardDrive, Clock, Play, Square,
+  Zap, Network, Plus, Trash2, Copy, Route,
+  FolderOpen, ChevronDown,
 } from "lucide-react";
 import {
   getAdminOverview,
@@ -22,6 +25,29 @@ import {
   getUserLedger,
   verifyUserChain,
   getBalanceProof,
+  adminListProjects,
+  adminListProjectWorkspaces,
+  adminListAllWorkspaces,
+  adminListAllInstances,
+  getOrchestratorOverview,
+  updatePoolNode,
+  listBuilds,
+  cancelBuild,
+  getScalingRecommendations,
+  getOrchestratorAlerts,
+  resolveOrchestratorAlert,
+  rebalancePool,
+  getLBOverview,
+  listLBPools,
+  createLBPool,
+  deleteLBPool,
+  removeLBBackend,
+  listLBRules,
+  createLBRule,
+  deleteLBRule,
+  syncLBWithOrchestrator,
+  drainLBInstance,
+  getLBNginxConfig,
   type AdminUser,
   type DashboardOverview,
   type RevenueSummary,
@@ -31,15 +57,28 @@ import {
   type FraudScanResult,
   type LedgerBlock,
   type ActivityEntry,
+  type AdminProject,
+  type AdminWorkspace,
+  type AdminInstance,
+  type OrchestratorOverview,
+  type PoolNode,
+  type BuildJob,
+  type LBOverview,
+  type LBPool,
+  type LBBackend,
+  type LBRule,
 } from "@/lib/api/client";
 
-type AdminTab = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
+type AdminTab = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger" | "projects" | "orchestrator" | "loadbalancer";
 
 export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
   return (
     <div>
       {tab === "overview" && <OverviewTab />}
       {tab === "users" && <UsersTab />}
+      {tab === "projects" && <ProjectsTab />}
+      {tab === "orchestrator" && <OrchestratorTab />}
+      {tab === "loadbalancer" && <LoadBalancerTab />}
       {tab === "cashflow" && <CashflowTab />}
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "fraud" && <FraudTab />}
@@ -955,4 +994,758 @@ function LedgerTab() {
       )}
     </div>
   );
+}
+
+
+/* ═══════════════════════════════════════
+   PROJECTS & WORKSPACES TAB
+   ═══════════════════════════════════════ */
+function ProjectsTab() {
+  const [projects, setProjects] = useState<AdminProject[]>([]);
+  const [workspaces, setWorkspaces] = useState<AdminWorkspace[]>([]);
+  const [instances, setInstances] = useState<AdminInstance[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [view, setView] = useState<"projects" | "workspaces" | "instances">("projects");
+  const [expandedProject, setExpandedProject] = useState<string | null>(null);
+  const [projectWorkspaces, setProjectWorkspaces] = useState<AdminWorkspace[]>([]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      if (view === "projects") {
+        const res = await adminListProjects({ search, limit: 100 });
+        setProjects(res.projects);
+      } else if (view === "workspaces") {
+        const res = await adminListAllWorkspaces({ search, limit: 200 });
+        setWorkspaces(res.workspaces);
+      } else {
+        const res = await adminListAllInstances({ limit: 200 });
+        setInstances(res.instances);
+      }
+    } catch {}
+    setLoading(false);
+  }, [search, view]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const expandProject = async (pid: string) => {
+    if (expandedProject === pid) {
+      setExpandedProject(null);
+      return;
+    }
+    try {
+      const res = await adminListProjectWorkspaces(pid);
+      setProjectWorkspaces(res.workspaces);
+      setExpandedProject(pid);
+    } catch {}
+  };
+
+  return (
+    <div className="admin-section">
+      {/* View switcher */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12, alignItems: "center" }}>
+        {(["projects", "workspaces", "instances"] as const).map((v) => (
+          <button
+            key={v}
+            className={`admin-filter-btn ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+          >
+            {v.charAt(0).toUpperCase() + v.slice(1)}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <div className="admin-search-box">
+          <Search className="h-3.5 w-3.5" />
+          <input
+            placeholder={`Search ${view}...`}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <button className="admin-filter-btn" onClick={load}>
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="admin-loading"><div className="term-spinner" /> Loading...</div>
+      ) : view === "projects" ? (
+        /* Projects list */
+        <div className="admin-users-list">
+          {projects.length === 0 ? (
+            <div className="admin-empty">No projects found</div>
+          ) : (
+            projects.map((p) => (
+              <div key={p.id}>
+                <div
+                  className="admin-user-row"
+                  onClick={() => expandProject(p.id)}
+                  style={{ cursor: "pointer" }}
+                >
+                  <div className="admin-user-info">
+                    <div className="admin-user-avatar" style={{ background: "var(--color-purple, #8b5cf6)" }}>
+                      <FolderOpen className="h-3.5 w-3.5" />
+                    </div>
+                    <div>
+                      <div className="admin-user-email">{p.name}</div>
+                      <div className="admin-user-meta">
+                        {p.owner_email || "no owner"} — {p.id.slice(0, 16)}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 16, alignItems: "center", fontSize: 12 }}>
+                    <span>{p.workspace_count} workspaces</span>
+                    <span>{p.instance_count} instances</span>
+                    <span className="admin-user-meta">{new Date(p.created_at).toLocaleDateString()}</span>
+                    <ChevronDown
+                      className="h-3.5 w-3.5"
+                      style={{
+                        transform: expandedProject === p.id ? "rotate(180deg)" : "rotate(0)",
+                        transition: "transform 0.15s",
+                        opacity: 0.5,
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {/* Expanded workspaces */}
+                {expandedProject === p.id && (
+                  <div style={{ padding: "0 16px 12px 56px", background: "var(--sidebar-bg)" }}>
+                    {projectWorkspaces.length === 0 ? (
+                      <div style={{ fontSize: 12, opacity: 0.5, padding: "8px 0" }}>No workspaces</div>
+                    ) : (
+                      projectWorkspaces.map((w) => (
+                        <div key={w.id} style={{
+                          display: "flex", gap: 12, alignItems: "center",
+                          padding: "6px 0", borderBottom: "1px solid var(--border)",
+                          fontSize: 12,
+                        }}>
+                          <span style={{ fontWeight: 500, minWidth: 120 }}>{w.name}</span>
+                          <span className="admin-badge">{w.ws_type}</span>
+                          {w.stack && <span style={{ opacity: 0.5 }}>{w.stack}</span>}
+                          <span style={{ opacity: 0.4, fontFamily: "monospace", fontSize: 11 }}>{w.path}</span>
+                          <span style={{ marginLeft: "auto", opacity: 0.4 }}>
+                            {new Date(w.updated_at).toLocaleDateString()}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      ) : view === "workspaces" ? (
+        /* All workspaces */
+        <div className="admin-users-list">
+          {workspaces.length === 0 ? (
+            <div className="admin-empty">No workspaces found</div>
+          ) : (
+            workspaces.map((w) => (
+              <div key={w.id} className="admin-user-row">
+                <div className="admin-user-info">
+                  <div className="admin-user-avatar" style={{ background: "var(--color-blue, #3b82f6)" }}>
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <div className="admin-user-email">{w.name}</div>
+                    <div className="admin-user-meta">
+                      {w.project_name || w.project_id.slice(0, 16)} — {w.owner_email || "—"}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12 }}>
+                  <span className="admin-badge">{w.ws_type}</span>
+                  {w.stack && <span style={{ opacity: 0.5 }}>{w.stack}</span>}
+                  <span className="admin-user-meta">{new Date(w.updated_at).toLocaleDateString()}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      ) : (
+        /* All instances */
+        <div className="admin-users-list">
+          {instances.length === 0 ? (
+            <div className="admin-empty">No instances found</div>
+          ) : (
+            instances.map((inst) => (
+              <div key={inst.id} className="admin-user-row">
+                <div className="admin-user-info">
+                  <div className="admin-user-avatar" style={{ background: "var(--color-teal, #14b8a6)" }}>
+                    <Server className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <div className="admin-user-email">{inst.label || inst.id.slice(0, 16)}</div>
+                    <div className="admin-user-meta">
+                      {inst.project_name || inst.project_id.slice(0, 16)} — {inst.region} — {inst.plan}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12 }}>
+                  <span className="admin-badge" style={{
+                    color: inst.state === "active" ? "var(--color-green, green)" :
+                      inst.state === "creating" ? "var(--color-yellow, orange)" : undefined,
+                  }}>{inst.state}</span>
+                  <span className="admin-user-meta" style={{ fontFamily: "monospace" }}>{inst.ip || "—"}</span>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   ORCHESTRATOR TAB
+   ═══════════════════════════════════════ */
+function OrchestratorTab() {
+  const [data, setData] = useState<OrchestratorOverview | null>(null);
+  const [builds, setBuilds] = useState<BuildJob[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [recs, setRecs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [buildFilter, setBuildFilter] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [overview, b, a, r] = await Promise.all([
+        getOrchestratorOverview(),
+        listBuilds(buildFilter || undefined, 50),
+        getOrchestratorAlerts(),
+        getScalingRecommendations(),
+      ]);
+      setData(overview);
+      setBuilds(b);
+      setAlerts(a);
+      setRecs(r);
+    } catch (e) {
+      console.error(e);
+    }
+    setLoading(false);
+  }, [buildFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading orchestrator...</div>;
+  if (!data) return <div className="admin-empty">Could not load orchestrator data</div>;
+
+  return (
+    <div className="admin-section">
+      {/* Metrics */}
+      <div className="admin-cards-grid">
+        <div className="admin-card">
+          <div className="admin-card-label">Nodes</div>
+          <div className="admin-card-value">{data.active_nodes}/{data.total_nodes}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Avg CPU</div>
+          <div className="admin-card-value" style={{ color: data.avg_cpu > 80 ? "var(--color-red, red)" : undefined }}>
+            {data.avg_cpu}%
+          </div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Avg Memory</div>
+          <div className="admin-card-value" style={{ color: data.avg_mem > 80 ? "var(--color-red, red)" : undefined }}>
+            {data.avg_mem}%
+          </div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Queued Builds</div>
+          <div className="admin-card-value">{data.queued_builds}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Active Builds</div>
+          <div className="admin-card-value">{data.active_builds}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Done (24h)</div>
+          <div className="admin-card-value" style={{ color: "var(--color-green, green)" }}>{data.completed_builds_24h}</div>
+        </div>
+      </div>
+
+      {/* Recommendations */}
+      {recs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="admin-subsection-title">Scaling Recommendations</div>
+          {recs.map((r: any, i: number) => (
+            <div key={i} className="admin-alert" style={{ marginBottom: 6 }}>
+              <TrendingUp className="h-3.5 w-3.5" />
+              <div>
+                <div style={{ fontWeight: 500, fontSize: 13 }}>{r.reason}</div>
+                <div style={{ fontSize: 11, opacity: 0.6 }}>{r.action}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Nodes */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div className="admin-subsection-title">Pool Nodes</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="admin-filter-btn" onClick={async () => { await rebalancePool(); load(); }}>
+              <RefreshCw className="h-3 w-3" /> Rebalance
+            </button>
+            <button className="admin-filter-btn" onClick={load}>
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        <div className="admin-users-list">
+          {data.nodes.map((n) => (
+            <div key={n.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{
+                  background: n.status === "active" ? "var(--color-green, green)" :
+                    n.status === "draining" ? "var(--color-yellow, orange)" : "var(--color-red, red)",
+                }}>
+                  <Server className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{n.label || n.id.slice(0, 16)}</div>
+                  <div className="admin-user-meta">{n.ip || "—"} — {n.role} — {n.region}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 12, alignItems: "center", fontSize: 12 }}>
+                <BarInline label="CPU" value={n.cpu_percent} />
+                <BarInline label="Mem" value={n.mem_percent} />
+                <span>{n.active_builds}/{n.max_concurrent_builds} builds</span>
+                <span className="admin-badge">{n.status}</span>
+                {n.status === "active" ? (
+                  <button className="admin-filter-btn" title="Drain" onClick={async () => {
+                    await updatePoolNode(n.id, { status: "draining" }); load();
+                  }}>
+                    <Square className="h-3 w-3" />
+                  </button>
+                ) : (
+                  <button className="admin-filter-btn" title="Activate" onClick={async () => {
+                    await updatePoolNode(n.id, { status: "active" }); load();
+                  }}>
+                    <Play className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Builds */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+          <div className="admin-subsection-title" style={{ margin: 0 }}>Recent Builds</div>
+          <div style={{ flex: 1 }} />
+          {["", "queued", "building", "done", "failed"].map((f) => (
+            <button
+              key={f}
+              className={`admin-filter-btn ${buildFilter === f ? "active" : ""}`}
+              onClick={() => setBuildFilter(f)}
+              style={{ fontSize: 11 }}
+            >
+              {f || "All"}
+            </button>
+          ))}
+        </div>
+        <div className="admin-users-list">
+          {builds.length === 0 ? (
+            <div className="admin-empty">No builds</div>
+          ) : (
+            builds.slice(0, 20).map((b) => (
+              <div key={b.id} className="admin-user-row">
+                <div className="admin-user-info">
+                  <div className="admin-user-avatar" style={{
+                    background: b.status === "done" ? "var(--color-green, green)" :
+                      b.status === "failed" ? "var(--color-red, red)" :
+                      b.status === "building" ? "var(--color-blue, blue)" : "var(--color-yellow, orange)",
+                  }}>
+                    {b.status === "done" ? <CheckCircle className="h-3.5 w-3.5" /> :
+                     b.status === "failed" ? <XCircle className="h-3.5 w-3.5" /> :
+                     <Activity className="h-3.5 w-3.5" />}
+                  </div>
+                  <div>
+                    <div className="admin-user-email" style={{ fontFamily: "monospace", fontSize: 12 }}>
+                      {b.workspace}/{b.branch}
+                    </div>
+                    <div className="admin-user-meta">{b.id.slice(0, 20)} — {timeAgo(b.queued_at)}</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                  <span className="admin-badge">{b.status}</span>
+                  {(b.status === "queued" || b.status === "assigned") && (
+                    <button className="admin-filter-btn" onClick={async () => { await cancelBuild(b.id); load(); }}>
+                      <XCircle className="h-3 w-3" /> Cancel
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {alerts.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <div className="admin-subsection-title">Active Alerts ({alerts.length})</div>
+          {alerts.slice(0, 10).map((a: any) => (
+            <div key={a.id} className="admin-alert" style={{ marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <AlertTriangle className="h-3.5 w-3.5" />
+                <span style={{ fontSize: 13 }}>{a.message}</span>
+              </div>
+              <button className="admin-filter-btn" onClick={async () => { await resolveOrchestratorAlert(a.id); load(); }}>
+                <CheckCircle className="h-3 w-3" /> Resolve
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   LOAD BALANCER TAB
+   ═══════════════════════════════════════ */
+function LoadBalancerTab() {
+  const [overview, setOverview] = useState<LBOverview | null>(null);
+  const [rules, setRules] = useState<LBRule[]>([]);
+  const [nginxConfig, setNginxConfig] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+  const [showNginx, setShowNginx] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newAlgo, setNewAlgo] = useState("round_robin");
+  const [creatingRule, setCreatingRule] = useState(false);
+  const [newRulePoolId, setNewRulePoolId] = useState("");
+  const [newRuleType, setNewRuleType] = useState("prefix");
+  const [newRuleValue, setNewRuleValue] = useState("/");
+  const [copied, setCopied] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [o, r] = await Promise.all([getLBOverview(), listLBRules()]);
+      setOverview(o);
+      setRules(r);
+      if (o.pools.length > 0 && !newRulePoolId) setNewRulePoolId(o.pools[0].id);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }, [newRulePoolId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const r = await syncLBWithOrchestrator();
+      alert(`Synced: ${r.synced} added, ${r.removed} removed`);
+      load();
+    } catch (e: any) { alert(e.message); }
+    setSyncing(false);
+  };
+
+  const handleCreatePool = async () => {
+    if (!newName.trim()) return;
+    try {
+      await createLBPool({ name: newName.trim(), algorithm: newAlgo });
+      setNewName(""); setCreating(false); load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleDeletePool = async (id: string) => {
+    if (!confirm("Delete this pool?")) return;
+    try { await deleteLBPool(id); load(); } catch (e: any) { alert(e.message); }
+  };
+
+  const handleCreateRule = async () => {
+    if (!newRulePoolId) return;
+    try {
+      await createLBRule({ pool_id: newRulePoolId, match_type: newRuleType, match_value: newRuleValue });
+      setCreatingRule(false); load();
+    } catch (e: any) { alert(e.message); }
+  };
+
+  const handleShowNginx = async () => {
+    try {
+      const cfg = await getLBNginxConfig();
+      setNginxConfig(cfg);
+      setShowNginx(true);
+    } catch (e: any) { alert(e.message); }
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading load balancer...</div>;
+  if (!overview) return <div className="admin-empty">Could not load LB data</div>;
+
+  return (
+    <div className="admin-section">
+      {/* Metrics */}
+      <div className="admin-cards-grid">
+        <div className="admin-card">
+          <div className="admin-card-label">Pools</div>
+          <div className="admin-card-value">{overview.active_pools}/{overview.total_pools}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Backends</div>
+          <div className="admin-card-value">{overview.total_backends}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Healthy</div>
+          <div className="admin-card-value" style={{ color: "var(--color-green, green)" }}>{overview.healthy_backends}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Unhealthy</div>
+          <div className="admin-card-value" style={{ color: overview.unhealthy_backends > 0 ? "var(--color-red, red)" : undefined }}>
+            {overview.unhealthy_backends}
+          </div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Rules</div>
+          <div className="admin-card-value">{overview.total_rules}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Total Requests</div>
+          <div className="admin-card-value">{fmtNum(overview.total_requests)}</div>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+        <button className="admin-filter-btn" onClick={handleSync} disabled={syncing}>
+          <RefreshCw className={`h-3 w-3 ${syncing ? "spinning" : ""}`} />
+          {syncing ? "Syncing..." : "Sync Orchestrator"}
+        </button>
+        <button className="admin-filter-btn" onClick={() => setCreating(!creating)}>
+          <Plus className="h-3 w-3" /> New Pool
+        </button>
+        <button className="admin-filter-btn" onClick={handleShowNginx}>
+          Nginx Config
+        </button>
+        <button className="admin-filter-btn" onClick={load} style={{ marginLeft: "auto" }}>
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </div>
+
+      {/* Create pool form */}
+      {creating && (
+        <div className="admin-alert" style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center" }}>
+          <input
+            className="admin-search-input"
+            placeholder="Pool name..."
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleCreatePool()}
+            autoFocus
+            style={{ flex: 1, maxWidth: 200 }}
+          />
+          <select
+            className="admin-search-input"
+            value={newAlgo}
+            onChange={(e) => setNewAlgo(e.target.value)}
+            style={{ maxWidth: 160 }}
+          >
+            <option value="round_robin">Round Robin</option>
+            <option value="least_conn">Least Connections</option>
+            <option value="weighted">Weighted</option>
+            <option value="ip_hash">IP Hash</option>
+          </select>
+          <button className="admin-filter-btn active" onClick={handleCreatePool}>Create</button>
+        </div>
+      )}
+
+      {/* Pools */}
+      <div style={{ marginTop: 16 }}>
+        <div className="admin-subsection-title">Pools</div>
+        {overview.pools.length === 0 ? (
+          <div className="admin-empty">No pools. Create one or sync with orchestrator.</div>
+        ) : (
+          overview.pools.map((pool) => (
+            <div key={pool.id} style={{
+              background: "var(--sidebar-bg)", border: "1px solid var(--border)",
+              borderRadius: 8, padding: 14, marginBottom: 10,
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div>
+                  <div style={{ fontWeight: 600, fontSize: 14 }}>{pool.name}</div>
+                  <div style={{ fontSize: 11, opacity: 0.5, fontFamily: "monospace" }}>{pool.id}</div>
+                </div>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span className="admin-badge">{pool.algorithm}</span>
+                  <span className="admin-badge" style={{
+                    color: pool.active ? "var(--color-green, green)" : "var(--color-red, red)",
+                  }}>{pool.active ? "active" : "inactive"}</span>
+                  <button className="admin-filter-btn" onClick={() => handleDeletePool(pool.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Backends */}
+              {pool.backends.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+                  {pool.backends.map((b) => (
+                    <div key={b.id} style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      fontSize: 12, padding: "4px 0",
+                    }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                        background: b.status === "healthy" ? "var(--color-green, green)" :
+                          b.status === "draining" ? "orange" : "var(--color-red, red)",
+                      }} />
+                      <span style={{ fontFamily: "monospace", minWidth: 130 }}>{b.ip}:{b.port}</span>
+                      <span style={{ opacity: 0.5 }}>w={b.weight}</span>
+                      <span style={{ opacity: 0.5 }}>{b.active_connections} conn</span>
+                      <span style={{ opacity: 0.5 }}>{fmtNum(b.total_requests)} req</span>
+                      <div style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                        {b.status === "healthy" && (
+                          <button className="admin-filter-btn" title="Drain" onClick={async () => {
+                            await drainLBInstance(b.instance_id); load();
+                          }}>
+                            <Square className="h-3 w-3" />
+                          </button>
+                        )}
+                        <button className="admin-filter-btn" title="Remove" onClick={async () => {
+                          await removeLBBackend(b.id); load();
+                        }}>
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Rules */}
+      <div style={{ marginTop: 16 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div className="admin-subsection-title" style={{ margin: 0 }}>Routing Rules ({rules.length})</div>
+          <button className="admin-filter-btn" onClick={() => setCreatingRule(!creatingRule)}>
+            <Plus className="h-3 w-3" /> New Rule
+          </button>
+        </div>
+
+        {creatingRule && (
+          <div className="admin-alert" style={{ marginBottom: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <select className="admin-search-input" value={newRuleType} onChange={(e) => setNewRuleType(e.target.value)} style={{ maxWidth: 100 }}>
+              <option value="prefix">Prefix</option>
+              <option value="exact">Exact</option>
+              <option value="host">Host</option>
+            </select>
+            <input
+              className="admin-search-input"
+              placeholder={newRuleType === "host" ? "app.nso.dev" : "/api/"}
+              value={newRuleValue}
+              onChange={(e) => setNewRuleValue(e.target.value)}
+              style={{ maxWidth: 150 }}
+            />
+            <span style={{ fontSize: 12, opacity: 0.5 }}>&rarr;</span>
+            <select className="admin-search-input" value={newRulePoolId} onChange={(e) => setNewRulePoolId(e.target.value)} style={{ maxWidth: 200 }}>
+              {overview.pools.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button className="admin-filter-btn active" onClick={handleCreateRule}>Create</button>
+          </div>
+        )}
+
+        <div className="admin-users-list">
+          {rules.map((r) => (
+            <div key={r.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{ background: "var(--color-purple, #8b5cf6)" }}>
+                  <Route className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">
+                    <span className="admin-badge">{r.match_type}</span> {r.match_value}
+                  </div>
+                  <div className="admin-user-meta">
+                    &rarr; {overview.pools.find((p) => p.id === r.pool_id)?.name || r.pool_id.slice(0, 16)}
+                    {" — priority: "}{r.priority}
+                  </div>
+                </div>
+              </div>
+              <button className="admin-filter-btn" onClick={async () => { await deleteLBRule(r.id); load(); }}>
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Nginx Config */}
+      {showNginx && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+            <div className="admin-subsection-title" style={{ margin: 0 }}>Nginx Config</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              <button className="admin-filter-btn" onClick={() => {
+                navigator.clipboard.writeText(nginxConfig);
+                setCopied(true); setTimeout(() => setCopied(false), 2000);
+              }}>
+                <Copy className="h-3 w-3" /> {copied ? "Copied!" : "Copy"}
+              </button>
+              <button className="admin-filter-btn" onClick={() => setShowNginx(false)}>
+                <XCircle className="h-3 w-3" /> Close
+              </button>
+            </div>
+          </div>
+          <pre style={{
+            background: "var(--sidebar-bg)", border: "1px solid var(--border)",
+            borderRadius: 6, padding: 14, fontSize: 11, lineHeight: 1.5,
+            overflow: "auto", maxHeight: 400, fontFamily: "'JetBrains Mono', monospace",
+          }}>
+            {nginxConfig}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════
+   SHARED HELPERS
+   ═══════════════════════════════════════ */
+function BarInline({ label, value }: { label: string; value: number }) {
+  const color = value > 90 ? "var(--color-red, red)" : value > 70 ? "orange" : "var(--color-green, green)";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 90 }}>
+      <span style={{ fontSize: 10, opacity: 0.5, minWidth: 24 }}>{label}</span>
+      <div style={{ flex: 1, height: 3, background: "var(--border)", borderRadius: 2, overflow: "hidden", minWidth: 40 }}>
+        <div style={{ width: `${Math.min(100, value)}%`, height: "100%", background: color, borderRadius: 2 }} />
+      </div>
+      <span style={{ fontSize: 10, opacity: 0.6, minWidth: 28 }}>{value.toFixed(0)}%</span>
+    </div>
+  );
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function fmtNum(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
 }

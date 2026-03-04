@@ -303,3 +303,291 @@ export async function getBalanceProof(userId: string) {
 export async function getLedgerDiscrepancies() {
   return adminApi<{ discrepancies: any[]; count: number }>("/api/admin/ledger/discrepancies");
 }
+
+// ── Projects & Workspaces ──
+
+export interface AdminProject {
+  id: string;
+  name: string;
+  owner: string;
+  owner_email: string;
+  workspace_count: number;
+  instance_count: number;
+  settings: any;
+  created_at: string;
+}
+
+export interface AdminWorkspace {
+  id: string;
+  project_id: string;
+  name: string;
+  path: string;
+  ws_type: string;
+  stack: string;
+  description: string;
+  instance_id: string | null;
+  project_name?: string;
+  owner_email?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminInstance {
+  id: string;
+  project_id: string;
+  project_name?: string;
+  label: string;
+  region: string;
+  plan: string;
+  ip: string | null;
+  state: string;
+  workspace: string | null;
+  created_at: string;
+}
+
+export async function adminListProjects(params: {
+  search?: string; sort?: string; order?: string; limit?: number; offset?: number;
+} = {}) {
+  const q = new URLSearchParams();
+  if (params.search) q.set("search", params.search);
+  if (params.sort) q.set("sort", params.sort);
+  if (params.order) q.set("order", params.order);
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  return adminApi<{ projects: AdminProject[]; total: number }>(`/api/admin/projects?${q}`);
+}
+
+export async function adminListProjectWorkspaces(projectId: string) {
+  return adminApi<{ workspaces: AdminWorkspace[]; project: any }>(
+    `/api/admin/projects/${projectId}/workspaces`,
+  );
+}
+
+export async function adminListAllWorkspaces(params: {
+  search?: string; ws_type?: string; limit?: number; offset?: number;
+} = {}) {
+  const q = new URLSearchParams();
+  if (params.search) q.set("search", params.search);
+  if (params.ws_type) q.set("ws_type", params.ws_type);
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  return adminApi<{ workspaces: AdminWorkspace[]; total: number }>(`/api/admin/workspaces?${q}`);
+}
+
+export async function adminListAllInstances(params: {
+  state?: string; limit?: number; offset?: number;
+} = {}) {
+  const q = new URLSearchParams();
+  if (params.state) q.set("state", params.state);
+  if (params.limit) q.set("limit", String(params.limit));
+  if (params.offset) q.set("offset", String(params.offset));
+  return adminApi<{ instances: AdminInstance[]; total: number }>(`/api/admin/instances?${q}`);
+}
+
+// ── Orchestrator ──
+
+export interface PoolNode {
+  id: string;
+  instance_id: string;
+  label: string;
+  role: string;
+  status: string;
+  ip: string | null;
+  region: string;
+  plan: string;
+  max_concurrent_builds: number;
+  cpu_percent: number;
+  mem_percent: number;
+  disk_percent: number;
+  active_builds: number;
+  last_heartbeat: string | null;
+  created_at: string;
+}
+
+export interface BuildJob {
+  id: string;
+  project_id: string;
+  workspace: string;
+  branch: string;
+  assigned_node_id: string | null;
+  status: string;
+  priority: number;
+  build_command: string;
+  logs: string;
+  error: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface OrchestratorOverview {
+  total_nodes: number;
+  active_nodes: number;
+  builders: number;
+  runners: number;
+  avg_cpu: number;
+  avg_mem: number;
+  queued_builds: number;
+  active_builds: number;
+  completed_builds_24h: number;
+  failed_builds_24h: number;
+  alerts: any[];
+  nodes: PoolNode[];
+}
+
+export async function getOrchestratorOverview() {
+  return adminApi<OrchestratorOverview>("/api/admin/orchestrator/overview");
+}
+
+export async function listPoolNodes() {
+  return adminApi<PoolNode[]>("/api/admin/orchestrator/pool");
+}
+
+export async function updatePoolNode(nodeId: string, data: Record<string, any>) {
+  return adminApi<PoolNode>(`/api/admin/orchestrator/pool/${nodeId}`, {
+    method: "PATCH", body: JSON.stringify(data),
+  });
+}
+
+export async function listBuilds(status?: string, limit = 50) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  params.set("limit", String(limit));
+  return adminApi<BuildJob[]>(`/api/admin/orchestrator/builds?${params}`);
+}
+
+export async function cancelBuild(buildId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/orchestrator/builds/${buildId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function getScalingRecommendations() {
+  return adminApi<any[]>("/api/admin/orchestrator/recommendations");
+}
+
+export async function getOrchestratorAlerts() {
+  return adminApi<any[]>("/api/admin/orchestrator/alerts");
+}
+
+export async function resolveOrchestratorAlert(alertId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/orchestrator/alerts/${alertId}/resolve`, {
+    method: "POST",
+  });
+}
+
+export async function rebalancePool() {
+  return adminApi<{ ok: boolean }>("/api/admin/orchestrator/rebalance", {
+    method: "POST",
+  });
+}
+
+// ── Load Balancer ──
+
+export interface LBPool {
+  id: string;
+  name: string;
+  algorithm: string;
+  health_check_path: string;
+  health_check_interval: number;
+  max_fails: number;
+  sticky_sessions: boolean;
+  backends: LBBackend[];
+  active: boolean;
+  created_at: string;
+}
+
+export interface LBBackend {
+  id: string;
+  pool_id: string;
+  instance_id: string;
+  ip: string;
+  port: number;
+  weight: number;
+  status: string;
+  active_connections: number;
+  total_requests: number;
+  failed_health_checks: number;
+  last_health_check: string | null;
+}
+
+export interface LBOverview {
+  total_pools: number;
+  active_pools: number;
+  total_backends: number;
+  healthy_backends: number;
+  unhealthy_backends: number;
+  total_rules: number;
+  total_requests: number;
+  pools: LBPool[];
+}
+
+export interface LBRule {
+  id: string;
+  pool_id: string;
+  match_type: string;
+  match_value: string;
+  priority: number;
+  active: boolean;
+}
+
+export async function getLBOverview() {
+  return adminApi<LBOverview>("/api/admin/lb/overview");
+}
+
+export async function listLBPools() {
+  return adminApi<LBPool[]>("/api/admin/lb/pools");
+}
+
+export async function createLBPool(data: { name: string; algorithm?: string }) {
+  return adminApi<LBPool>("/api/admin/lb/pools", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function deleteLBPool(poolId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/lb/pools/${poolId}`, { method: "DELETE" });
+}
+
+export async function addLBBackend(poolId: string, data: { instance_id: string; port?: number; weight?: number }) {
+  return adminApi<LBBackend>(`/api/admin/lb/pools/${poolId}/backends`, {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function removeLBBackend(backendId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/lb/backends/${backendId}`, { method: "DELETE" });
+}
+
+export async function listLBRules() {
+  return adminApi<LBRule[]>("/api/admin/lb/rules");
+}
+
+export async function createLBRule(data: { pool_id: string; match_type?: string; match_value?: string; priority?: number }) {
+  return adminApi<LBRule>("/api/admin/lb/rules", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function deleteLBRule(ruleId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/lb/rules/${ruleId}`, { method: "DELETE" });
+}
+
+export async function syncLBWithOrchestrator() {
+  return adminApi<{ ok: boolean; synced: number; removed: number }>("/api/admin/lb/sync", {
+    method: "POST",
+  });
+}
+
+export async function drainLBInstance(instanceId: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/lb/drain/${instanceId}`, { method: "POST" });
+}
+
+export async function getLBNginxConfig() {
+  const token = getToken();
+  const resp = await fetch(`${API_BASE}/api/admin/lb/nginx/config`, {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  });
+  if (!resp.ok) throw new Error(`${resp.status}`);
+  return resp.text();
+}

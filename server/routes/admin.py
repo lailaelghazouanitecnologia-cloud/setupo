@@ -272,3 +272,193 @@ async def find_discrepancies(auth: AuthContext = Depends(require_admin)):
     """Find all balance discrepancies across all users."""
     discrepancies = await blockchain.find_discrepancies()
     return {"discrepancies": discrepancies, "count": len(discrepancies)}
+
+
+# ── Projects & Workspaces (admin view) ──
+
+@router.get("/projects")
+async def admin_list_projects(
+    search: str = "",
+    sort: str = "created_at",
+    order: str = "desc",
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all projects across all users with workspace count."""
+    from server.core import db
+    d = await db.get_db()
+
+    direction = "DESC" if order == "desc" else "ASC"
+    sort_col = sort if sort in ("created_at", "name") else "created_at"
+    db._validate_identifier(sort_col, "column")
+
+    if search:
+        cursor = await d.execute(
+            f"SELECT * FROM projects WHERE name LIKE ? OR id LIKE ? ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            (f"%{search}%", f"%{search}%", limit, offset),
+        )
+        count_cursor = await d.execute(
+            "SELECT COUNT(*) FROM projects WHERE name LIKE ? OR id LIKE ?",
+            (f"%{search}%", f"%{search}%"),
+        )
+    else:
+        cursor = await d.execute(
+            f"SELECT * FROM projects ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        count_cursor = await d.execute("SELECT COUNT(*) FROM projects")
+
+    rows = await cursor.fetchall()
+    total = (await count_cursor.fetchone())[0]
+
+    projects = []
+    for row in rows:
+        p = db._row_to_dict(row)
+        # Count workspaces
+        ws_cursor = await d.execute(
+            "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
+        )
+        ws_count = (await ws_cursor.fetchone())[0]
+        # Count instances
+        inst_cursor = await d.execute(
+            "SELECT COUNT(*) FROM instances WHERE project_id = ?", (p["id"],),
+        )
+        inst_count = (await inst_cursor.fetchone())[0]
+        # Get owner info
+        owner_email = ""
+        if p.get("owner"):
+            owner_row = await db.fetch_one("users", id=p["owner"])
+            owner_email = owner_row.get("email", "") if owner_row else ""
+
+        p["workspace_count"] = ws_count
+        p["instance_count"] = inst_count
+        p["owner_email"] = owner_email
+        # Don't expose API key hash
+        p.pop("api_key_hash", None)
+        projects.append(p)
+
+    return {"projects": projects, "total": total}
+
+
+@router.get("/projects/{project_id}/workspaces")
+async def admin_list_workspaces(
+    project_id: str,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all workspaces for a specific project."""
+    from server.core import db
+    d = await db.get_db()
+
+    # Verify project exists
+    project = await db.fetch_one("projects", id=project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cursor = await d.execute(
+        "SELECT * FROM workspaces WHERE project_id = ? ORDER BY created_at DESC",
+        (project_id,),
+    )
+    rows = await cursor.fetchall()
+    workspaces = [db._row_to_dict(r) for r in rows]
+
+    return {"workspaces": workspaces, "project": {
+        "id": project["id"],
+        "name": project["name"],
+        "owner": project.get("owner", ""),
+    }}
+
+
+@router.get("/workspaces")
+async def admin_list_all_workspaces(
+    search: str = "",
+    ws_type: str = "",
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all workspaces across all projects."""
+    from server.core import db
+    d = await db.get_db()
+
+    conditions = []
+    params: list = []
+
+    if search:
+        conditions.append("(w.name LIKE ? OR w.id LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
+    if ws_type:
+        conditions.append("w.ws_type = ?")
+        params.append(ws_type)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    cursor = await d.execute(
+        f"""SELECT w.*, p.name as project_name, p.owner as owner_id
+            FROM workspaces w
+            LEFT JOIN projects p ON w.project_id = p.id
+            {where}
+            ORDER BY w.updated_at DESC
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    )
+    rows = await cursor.fetchall()
+
+    count_cursor = await d.execute(
+        f"SELECT COUNT(*) FROM workspaces w {where}", params,
+    )
+    total = (await count_cursor.fetchone())[0]
+
+    workspaces = []
+    for row in rows:
+        w = db._row_to_dict(row)
+        # Get owner email
+        owner_id = w.pop("owner_id", "")
+        if owner_id:
+            owner_row = await db.fetch_one("users", id=owner_id)
+            w["owner_email"] = owner_row.get("email", "") if owner_row else ""
+        else:
+            w["owner_email"] = ""
+        workspaces.append(w)
+
+    return {"workspaces": workspaces, "total": total}
+
+
+@router.get("/instances")
+async def admin_list_all_instances(
+    state: str = "",
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all instances across all projects."""
+    from server.core import db
+    d = await db.get_db()
+
+    conditions = []
+    params: list = []
+
+    if state:
+        conditions.append("i.state = ?")
+        params.append(state)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    cursor = await d.execute(
+        f"""SELECT i.*, p.name as project_name
+            FROM instances i
+            LEFT JOIN projects p ON i.project_id = p.id
+            {where}
+            ORDER BY i.created_at DESC
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    )
+    rows = await cursor.fetchall()
+
+    count_cursor = await d.execute(
+        f"SELECT COUNT(*) FROM instances i {where}", params,
+    )
+    total = (await count_cursor.fetchone())[0]
+
+    instances = [db._row_to_dict(r) for r in rows]
+    return {"instances": instances, "total": total}
