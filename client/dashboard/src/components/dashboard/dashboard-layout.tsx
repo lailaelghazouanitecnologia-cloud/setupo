@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useEffect, useState, useRef, Component, type ErrorInfo, type ReactNode } from "react";
+import React, { useEffect, useState, useRef, useCallback, Component, type ErrorInfo, type ReactNode } from "react";
 import {
-  Mail, Server, FolderKanban, Key, Blocks,
+  Mail, Server, Key, Blocks,
   X, LogOut, ChevronDown, Settings, Rocket,
-  Bell, Wallet, CreditCard, UserCog, Sun, Moon,
+  Bell, Wallet, CreditCard, Sun, Moon,
+  FolderOpen, Plus, Check, Layers,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import type { ProjectInfo, WorkspaceInfo } from "@/stores/dashboard-store";
 import { InboxPanel } from "./inbox-panel";
 import { InstancesPanel } from "./instances-panel";
 import { ProjectsPanel } from "./projects-panel";
@@ -92,7 +94,6 @@ class PanelErrorBoundary extends Component<
 const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
   { id: "inbox", label: "Inbox", icon: Mail },
   { id: "instances", label: "Instances", icon: Server },
-  { id: "projects", label: "Projects", icon: FolderKanban },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "addons", label: "Apps", icon: Blocks },
@@ -108,6 +109,212 @@ const viewTitles: Record<DashboardView, string> = {
   billing: "Billing",
   settings: "Settings",
 };
+
+/* ═══════════════════════════════════════════
+   PROJECT / WORKSPACE SWITCHER
+   ═══════════════════════════════════════════ */
+function ProjectSwitcher() {
+  const projects = useDashboardStore((s) => s.projects);
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const setActiveProject = useDashboardStore((s) => s.setActiveProject);
+  const workspaces = useDashboardStore((s) => s.workspaces);
+  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
+  const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
+  const projectLoading = useDashboardStore((s) => s.projectLoading);
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
+
+  const [projDropOpen, setProjDropOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
+        setProjDropOpen(false);
+      }
+    }
+    if (projDropOpen) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [projDropOpen]);
+
+  const handleCreateProject = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    try {
+      const { createProject } = await import("@/lib/api/client");
+      const res = await createProject(name);
+      const proj: ProjectInfo = res.project;
+      useDashboardStore.getState().setProjects([...projects, proj]);
+      setActiveProject(proj);
+      setNewName("");
+      setCreating(false);
+      setProjDropOpen(false);
+    } catch (e: any) {
+      alert(e.message || "Failed to create project");
+    }
+  };
+
+  const handleSelectProject = async (proj: ProjectInfo) => {
+    setActiveProject(proj);
+    setProjDropOpen(false);
+    // Load workspaces for this project
+    try {
+      const { listWorkspaces } = await import("@/lib/api/client");
+      const res = await listWorkspaces(proj.id);
+      const wsList: WorkspaceInfo[] = res.workspaces || [];
+      setWorkspaces(wsList);
+      // Restore last active or pick first
+      const savedWsId = localStorage.getItem("nso_active_workspace");
+      const restored = wsList.find((w) => w.id === savedWsId);
+      setActiveWorkspace(restored || wsList[0] || null);
+    } catch {
+      setWorkspaces([]);
+    }
+  };
+
+  // Loading
+  if (projectLoading) {
+    return (
+      <div className="proj-switcher">
+        <div className="proj-trigger" style={{ opacity: 0.5 }}>
+          <Layers className="h-3.5 w-3.5" style={{ opacity: 0.4 }} />
+          <span style={{ fontSize: 13 }}>Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // No projects — show create
+  if (projects.length === 0) {
+    return (
+      <div className="proj-switcher">
+        {!creating ? (
+          <button
+            className="proj-trigger proj-create-btn"
+            onClick={() => setCreating(true)}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>Create project</span>
+          </button>
+        ) : (
+          <div className="proj-create-form">
+            <input
+              className="proj-create-input"
+              placeholder="Project name..."
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
+              autoFocus
+            />
+            <button className="proj-create-ok" onClick={handleCreateProject}>
+              <Check className="h-3 w-3" />
+            </button>
+            <button className="proj-create-cancel" onClick={() => { setCreating(false); setNewName(""); }}>
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="proj-switcher" ref={dropRef}>
+      {/* Project trigger */}
+      <button
+        className="proj-trigger"
+        onClick={() => setProjDropOpen(!projDropOpen)}
+      >
+        <Layers className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
+        <span className="proj-trigger-name">{activeProject?.name || "Select project"}</span>
+        <ChevronDown
+          className="h-3 w-3"
+          style={{
+            opacity: 0.4,
+            marginLeft: "auto",
+            transform: projDropOpen ? "rotate(180deg)" : "rotate(0)",
+            transition: "transform 0.15s ease",
+          }}
+        />
+      </button>
+
+      {/* Project dropdown */}
+      {projDropOpen && (
+        <div className="proj-dropdown">
+          <div className="proj-dropdown-label">Projects</div>
+          {projects.map((p) => (
+            <button
+              key={p.id}
+              className={cn("proj-dropdown-item", activeProject?.id === p.id && "active")}
+              onClick={() => handleSelectProject(p)}
+            >
+              <Layers className="h-3 w-3" />
+              <span>{p.name}</span>
+              {activeProject?.id === p.id && <Check className="h-3 w-3" style={{ marginLeft: "auto", opacity: 0.6 }} />}
+            </button>
+          ))}
+          <div className="proj-dropdown-sep" />
+          {!creating ? (
+            <button
+              className="proj-dropdown-item create"
+              onClick={() => setCreating(true)}
+            >
+              <Plus className="h-3 w-3" />
+              <span>New project</span>
+            </button>
+          ) : (
+            <div className="proj-create-form" style={{ margin: "4px 6px" }}>
+              <input
+                className="proj-create-input"
+                placeholder="Name..."
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateProject()}
+                autoFocus
+              />
+              <button className="proj-create-ok" onClick={handleCreateProject}>
+                <Check className="h-3 w-3" />
+              </button>
+            </div>
+          )}
+          <div className="proj-dropdown-sep" />
+          <button
+            className="proj-dropdown-item"
+            onClick={() => { setActiveView("projects"); setProjDropOpen(false); }}
+          >
+            <Settings className="h-3 w-3" />
+            <span>Manage projects</span>
+          </button>
+        </div>
+      )}
+
+      {/* Workspace list */}
+      {activeProject && workspaces.length > 0 && (
+        <div className="ws-list">
+          {workspaces.map((ws) => (
+            <button
+              key={ws.id}
+              className={cn("ws-item", activeWorkspace?.id === ws.id && "active")}
+              onClick={() => setActiveWorkspace(ws)}
+            >
+              <FolderOpen className="h-3 w-3" />
+              <span>{ws.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* No workspaces */}
+      {activeProject && workspaces.length === 0 && (
+        <div className="ws-empty">
+          <span style={{ fontSize: 11, opacity: 0.5 }}>No workspaces</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════
    USER PROFILE (bottom of sidebar)
@@ -213,9 +420,62 @@ export function DashboardLayout() {
   const setActiveView = useDashboardStore((s) => s.setActiveView);
   const sidebarOpen = useDashboardStore((s) => s.sidebarOpen);
   const toggleSidebar = useDashboardStore((s) => s.toggleSidebar);
+  const setProjects = useDashboardStore((s) => s.setProjects);
+  const setActiveProject = useDashboardStore((s) => s.setActiveProject);
+  const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
+  const setProjectLoading = useDashboardStore((s) => s.setProjectLoading);
 
   const [balance, setBalance] = useState(0);
   const [unread, setUnread] = useState(0);
+
+  // Load projects + workspaces on mount
+  const loadProjects = useCallback(async () => {
+    setProjectLoading(true);
+    try {
+      const { listProjects, createProject, listWorkspaces } = await import("@/lib/api/client");
+      let res = await listProjects();
+      let projs = res.projects || [];
+
+      // Auto-create if no projects
+      if (projs.length === 0) {
+        try {
+          const created = await createProject("main");
+          projs = [created.project];
+        } catch { /* ignore */ }
+      }
+
+      setProjects(projs);
+
+      if (projs.length > 0) {
+        // Restore last active project or pick first
+        const savedProjId = localStorage.getItem("nso_active_project");
+        const restored = projs.find((p: any) => p.id === savedProjId);
+        const active = restored || projs[0];
+        setActiveProject(active);
+
+        // Load workspaces
+        try {
+          const wsRes = await listWorkspaces(active.id);
+          const wsList = wsRes.workspaces || [];
+          setWorkspaces(wsList);
+
+          const savedWsId = localStorage.getItem("nso_active_workspace");
+          const restoredWs = wsList.find((w: any) => w.id === savedWsId);
+          setActiveWorkspace(restoredWs || wsList[0] || null);
+        } catch {
+          setWorkspaces([]);
+        }
+      }
+    } catch {
+      setProjects([]);
+    }
+    setProjectLoading(false);
+  }, [setProjects, setActiveProject, setWorkspaces, setActiveWorkspace, setProjectLoading]);
+
+  useEffect(() => {
+    loadProjects();
+  }, [loadProjects]);
 
   useEffect(() => {
     import("@/lib/api/client").then(({ getMe, listNotifications }) => {
@@ -280,6 +540,12 @@ export function DashboardLayout() {
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
+
+        {/* Project + Workspace Switcher */}
+        <ProjectSwitcher />
+
+        {/* Separator */}
+        <div style={{ height: 1, background: "var(--border)", margin: "4px 12px", opacity: 0.5 }} />
 
         {/* Navigation */}
         <nav className="fsidebar-nav">

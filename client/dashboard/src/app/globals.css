@@ -269,6 +269,97 @@
     height: var(--layout-header-h);
   }
 
+  /* ── Project / Workspace Switcher ── */
+  .proj-switcher {
+    padding: 6px 10px;
+    position: relative;
+  }
+  .proj-trigger {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 6px 8px;
+    border-radius: 6px; border: 1px solid var(--border);
+    background: var(--sidebar-bg); cursor: pointer;
+    font-size: var(--font-xs); color: var(--sidebar-foreground);
+    transition: all 0.12s ease;
+  }
+  .proj-trigger:hover { background: var(--sidebar-accent); border-color: var(--muted-foreground); }
+  .proj-trigger-name {
+    flex: 1; text-align: left; font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .proj-create-btn {
+    border-style: dashed; opacity: 0.7;
+    justify-content: center;
+  }
+  .proj-create-btn:hover { opacity: 1; }
+  .proj-create-form {
+    display: flex; gap: 4px; align-items: center;
+  }
+  .proj-create-input {
+    flex: 1; padding: 5px 8px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--background);
+    color: var(--foreground); font-size: var(--font-xs);
+    outline: none;
+  }
+  .proj-create-input:focus { border-color: var(--primary); }
+  .proj-create-ok, .proj-create-cancel {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 5px;
+    border: 1px solid var(--border); background: none;
+    color: var(--foreground); cursor: pointer;
+  }
+  .proj-create-ok:hover { background: var(--primary); color: white; border-color: var(--primary); }
+  .proj-create-cancel:hover { background: var(--destructive); color: white; border-color: var(--destructive); }
+  .proj-dropdown {
+    position: absolute; left: 10px; right: 10px;
+    top: calc(100% + 4px); z-index: 100;
+    background: var(--sidebar-bg); border: 1px solid var(--border);
+    border-radius: 8px; padding: 4px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  }
+  .proj-dropdown-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.05em; color: var(--muted-foreground);
+    padding: 6px 8px 4px; opacity: 0.7;
+  }
+  .proj-dropdown-item {
+    display: flex; align-items: center; gap: 8px;
+    width: 100%; padding: 5px 8px; border: none; background: none;
+    border-radius: 5px; font-size: var(--font-xs);
+    color: var(--sidebar-foreground); cursor: pointer;
+    text-align: left;
+  }
+  .proj-dropdown-item:hover { background: var(--sidebar-accent); }
+  .proj-dropdown-item.active { font-weight: 500; }
+  .proj-dropdown-item.create { color: var(--primary); }
+  .proj-dropdown-sep {
+    height: 1px; background: var(--border); margin: 3px 6px; opacity: 0.5;
+  }
+
+  /* Workspace list */
+  .ws-list {
+    display: flex; flex-direction: column; gap: 1px;
+    margin-top: 4px;
+  }
+  .ws-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 8px 4px 12px;
+    border-radius: 5px; border: none; background: none;
+    font-size: 12px; color: var(--muted-foreground);
+    cursor: pointer; text-align: left; width: 100%;
+    transition: all 0.1s ease;
+  }
+  .ws-item:hover { background: var(--sidebar-accent); color: var(--sidebar-foreground); }
+  .ws-item.active {
+    color: var(--foreground); font-weight: 500;
+    background: var(--sidebar-accent);
+  }
+  .ws-item svg { width: 12px; height: 12px; flex-shrink: 0; opacity: 0.5; }
+  .ws-item.active svg { opacity: 0.8; }
+  .ws-empty {
+    padding: 4px 12px;
+  }
+
   /* ── Sidebar navigation ── */
   .fsidebar-nav {
     display: flex; flex-direction: column;

@@ -3,10 +3,23 @@ import type { DashboardView } from "@/types/dashboard";
 
 export type Theme = "dark" | "light" | "auto";
 
-export interface Workspace {
+export interface ProjectInfo {
   id: string;
   name: string;
-  color: string;
+  api_key_hash?: string;
+  owner?: string;
+  created_at?: string;
+}
+
+export interface WorkspaceInfo {
+  id: string;
+  name: string;
+  path: string;
+  description: string;
+  instance_id?: string | null;
+  ws_type?: string;
+  stack?: string;
+  exists?: boolean;
 }
 
 interface DashboardState {
@@ -16,12 +29,26 @@ interface DashboardState {
   userEmail: string | null;
   userRole: string | null;
   theme: Theme;
+
+  // Project & workspace context
+  projects: ProjectInfo[];
+  activeProject: ProjectInfo | null;
+  workspaces: WorkspaceInfo[];
+  activeWorkspace: WorkspaceInfo | null;
+  projectLoading: boolean;
+
   setActiveView: (view: DashboardView) => void;
   toggleSidebar: () => void;
   setToken: (token: string | null) => void;
   setUser: (email: string, role: string) => void;
   setTheme: (theme: Theme) => void;
   logout: () => void;
+
+  setProjects: (projects: ProjectInfo[]) => void;
+  setActiveProject: (project: ProjectInfo | null) => void;
+  setWorkspaces: (workspaces: WorkspaceInfo[]) => void;
+  setActiveWorkspace: (workspace: WorkspaceInfo | null) => void;
+  setProjectLoading: (loading: boolean) => void;
 }
 
 function getInitialToken(): string | null {
@@ -52,12 +79,18 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   userEmail: typeof window !== "undefined" ? localStorage.getItem("nso_email") : null,
   userRole: typeof window !== "undefined" ? localStorage.getItem("nso_role") : null,
   theme: getInitialTheme(),
+
+  projects: [],
+  activeProject: null,
+  workspaces: [],
+  activeWorkspace: null,
+  projectLoading: true,
+
   setActiveView: (view) => set({ activeView: view }),
   toggleSidebar: () => set((s) => ({ sidebarOpen: !s.sidebarOpen })),
   setToken: (token) => {
     if (token) {
       localStorage.setItem("nso_api_token", token);
-      // Don't overwrite nso_token (agent JWT) — it's set separately by login()
     } else {
       localStorage.removeItem("nso_api_token");
       localStorage.removeItem("nso_token");
@@ -79,6 +112,20 @@ export const useDashboardStore = create<DashboardState>((set) => ({
     localStorage.removeItem("nso_api_token");
     localStorage.removeItem("nso_email");
     localStorage.removeItem("nso_role");
-    set({ token: null, userEmail: null, userRole: null });
+    set({ token: null, userEmail: null, userRole: null, projects: [], activeProject: null, workspaces: [], activeWorkspace: null });
   },
+
+  setProjects: (projects) => set({ projects }),
+  setActiveProject: (project) => {
+    if (project) localStorage.setItem("nso_active_project", project.id);
+    else localStorage.removeItem("nso_active_project");
+    set({ activeProject: project });
+  },
+  setWorkspaces: (workspaces) => set({ workspaces }),
+  setActiveWorkspace: (workspace) => {
+    if (workspace) localStorage.setItem("nso_active_workspace", workspace.id);
+    else localStorage.removeItem("nso_active_workspace");
+    set({ activeWorkspace: workspace });
+  },
+  setProjectLoading: (loading) => set({ projectLoading: loading }),
 }));
