@@ -30,7 +30,7 @@ class AdminHostMiddleware(BaseHTTPMiddleware):
                     content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
                 )
         return await call_next(request)
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin, ready, secrets
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin, ready, secrets, orchestrator
 from server.routes.addons import catalog as addons_catalog, connectors as addons_connectors, marketplace as addons_marketplace
 
 logging.basicConfig(
@@ -44,8 +44,12 @@ logger = logging.getLogger("nso")
 async def lifespan(app: FastAPI):
     logger.info("NSO starting...")
     await db.init_db()
+    # Start orchestrator monitor
+    from server.core.orchestrator.monitor import start_monitor, stop_monitor
+    await start_monitor()
     yield
     logger.info("NSO shutting down...")
+    await stop_monitor()
     await db.close_db()
 
 
@@ -93,6 +97,7 @@ app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/
 app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
 app.include_router(secrets.router, prefix="/api/projects/{project_id}/secrets", tags=["secrets"])
 app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(orchestrator.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
 app.include_router(ready.admin_router, prefix="/api/ready", tags=["ready"])
 app.include_router(ready.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
 
