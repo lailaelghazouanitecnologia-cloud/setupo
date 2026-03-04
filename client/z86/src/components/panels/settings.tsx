@@ -33,76 +33,83 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="panel">
-      <div className="panel-line panel-line-header">
-        <span className="panel-title">Settings</span>
+    <div className="settings">
+      <div className="settings-header">
+        <h1>Settings</h1>
       </div>
 
-      <div className="panel-line">
-        <div className="section-outer">
-          <div className="section-inner">
-            <div className="section-header"><span>Profile</span></div>
-            <form onSubmit={saveProfile} className="form-inner">
-              <label className="form-label"><span>Name</span>
-                <input type="text" value={name} onChange={e => setName(e.target.value)} />
-              </label>
-              <label className="form-label"><span>Email</span>
-                <input type="email" value={email} onChange={e => setEmail(e.target.value)} required />
-              </label>
-              {msg && <div className="form-msg">{msg}</div>}
-              <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-            </form>
-          </div>
-        </div>
-      </div>
+      <div className="settings-body">
+        {/* ── Profile ── */}
+        <section className="settings-section">
+          <h2>Profile</h2>
+          <form onSubmit={saveProfile} className="settings-form">
+            <div className="settings-field">
+              <label htmlFor="s-name">Name</label>
+              <input id="s-name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
+            </div>
+            <div className="settings-field">
+              <label htmlFor="s-email">Email</label>
+              <input id="s-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" />
+            </div>
+            {msg && <p className="settings-msg">{msg}</p>}
+            <div>
+              <button type="submit" className="settings-btn" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
+            </div>
+          </form>
+        </section>
 
-      <div className="panel-line">
-        <div className="section-outer">
-          <div className="section-inner">
-            <div className="section-header"><span>Change Password</span></div>
-            <form onSubmit={changePassword} className="form-inner">
-              <label className="form-label"><span>Current Password</span>
-                <input type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} required />
-              </label>
-              <label className="form-label"><span>New Password</span>
-                <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} required minLength={8} />
-              </label>
-              {pwdMsg && <div className="form-msg">{pwdMsg}</div>}
-              <button type="submit" className="btn-primary" disabled={pwdSaving}>{pwdSaving ? "Changing..." : "Change Password"}</button>
-            </form>
-          </div>
-        </div>
-      </div>
+        {/* ── Change Password ── */}
+        <section className="settings-section">
+          <h2>Change Password</h2>
+          <form onSubmit={changePassword} className="settings-form">
+            <div className="settings-field">
+              <label htmlFor="s-curpwd">Current password</label>
+              <input id="s-curpwd" type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} required />
+            </div>
+            <div className="settings-field">
+              <label htmlFor="s-newpwd">New password</label>
+              <input id="s-newpwd" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} required minLength={8} />
+            </div>
+            {pwdMsg && <p className="settings-msg">{pwdMsg}</p>}
+            <div>
+              <button type="submit" className="settings-btn" disabled={pwdSaving}>{pwdSaving ? "Changing..." : "Change Password"}</button>
+            </div>
+          </form>
+        </section>
 
-      <div className="panel-line">
-        <div className="section-outer">
-          <div className="section-inner">
-            <div className="section-header"><span>S3 Endpoint</span></div>
-            <div className="info-list">
-              <div className="info-row"><span>Endpoint URL</span><code>https://s3.z86.dev</code></div>
-              <div className="info-row"><span>Region</span><code>auto</code></div>
-              <div className="info-row"><span>Path Style</span><code>true</code></div>
+        {/* ── S3 Endpoint ── */}
+        <section className="settings-section">
+          <h2>S3 Endpoint</h2>
+          <div className="settings-form">
+            <div className="settings-row">
+              <span>Endpoint URL</span>
+              <code>https://s3.z86.dev</code>
+            </div>
+            <div className="settings-row">
+              <span>Region</span>
+              <code>auto</code>
+            </div>
+            <div className="settings-row">
+              <span>Path Style</span>
+              <code>true</code>
             </div>
           </div>
-        </div>
-      </div>
+        </section>
 
-      <div className="panel-line">
-        <div className="section-outer">
-          <div className="section-inner">
-            <div className="section-header"><span>Plan</span></div>
-            <div className="plan-outer">
-              <div className="plan-inner">
-                <span className="plan-name">{user?.plan || "free"}</span>
-                <span className="plan-desc">
-                  {user?.plan === "pro" ? "100 GB storage, unlimited buckets" :
-                   user?.plan === "enterprise" ? "Unlimited storage, dedicated infra" :
-                   "1 GB storage, 3 buckets, 2 keys"}
-                </span>
-              </div>
+        {/* ── Plan ── */}
+        <section className="settings-section settings-section-last">
+          <h2>Plan</h2>
+          <div className="settings-form">
+            <div className="settings-plan">
+              <span className="settings-plan-name">{user?.plan || "free"}</span>
+              <span className="settings-plan-desc">
+                {user?.plan === "pro" ? "100 GB storage, unlimited buckets" :
+                 user?.plan === "enterprise" ? "Unlimited storage, dedicated infra" :
+                 "1 GB storage, 3 buckets, 2 keys"}
+              </span>
             </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
