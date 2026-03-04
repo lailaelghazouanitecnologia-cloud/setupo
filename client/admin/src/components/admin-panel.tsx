@@ -6,6 +6,7 @@ import {
   RefreshCw, AlertTriangle, CheckCircle, Key, Eye,
   XCircle, BarChart3, Activity, Link2, ArrowDownUp,
   FolderOpen, ChevronDown, Plus, Server, UserPlus,
+  Database, HardDrive, Play, Square, Trash2,
 } from "lucide-react";
 import {
   getAdminOverview,
@@ -18,6 +19,12 @@ import {
   adminCreateUser,
   adminGetUserProjects,
   adminListProjectWorkspaces,
+  adminListAllInstances,
+  getDatabaseInfo,
+  getDatabaseTable,
+  getStorageOverview,
+  deleteStorageObject,
+  instanceAction,
   getRevenueAnalytics,
   getGrowthAnalytics,
   getCashflowAnalytics,
@@ -37,15 +44,20 @@ import {
   type ActivityEntry,
   type AdminProject,
   type AdminWorkspace,
+  type AdminInstance,
+  type DbOverview,
+  type DbTableDetail,
+  type StorageOverview,
 } from "@/lib/api/client";
 
-type AdminTab = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
+type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger";
 
 export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
   return (
     <div>
       {tab === "overview" && <OverviewTab />}
       {tab === "users" && <UsersTab />}
+      {tab === "infra" && <InfraTab />}
       {tab === "cashflow" && <CashflowTab />}
       {tab === "analytics" && <AnalyticsTab />}
       {tab === "fraud" && <FraudTab />}
@@ -1070,3 +1082,398 @@ function LedgerTab() {
   );
 }
 
+
+/* ═══════════════════════════════════════
+   INFRASTRUCTURE TAB
+   ═══════════════════════════════════════ */
+function InfraTab() {
+  const [view, setView] = useState<"instances" | "database" | "storage">("instances");
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {(["instances", "database", "storage"] as const).map((v) => (
+          <button
+            key={v}
+            className={`admin-period-btn ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {v === "instances" && <><Server className="h-3 w-3" /> Instances</>}
+            {v === "database" && <><Database className="h-3 w-3" /> Database</>}
+            {v === "storage" && <><HardDrive className="h-3 w-3" /> Storage (R2)</>}
+          </button>
+        ))}
+      </div>
+      {view === "instances" && <InstancesView />}
+      {view === "database" && <DatabaseView />}
+      {view === "storage" && <StorageView />}
+    </div>
+  );
+}
+
+/* ── Instances ── */
+function InstancesView() {
+  const [instances, setInstances] = useState<AdminInstance[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    adminListAllInstances({ limit: 200 })
+      .then((r) => { setInstances(r.instances); setTotal(r.total); })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doAction = async (id: string, action: "start" | "stop" | "reboot") => {
+    setActionLoading(id);
+    try {
+      await instanceAction(id, action);
+      setTimeout(load, 2000);
+    } catch (e: any) { alert(e.message); }
+    setActionLoading(null);
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading instances...</div>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <span style={{ fontSize: 12, opacity: 0.5 }}>{total} instances</span>
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      {instances.length === 0 ? (
+        <div className="admin-empty">No instances</div>
+      ) : (
+        <div className="admin-users-list">
+          {instances.map((inst) => (
+            <div key={inst.id} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{
+                  background: inst.state === "active" || inst.state === "ready" ? "var(--color-green, green)" :
+                    inst.state === "creating" ? "var(--color-yellow, orange)" : "var(--color-red, red)",
+                }}>
+                  <Server className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{inst.label || inst.id.slice(0, 16)}</div>
+                  <div className="admin-user-meta">
+                    {inst.project_name || inst.project_id?.slice(0, 14)} — {inst.region} — {inst.plan}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                <span style={{ fontFamily: "monospace", opacity: 0.6 }}>{inst.ip || "—"}</span>
+                <span className="admin-badge" style={{
+                  color: (inst.state === "active" || inst.state === "ready") ? "var(--color-green, green)" :
+                    inst.state === "creating" ? "var(--color-yellow, orange)" : undefined,
+                }}>{inst.state}</span>
+                {actionLoading === inst.id ? (
+                  <div className="term-spinner" />
+                ) : (
+                  <div style={{ display: "flex", gap: 4 }}>
+                    {(inst.state === "stopped" || inst.state === "inactive") && (
+                      <button className="admin-filter-btn" title="Start" onClick={() => doAction(inst.id, "start")}>
+                        <Play className="h-3 w-3" />
+                      </button>
+                    )}
+                    {(inst.state === "active" || inst.state === "ready") && (
+                      <button className="admin-filter-btn" title="Stop" onClick={() => doAction(inst.id, "stop")}>
+                        <Square className="h-3 w-3" />
+                      </button>
+                    )}
+                    <button className="admin-filter-btn" title="Reboot" onClick={() => doAction(inst.id, "reboot")}>
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Database ── */
+function DatabaseView() {
+  const [dbInfo, setDbInfo] = useState<DbOverview | null>(null);
+  const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [tableDetail, setTableDetail] = useState<DbTableDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [tablePage, setTablePage] = useState(0);
+  const pageSize = 30;
+
+  useEffect(() => {
+    getDatabaseInfo().then(setDbInfo).catch(() => {}).finally(() => setLoading(false));
+  }, []);
+
+  const loadTable = useCallback(async (name: string, page = 0) => {
+    setSelectedTable(name);
+    setTablePage(page);
+    try {
+      const detail = await getDatabaseTable(name, pageSize, page * pageSize);
+      setTableDetail(detail);
+    } catch {}
+  }, []);
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading database...</div>;
+  if (!dbInfo) return <div className="admin-empty">Could not load database info</div>;
+
+  if (selectedTable && tableDetail) {
+    const totalPages = Math.ceil(tableDetail.total / pageSize);
+    return (
+      <div>
+        <button className="panel-btn-sm" onClick={() => { setSelectedTable(null); setTableDetail(null); }} style={{ marginBottom: 10 }}>
+          &larr; Back to tables
+        </button>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+          <div>
+            <span style={{ fontWeight: 600, fontSize: 14 }}>{tableDetail.table}</span>
+            <span style={{ fontSize: 12, opacity: 0.5, marginLeft: 8 }}>{tableDetail.total} rows</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, opacity: 0.5, marginBottom: 8 }}>
+          Columns: {tableDetail.columns.map((c) => `${c.name} (${c.type}${c.pk ? ", PK" : ""})`).join(" · ")}
+        </div>
+        <div style={{ overflow: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "monospace" }}>
+            <thead>
+              <tr>
+                {tableDetail.columns.map((c) => (
+                  <th key={c.name} style={{
+                    textAlign: "left", padding: "6px 8px", borderBottom: "2px solid var(--border)",
+                    fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
+                  }}>{c.name}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tableDetail.rows.map((row, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                  {tableDetail.columns.map((c) => (
+                    <td key={c.name} style={{
+                      padding: "5px 8px", maxWidth: 200, overflow: "hidden",
+                      textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11,
+                    }} title={String(row[c.name] ?? "")}>
+                      {row[c.name] === null ? <span style={{ opacity: 0.3 }}>null</span> :
+                       typeof row[c.name] === "object" ? JSON.stringify(row[c.name]).slice(0, 50) :
+                       String(row[c.name]).slice(0, 60)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {totalPages > 1 && (
+          <div className="admin-pagination" style={{ marginTop: 10 }}>
+            <button disabled={tablePage === 0} onClick={() => loadTable(selectedTable, tablePage - 1)} className="panel-btn-sm">Prev</button>
+            <span className="admin-page-info">Page {tablePage + 1} of {totalPages}</span>
+            <button disabled={tablePage >= totalPages - 1} onClick={() => loadTable(selectedTable, tablePage + 1)} className="panel-btn-sm">Next</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="admin-cards-grid sm">
+        <div className="admin-card sm">
+          <div className="admin-card-label">Database Size</div>
+          <div className="admin-card-value">{dbInfo.size_mb} MB</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Tables</div>
+          <div className="admin-card-value">{dbInfo.table_count}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Total Rows</div>
+          <div className="admin-card-value">{dbInfo.tables.reduce((s, t) => s + t.row_count, 0)}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, opacity: 0.4, marginBottom: 10, fontFamily: "monospace" }}>{dbInfo.path}</div>
+
+      <div className="admin-users-list">
+        {dbInfo.tables.map((t) => (
+          <div key={t.name} className="admin-user-row" onClick={() => loadTable(t.name)} style={{ cursor: "pointer" }}>
+            <div className="admin-user-info">
+              <div className="admin-user-avatar" style={{ background: "var(--color-blue, #3b82f6)" }}>
+                <Database className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <div className="admin-user-email">{t.name}</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+              <span style={{ fontFamily: "monospace" }}>{t.row_count} rows</span>
+              <ChevronRight className="h-3.5 w-3.5" style={{ opacity: 0.3 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Storage (R2) ── */
+function StorageView() {
+  const [data, setData] = useState<StorageOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [prefix, setPrefix] = useState("");
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    getStorageOverview(prefix)
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [prefix]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleDelete = async (key: string) => {
+    if (!confirm(`Delete ${key}?`)) return;
+    setDeleting(key);
+    try {
+      await deleteStorageObject(key);
+      load();
+    } catch (e: any) { alert(e.message); }
+    setDeleting(null);
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading storage...</div>;
+
+  if (!data?.configured) {
+    return <div className="admin-empty">R2 storage not configured. Set R2_ENDPOINT, R2_ACCESS_KEY_ID, and R2_SECRET_ACCESS_KEY.</div>;
+  }
+
+  if (data.error) {
+    return <div className="admin-error">Error: {data.error}</div>;
+  }
+
+  // Group objects by first-level folder
+  const folders = new Map<string, { count: number; types: Set<string> }>();
+  const files: typeof data.objects = [];
+  for (const obj of data.objects || []) {
+    const relKey = prefix ? obj.key.slice(prefix.length) : obj.key;
+    const slashIdx = relKey.indexOf("/");
+    if (slashIdx > 0 && relKey.length > slashIdx + 1) {
+      const folder = relKey.slice(0, slashIdx);
+      if (!folders.has(folder)) folders.set(folder, { count: 0, types: new Set() });
+      const f = folders.get(folder)!;
+      f.count++;
+      f.types.add(obj.type);
+    } else {
+      files.push(obj);
+    }
+  }
+
+  return (
+    <div>
+      <div className="admin-cards-grid sm">
+        <div className="admin-card sm">
+          <div className="admin-card-label">Bucket</div>
+          <div className="admin-card-value" style={{ fontSize: 14 }}>{data.bucket}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Objects</div>
+          <div className="admin-card-value">{data.object_count}</div>
+        </div>
+        <div className="admin-card sm">
+          <div className="admin-card-label">Projects</div>
+          <div className="admin-card-value">{data.projects_count}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, opacity: 0.4, marginBottom: 4, fontFamily: "monospace" }}>{data.endpoint}</div>
+
+      {/* Breadcrumb */}
+      <div style={{ display: "flex", gap: 4, alignItems: "center", marginBottom: 10, fontSize: 12 }}>
+        <button className="admin-filter-btn" onClick={() => setPrefix("")} style={{ fontWeight: !prefix ? 600 : 400 }}>
+          /
+        </button>
+        {prefix && prefix.split("/").filter(Boolean).map((part, i, arr) => {
+          const path = arr.slice(0, i + 1).join("/") + "/";
+          return (
+            <React.Fragment key={i}>
+              <span style={{ opacity: 0.3 }}>/</span>
+              <button className="admin-filter-btn" onClick={() => setPrefix(path)}>{part}</button>
+            </React.Fragment>
+          );
+        })}
+        <div style={{ flex: 1 }} />
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      <div className="admin-users-list">
+        {/* Folders */}
+        {Array.from(folders.entries()).sort().map(([name, info]) => (
+          <div
+            key={name}
+            className="admin-user-row"
+            onClick={() => setPrefix(prefix + name + "/")}
+            style={{ cursor: "pointer" }}
+          >
+            <div className="admin-user-info">
+              <div className="admin-user-avatar" style={{ background: "var(--color-yellow, #eab308)" }}>
+                <FolderOpen className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <div className="admin-user-email">{name}/</div>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+              <span style={{ opacity: 0.5 }}>{info.count} objects</span>
+              <span className="admin-badge">{Array.from(info.types).join(", ")}</span>
+              <ChevronRight className="h-3.5 w-3.5" style={{ opacity: 0.3 }} />
+            </div>
+          </div>
+        ))}
+
+        {/* Files */}
+        {files.map((obj) => {
+          const fileName = obj.key.split("/").pop() || obj.key;
+          return (
+            <div key={obj.key} className="admin-user-row">
+              <div className="admin-user-info">
+                <div className="admin-user-avatar" style={{
+                  background: obj.type === "zar" ? "var(--color-teal, #14b8a6)" :
+                    obj.type === "json" ? "var(--color-blue, #3b82f6)" : "var(--color-gray, #6b7280)",
+                }}>
+                  <HardDrive className="h-3.5 w-3.5" />
+                </div>
+                <div>
+                  <div className="admin-user-email">{fileName}</div>
+                  <div className="admin-user-meta" style={{ fontFamily: "monospace", fontSize: 10 }}>{obj.key}</div>
+                </div>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                <span className="admin-badge">{obj.type}</span>
+                <button
+                  className="admin-filter-btn"
+                  onClick={() => handleDelete(obj.key)}
+                  disabled={deleting === obj.key}
+                  title="Delete"
+                >
+                  {deleting === obj.key ? <div className="term-spinner" /> : <Trash2 className="h-3 w-3" />}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        {folders.size === 0 && files.length === 0 && (
+          <div className="admin-empty">No objects{prefix ? ` under ${prefix}` : ""}</div>
+        )}
+      </div>
+    </div>
+  );
+}

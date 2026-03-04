@@ -255,6 +255,81 @@ export async function adminGetUserProjects(userId: string) {
   return adminApi<{ projects: AdminProject[] }>(`/api/admin/users/${userId}/projects`);
 }
 
+// ── Infrastructure: Database ──
+
+export interface DbTableInfo {
+  name: string;
+  row_count: number;
+}
+
+export interface DbOverview {
+  path: string;
+  size_bytes: number;
+  size_mb: number;
+  tables: DbTableInfo[];
+  table_count: number;
+}
+
+export interface DbColumn {
+  name: string;
+  type: string;
+  notnull: boolean;
+  pk: boolean;
+}
+
+export interface DbTableDetail {
+  table: string;
+  columns: DbColumn[];
+  rows: Record<string, any>[];
+  total: number;
+}
+
+export async function getDatabaseInfo() {
+  return adminApi<DbOverview>("/api/admin/infra/database");
+}
+
+export async function getDatabaseTable(tableName: string, limit = 50, offset = 0) {
+  return adminApi<DbTableDetail>(`/api/admin/infra/database/${tableName}?limit=${limit}&offset=${offset}`);
+}
+
+// ── Infrastructure: R2 Storage ──
+
+export interface StorageObject {
+  key: string;
+  parts: string[];
+  type: string;
+}
+
+export interface StorageOverview {
+  configured: boolean;
+  bucket?: string;
+  endpoint?: string;
+  object_count?: number;
+  projects_count?: number;
+  objects?: StorageObject[];
+  prefix?: string;
+  error?: string;
+}
+
+export async function getStorageOverview(prefix = "") {
+  const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+  return adminApi<StorageOverview>(`/api/admin/infra/storage${q}`);
+}
+
+export async function deleteStorageObject(key: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/infra/storage?key=${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
+// ── Infrastructure: Instances ──
+
+export async function instanceAction(instanceId: string, action: "start" | "stop" | "reboot") {
+  return adminApi<{ ok: boolean }>(`/api/admin/infra/instances/${instanceId}/action?action=${action}`, {
+    method: "POST",
+  });
+}
+
 // ── Analytics ──
 export async function getRevenueAnalytics(days = 30) {
   return adminApi<RevenueSummary>(`/api/admin/analytics/revenue?days=${days}`);
