@@ -6,6 +6,7 @@ import {
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
   FolderOpen, Plus, Check, Layers,
+  Network, Activity,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -19,6 +20,8 @@ import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
 import { SettingsPanel } from "./settings-panel";
 import { WorkspacesPanel } from "./workspaces-panel";
+import { OrchestratorPanel } from "./orchestrator-panel";
+import { LoadBalancerPanel } from "./loadbalancer-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -99,6 +102,8 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "addons", label: "Apps", icon: Blocks },
+  { id: "orchestrator", label: "Orchestrator", icon: Activity },
+  { id: "loadbalancer", label: "Load Balancer", icon: Network },
 ];
 
 const viewTitles: Record<DashboardView, string> = {
@@ -111,6 +116,8 @@ const viewTitles: Record<DashboardView, string> = {
   addons: "Apps",
   billing: "Billing",
   settings: "Settings",
+  orchestrator: "Orchestrator",
+  loadbalancer: "Load Balancer",
 };
 
 /* ═══════════════════════════════════════════
@@ -537,6 +544,8 @@ export function DashboardLayout() {
           {activeView === "addons" && <PanelErrorBoundary name="Apps"><AddonsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
+          {activeView === "orchestrator" && <PanelErrorBoundary name="Orchestrator"><OrchestratorPanel /></PanelErrorBoundary>}
+          {activeView === "loadbalancer" && <PanelErrorBoundary name="LoadBalancer"><LoadBalancerPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>

@@ -1267,3 +1267,321 @@ export async function getBalanceProof(userId: string) {
   return centralApi<any>(`/api/admin/ledger/users/${userId}/balance-proof`);
 }
 
+/* ═══════════════════════════════════════
+   ORCHESTRATOR
+   ═══════════════════════════════════════ */
+
+export interface PoolNode {
+  id: string;
+  instance_id: string;
+  label: string;
+  role: string;
+  status: string;
+  ip: string | null;
+  region: string;
+  plan: string;
+  max_concurrent_builds: number;
+  cpu_percent: number;
+  mem_percent: number;
+  disk_percent: number;
+  active_builds: number;
+  last_heartbeat: string | null;
+  created_at: string;
+}
+
+export interface BuildJob {
+  id: string;
+  project_id: string;
+  workspace: string;
+  branch: string;
+  assigned_node_id: string | null;
+  status: string;
+  priority: number;
+  build_command: string;
+  logs: string;
+  error: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
+export interface OrchestratorOverview {
+  total_nodes: number;
+  active_nodes: number;
+  builders: number;
+  runners: number;
+  avg_cpu: number;
+  avg_mem: number;
+  queued_builds: number;
+  active_builds: number;
+  completed_builds_24h: number;
+  failed_builds_24h: number;
+  alerts: any[];
+  nodes: PoolNode[];
+}
+
+export interface ScaleAlert {
+  id: string;
+  node_id: string;
+  alert_type: string;
+  severity: string;
+  message: string;
+  value: number;
+  threshold: number;
+  resolved: boolean;
+  created_at: string;
+}
+
+export async function getOrchestratorOverview() {
+  return centralApi<OrchestratorOverview>("/api/admin/orchestrator/overview");
+}
+
+export async function listPoolNodes(role?: string, status?: string) {
+  const params = new URLSearchParams();
+  if (role) params.set("role", role);
+  if (status) params.set("status", status);
+  const q = params.toString();
+  return centralApi<PoolNode[]>(`/api/admin/orchestrator/pool${q ? `?${q}` : ""}`);
+}
+
+export async function registerPoolNode(data: {
+  instance_id: string;
+  label?: string;
+  role?: string;
+  ip?: string;
+  region?: string;
+  max_concurrent_builds?: number;
+}) {
+  return centralApi<PoolNode>("/api/admin/orchestrator/pool", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updatePoolNode(nodeId: string, data: { label?: string; role?: string; status?: string; max_concurrent_builds?: number }) {
+  return centralApi<PoolNode>(`/api/admin/orchestrator/pool/${nodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removePoolNode(nodeId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/orchestrator/pool/${nodeId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listBuilds(status?: string, projectId?: string, limit = 50) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (projectId) params.set("project_id", projectId);
+  params.set("limit", String(limit));
+  return centralApi<BuildJob[]>(`/api/admin/orchestrator/builds?${params}`);
+}
+
+export async function submitBuild(data: {
+  project_id: string;
+  workspace: string;
+  branch?: string;
+  build_command?: string;
+  priority?: number;
+  deploy_after?: boolean;
+  target_instance_id?: string;
+}) {
+  return centralApi<BuildJob>("/api/admin/orchestrator/builds", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function cancelBuild(buildId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/orchestrator/builds/${buildId}/cancel`, {
+    method: "POST",
+  });
+}
+
+export async function getOrchestratorAlerts(nodeId?: string) {
+  const q = nodeId ? `?node_id=${nodeId}` : "";
+  return centralApi<ScaleAlert[]>(`/api/admin/orchestrator/alerts${q}`);
+}
+
+export async function resolveOrchestratorAlert(alertId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/orchestrator/alerts/${alertId}/resolve`, {
+    method: "POST",
+  });
+}
+
+export async function getScalingRecommendations() {
+  return centralApi<any[]>("/api/admin/orchestrator/recommendations");
+}
+
+export async function rebalancePool() {
+  return centralApi<{ ok: boolean }>("/api/admin/orchestrator/rebalance", {
+    method: "POST",
+  });
+}
+
+/* ═══════════════════════════════════════
+   LOAD BALANCER
+   ═══════════════════════════════════════ */
+
+export interface LBPool {
+  id: string;
+  name: string;
+  project_id: string;
+  algorithm: string;
+  health_check_path: string;
+  health_check_interval: number;
+  health_check_timeout: number;
+  max_fails: number;
+  sticky_sessions: boolean;
+  sticky_cookie: string;
+  backends: LBBackend[];
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface LBBackend {
+  id: string;
+  pool_id: string;
+  instance_id: string;
+  ip: string;
+  port: number;
+  weight: number;
+  status: string;
+  active_connections: number;
+  total_requests: number;
+  failed_health_checks: number;
+  last_health_check: string | null;
+  created_at: string;
+}
+
+export interface LBRule {
+  id: string;
+  pool_id: string;
+  match_type: string;
+  match_value: string;
+  priority: number;
+  headers: Record<string, string>;
+  active: boolean;
+  created_at: string;
+}
+
+export interface LBOverview {
+  total_pools: number;
+  active_pools: number;
+  total_backends: number;
+  healthy_backends: number;
+  unhealthy_backends: number;
+  total_rules: number;
+  total_requests: number;
+  pools: LBPool[];
+}
+
+export async function getLBOverview() {
+  return centralApi<LBOverview>("/api/admin/lb/overview");
+}
+
+export async function listLBPools(projectId?: string) {
+  const q = projectId ? `?project_id=${projectId}` : "";
+  return centralApi<LBPool[]>(`/api/admin/lb/pools${q}`);
+}
+
+export async function createLBPool(data: {
+  name: string;
+  project_id?: string;
+  algorithm?: string;
+  health_check_path?: string;
+  health_check_interval?: number;
+  max_fails?: number;
+  sticky_sessions?: boolean;
+}) {
+  return centralApi<LBPool>("/api/admin/lb/pools", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateLBPool(poolId: string, data: Record<string, any>) {
+  return centralApi<LBPool>(`/api/admin/lb/pools/${poolId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteLBPool(poolId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/lb/pools/${poolId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function addLBBackend(poolId: string, data: { instance_id: string; port?: number; weight?: number }) {
+  return centralApi<LBBackend>(`/api/admin/lb/pools/${poolId}/backends`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateLBBackend(backendId: string, data: { weight?: number; status?: string; port?: number }) {
+  return centralApi<LBBackend>(`/api/admin/lb/backends/${backendId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function removeLBBackend(backendId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/lb/backends/${backendId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function listLBRules(poolId?: string) {
+  const q = poolId ? `?pool_id=${poolId}` : "";
+  return centralApi<LBRule[]>(`/api/admin/lb/rules${q}`);
+}
+
+export async function createLBRule(data: {
+  pool_id: string;
+  match_type?: string;
+  match_value?: string;
+  priority?: number;
+  headers?: Record<string, string>;
+}) {
+  return centralApi<LBRule>("/api/admin/lb/rules", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteLBRule(ruleId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/lb/rules/${ruleId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function syncLBWithOrchestrator() {
+  return centralApi<{ ok: boolean; synced: number; removed: number }>("/api/admin/lb/sync", {
+    method: "POST",
+  });
+}
+
+export async function drainLBInstance(instanceId: string) {
+  return centralApi<{ ok: boolean }>(`/api/admin/lb/drain/${instanceId}`, {
+    method: "POST",
+  });
+}
+
+export async function getLBStats() {
+  return centralApi<{ pools: any[] }>("/api/admin/lb/stats");
+}
+
+export async function getLBNginxConfig() {
+  const token = getToken("nso_api_token");
+  const resp = await fetch(`${API_BASE}/api/admin/lb/nginx/config`, {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  });
+  if (!resp.ok) throw new Error(`${resp.status}`);
+  return resp.text();
+}
+
