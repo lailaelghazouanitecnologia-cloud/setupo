@@ -1,17 +1,24 @@
 "use client";
-
-const NSO_URL = "https://nso.dev";
-
-const Z86Logo = ({ size = 28 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="8" y="8" width="84" height="84" rx="16" stroke="currentColor" strokeWidth="6" />
-    <rect x="24" y="28" width="52" height="10" rx="5" fill="currentColor" opacity="0.3" />
-    <rect x="24" y="45" width="52" height="10" rx="5" fill="currentColor" opacity="0.6" />
-    <rect x="24" y="62" width="52" height="10" rx="5" fill="currentColor" />
-  </svg>
-);
+import { useEffect, useState } from "react";
+import { useZ86Store } from "@/stores/z86-store";
+import { LoginForm, RegisterForm } from "@/components/auth-form";
+import { DashboardLayout } from "@/components/dashboard-layout";
 
 export default function Home() {
+  const { view, setView, token } = useZ86Store();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+
+  if (token && view !== "landing") return <DashboardLayout />;
+  if (view === "login") return <LoginForm />;
+  if (view === "register") return <RegisterForm />;
+
+  return <LandingPage onLogin={() => setView("login")} onRegister={() => setView("register")} />;
+}
+
+function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
   return (
     <div className="landing-page">
       <nav className="landing-nav">
@@ -22,32 +29,21 @@ export default function Home() {
           </div>
           <div className="landing-nav-right">
             <div className="landing-nav-links">
-              <button className="landing-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>
-                Features
-              </button>
+              <button className="landing-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
               <span className="landing-slash">/</span>
-              <button className="landing-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>
-                How it works
-              </button>
+              <button className="landing-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
               <span className="landing-slash">/</span>
-              <button className="landing-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>
-                Pricing
-              </button>
+              <button className="landing-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
             </div>
             <span className="landing-slash" style={{ margin: "0 16px" }} />
-            <a className="landing-nav-link" href={NSO_URL}>
-              Sign in
-            </a>
+            <button className="landing-nav-link" onClick={onLogin}>Sign in</button>
             <span className="landing-slash" />
-            <a className="landing-btn landing-btn-primary" href={NSO_URL} style={{ marginLeft: 2 }}>
-              Get started
-            </a>
+            <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ marginLeft: 2 }}>Get started</button>
           </div>
         </div>
       </nav>
 
       <main>
-        {/* ── Hero ── */}
         <section className="landing-hero">
           <div className="landing-container">
             <div className="landing-hero-top">
@@ -60,13 +56,11 @@ export default function Home() {
                 S3-compatible API. No egress fees. No vendor lock-in. Store files, assets, backups, and deploy artifacts on infrastructure you control.
               </p>
               <div className="landing-hero-actions">
-                <a className="landing-btn landing-btn-primary" href={NSO_URL}>
+                <button className="landing-btn landing-btn-primary" onClick={onRegister}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   Start storing
-                </a>
-                <a className="landing-btn landing-btn-secondary" href={NSO_URL}>
-                  Sign in via NSO
-                </a>
+                </button>
+                <button className="landing-btn landing-btn-secondary" onClick={onLogin}>Sign in</button>
               </div>
             </div>
             <div className="landing-terminal">
@@ -96,59 +90,46 @@ export default function Home() {
           </div>
         </section>
 
-        {/* ── Features ── */}
         <section className="landing-capabilities" id="features">
           <div className="landing-container">
             <div className="landing-cap-layout">
               <div className="landing-cap-intro">
                 <div className="landing-s-label">Features</div>
                 <h2 className="landing-s-title">Everything you need from object storage</h2>
-                <p>z86 is a self-hosted, S3-compatible object storage service. Managed as a project within the NSO platform.</p>
+                <p>S3-compatible object storage with a built-in dashboard. Create buckets, manage keys, upload objects, and monitor usage.</p>
               </div>
               <div className="landing-cap-list">
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">01</span>
                   <div>
                     <h3 className="landing-cap-h">S3-Compatible API</h3>
-                    <p className="landing-cap-p">PUT, GET, DELETE, HEAD, LIST &mdash; all the standard S3 operations. Use aws-cli, boto3, minio, or any S3 SDK. Just change the endpoint URL.</p>
+                    <p className="landing-cap-p">PUT, GET, DELETE, HEAD, LIST &mdash; all the standard S3 operations. Use aws-cli, boto3, minio, or any S3 SDK.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">AWS4-HMAC</span>
-                    <span className="landing-tag">REST API</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">AWS4-HMAC</span><span className="landing-tag">REST API</span></div>
                 </div>
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">02</span>
                   <div>
                     <h3 className="landing-cap-h">Zero Egress Fees</h3>
-                    <p className="landing-cap-p">Download your data as much as you want. No bandwidth charges, no surprise bills. Your storage, your rules.</p>
+                    <p className="landing-cap-p">Download your data as much as you want. No bandwidth charges, no surprise bills.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">free egress</span>
-                    <span className="landing-tag">predictable</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">free egress</span><span className="landing-tag">predictable</span></div>
                 </div>
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">03</span>
                   <div>
-                    <h3 className="landing-cap-h">Access Key Management</h3>
-                    <p className="landing-cap-p">Create, rotate, and revoke access keys from the NSO dashboard. Scope keys to specific buckets for fine-grained access control.</p>
+                    <h3 className="landing-cap-h">Dashboard</h3>
+                    <p className="landing-cap-p">Browse buckets, upload files, manage access keys, and track usage &mdash; all from the web dashboard.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">HMAC keys</span>
-                    <span className="landing-tag">bucket scoping</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">web UI</span><span className="landing-tag">real-time</span></div>
                 </div>
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">04</span>
                   <div>
-                    <h3 className="landing-cap-h">Managed via NSO</h3>
-                    <p className="landing-cap-p">z86 is an NSO project. Browse buckets, manage objects, monitor usage, and configure storage &mdash; all from the NSO dashboard.</p>
+                    <h3 className="landing-cap-h">Access Key Management</h3>
+                    <p className="landing-cap-p">Create, rotate, and revoke HMAC keys. Scope keys to specific buckets for fine-grained access control.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">NSO dashboard</span>
-                    <span className="landing-tag">admin panel</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">HMAC keys</span><span className="landing-tag">bucket scoping</span></div>
                 </div>
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">05</span>
@@ -156,28 +137,21 @@ export default function Home() {
                     <h3 className="landing-cap-h">SHA-256 Integrity</h3>
                     <p className="landing-cap-p">Every object is checksummed on upload. Verify integrity at any time. No silent data corruption.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">checksums</span>
-                    <span className="landing-tag">integrity</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">checksums</span><span className="landing-tag">integrity</span></div>
                 </div>
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">06</span>
                   <div>
-                    <h3 className="landing-cap-h">.zar Integration</h3>
-                    <p className="landing-cap-p">NSO&apos;s .zar package system stores deploy artifacts directly on z86. Pack, push, deploy &mdash; all backed by z86 storage.</p>
+                    <h3 className="landing-cap-h">Self-Hosted</h3>
+                    <p className="landing-cap-p">Your data stays on your infrastructure. No third-party dependencies, no vendor lock-in.</p>
                   </div>
-                  <div className="landing-cap-tags">
-                    <span className="landing-tag">.zar</span>
-                    <span className="landing-tag">deploy</span>
-                  </div>
+                  <div className="landing-cap-tags"><span className="landing-tag">self-hosted</span><span className="landing-tag">privacy</span></div>
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ── How it works ── */}
         <section className="landing-how" id="how">
           <div className="landing-container">
             <div className="landing-s-label">How it works</div>
@@ -185,33 +159,26 @@ export default function Home() {
             <div className="landing-how-grid">
               <div className="landing-how-card">
                 <div className="landing-how-num">01</div>
-                <h3>Sign in to NSO</h3>
-                <p>Log in to your NSO account at nso.dev. z86 storage is provisioned automatically for your project.</p>
-                <div className="landing-how-code">
-                  <span className="t-prompt">$</span> <span className="t-cmd">nso login</span>
-                </div>
+                <h3>Create an account</h3>
+                <p>Sign up at z86.dev. Free tier includes 1 GB of storage with no credit card required.</p>
+                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">open</span> <span className="t-arg">https://z86.dev</span></div>
               </div>
               <div className="landing-how-card">
                 <div className="landing-how-num">02</div>
-                <h3>Configure</h3>
-                <p>Point any S3 client to s3.z86.dev. Use your access key and secret key from the NSO dashboard. No region selection, no complex IAM.</p>
-                <div className="landing-how-code">
-                  <span className="t-prompt">$</span> <span className="t-cmd">aws configure</span> <span className="t-flag">--endpoint</span> <span className="t-arg">s3.z86.dev</span>
-                </div>
+                <h3>Get your keys</h3>
+                <p>Create an access key from the dashboard. Point any S3 client to s3.z86.dev.</p>
+                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">aws configure</span> <span className="t-flag">--endpoint</span> <span className="t-arg">s3.z86.dev</span></div>
               </div>
               <div className="landing-how-card">
                 <div className="landing-how-num">03</div>
                 <h3>Store &amp; retrieve</h3>
-                <p>Upload objects, list buckets, download files. Same S3 API you already know. Works with every tool and SDK.</p>
-                <div className="landing-how-code">
-                  <span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">file.zip</span> <span className="t-flag">s3://bucket/</span>
-                </div>
+                <p>Upload objects, list buckets, download files. Same S3 API you already know.</p>
+                <div className="landing-how-code"><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">file.zip</span> <span className="t-flag">s3://bucket/</span></div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ── Pricing ── */}
         <section className="landing-pricing" id="pricing">
           <div className="landing-container">
             <div className="landing-s-label">Pricing</div>
@@ -222,28 +189,24 @@ export default function Home() {
                 <div className="landing-pricing-price">$0<span>/mo</span></div>
                 <ul className="landing-pricing-features">
                   <li>1 GB storage</li>
-                  <li>1 bucket</li>
+                  <li>3 buckets</li>
+                  <li>2 access keys</li>
                   <li>Unlimited egress</li>
                   <li>S3-compatible API</li>
-                  <li>NSO dashboard</li>
                 </ul>
-                <a className="landing-btn landing-btn-secondary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
-                  Get started free
-                </a>
+                <button className="landing-btn landing-btn-secondary" onClick={onRegister} style={{ width: "100%", justifyContent: "center" }}>Get started free</button>
               </div>
               <div className="landing-pricing-card landing-pricing-featured">
                 <div className="landing-pricing-tier">Pro</div>
                 <div className="landing-pricing-price">$5<span>/mo</span></div>
                 <ul className="landing-pricing-features">
                   <li>100 GB storage</li>
-                  <li>Unlimited buckets</li>
+                  <li>50 buckets</li>
+                  <li>10 access keys</li>
                   <li>Unlimited egress</li>
-                  <li>Multiple access keys</li>
                   <li>Priority support</li>
                 </ul>
-                <a className="landing-btn landing-btn-primary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
-                  Start with Pro
-                </a>
+                <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ width: "100%", justifyContent: "center" }}>Start with Pro</button>
               </div>
               <div className="landing-pricing-card">
                 <div className="landing-pricing-tier">Enterprise</div>
@@ -255,31 +218,26 @@ export default function Home() {
                   <li>Custom integrations</li>
                   <li>White-glove onboarding</li>
                 </ul>
-                <a className="landing-btn landing-btn-secondary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
-                  Contact us
-                </a>
+                <button className="landing-btn landing-btn-secondary" onClick={onLogin} style={{ width: "100%", justifyContent: "center" }}>Contact us</button>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ── CTA ── */}
         <section className="landing-cta">
           <div className="landing-container">
             <div className="landing-cta-card">
               <div className="landing-cta-inner">
                 <div>
                   <h2>Start storing in minutes</h2>
-                  <p>Sign in to NSO and get z86 storage provisioned for your project. No credit card required.</p>
+                  <p>Create a free account and get 1 GB of S3-compatible object storage. No credit card required.</p>
                 </div>
                 <div className="landing-cta-actions">
-                  <a className="landing-btn landing-btn-primary" href={NSO_URL}>
+                  <button className="landing-btn landing-btn-primary" onClick={onRegister}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Go to NSO
-                  </a>
-                  <a className="landing-btn landing-btn-secondary" href="https://docs.nso.dev/z86" target="_blank" rel="noopener noreferrer">
-                    Documentation
-                  </a>
+                    Create free account
+                  </button>
+                  <button className="landing-btn landing-btn-secondary" onClick={onLogin}>Sign in</button>
                 </div>
               </div>
             </div>
@@ -294,12 +252,20 @@ export default function Home() {
               <button onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
               <button onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
               <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
-              <a href={NSO_URL} target="_blank" rel="noopener noreferrer">NSO Platform</a>
             </div>
-            <span className="landing-footer-copy">&copy; 2026 z86 &mdash; an NSO project</span>
+            <span className="landing-footer-copy">&copy; 2026 z86</span>
           </div>
         </div>
       </footer>
     </div>
   );
 }
+
+const Z86Logo = ({ size = 28 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <rect x="8" y="8" width="84" height="84" rx="16" stroke="currentColor" strokeWidth="6" />
+    <rect x="24" y="28" width="52" height="10" rx="5" fill="currentColor" opacity="0.3" />
+    <rect x="24" y="45" width="52" height="10" rx="5" fill="currentColor" opacity="0.6" />
+    <rect x="24" y="62" width="52" height="10" rx="5" fill="currentColor" />
+  </svg>
+);

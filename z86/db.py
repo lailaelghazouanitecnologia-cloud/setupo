@@ -42,9 +42,21 @@ CREATE TABLE IF NOT EXISTS objects (
     FOREIGN KEY (bucket) REFERENCES buckets(name) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    email TEXT UNIQUE NOT NULL,
+    name TEXT DEFAULT '',
+    password_hash TEXT NOT NULL,
+    plan TEXT DEFAULT 'free',
+    storage_limit INTEGER DEFAULT 1073741824,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_objects_bucket ON objects(bucket);
 CREATE INDEX IF NOT EXISTS idx_objects_bucket_prefix ON objects(bucket, key);
 CREATE INDEX IF NOT EXISTS idx_access_keys_owner ON access_keys(owner_id);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 """
 
 

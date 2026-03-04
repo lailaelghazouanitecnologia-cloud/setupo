@@ -18,6 +18,8 @@ from z86 import db
 from z86.config import settings
 from z86.s3 import router as s3_router
 from z86.admin import router as admin_router
+from z86.routes_auth import router as auth_router
+from z86.routes_dashboard import router as dashboard_router
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,7 +49,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "PUT", "DELETE", "HEAD", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["ETag", "Content-Length", "x-amz-request-id"],
 )
@@ -68,6 +70,12 @@ async def health():
         **stats,
     }
 
+
+# User auth (register, login, profile)
+app.include_router(auth_router, tags=["auth"])
+
+# Dashboard API (user-scoped bucket/key/object management)
+app.include_router(dashboard_router, tags=["dashboard"])
 
 # Admin API (Bearer token auth)
 app.include_router(admin_router, tags=["admin"])
