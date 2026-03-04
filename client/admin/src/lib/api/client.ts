@@ -370,6 +370,95 @@ export async function deleteZ86Object(bucket: string, key: string) {
   });
 }
 
+// ── Z86 Agent ──
+
+export interface Z86AgentHealth {
+  service: string;
+  status: string;
+  version: string;
+  disk?: { total_gb: number; used_gb: number; free_gb: number; used_pct: number };
+}
+
+export interface Z86FileItem {
+  name: string;
+  path: string;
+  type: string;
+  size?: number;
+  modified?: number;
+  permissions?: string;
+}
+
+export interface Z86ExecResult {
+  stdout: string;
+  stderr: string;
+  exit_code: number;
+  timed_out: boolean;
+}
+
+export async function getZ86AgentHealth() {
+  return adminApi<Z86AgentHealth>("/api/admin/z86/agent/health");
+}
+
+export async function z86AgentListFiles(path = "/opt/nso/z86") {
+  return adminApi<{ path: string; items: Z86FileItem[]; count: number }>(`/api/admin/z86/agent/files/list?path=${encodeURIComponent(path)}`);
+}
+
+export async function z86AgentReadFile(path: string) {
+  return adminApi<{ path: string; content: string; size: number }>(`/api/admin/z86/agent/files/read?path=${encodeURIComponent(path)}`);
+}
+
+export async function z86AgentWriteFile(path: string, content: string) {
+  return adminApi<{ ok: boolean }>("/api/admin/z86/agent/files/write", {
+    method: "POST",
+    body: JSON.stringify({ path, content }),
+  });
+}
+
+export async function z86AgentFileTree(path = "/opt/nso/z86", depth = 3) {
+  return adminApi<any>(`/api/admin/z86/agent/files/tree?path=${encodeURIComponent(path)}&depth=${depth}`);
+}
+
+export async function z86AgentExec(command: string, workingDir = "/opt/nso", timeout = 60) {
+  return adminApi<Z86ExecResult>("/api/admin/z86/agent/exec", {
+    method: "POST",
+    body: JSON.stringify({ command, working_dir: workingDir, timeout }),
+  });
+}
+
+export async function z86AgentService(name: string, action: string) {
+  return adminApi<any>(`/api/admin/z86/agent/exec/service?action=${action}&name=${name}`, {
+    method: "POST",
+  });
+}
+
+export async function z86AgentListSecrets() {
+  return adminApi<{ secrets: { key: string; value: string; bucket: string }[]; count: number }>("/api/admin/z86/agent/secrets");
+}
+
+export async function z86AgentAddSecret(key: string, value: string) {
+  return adminApi<{ ok: boolean }>("/api/admin/z86/agent/secrets", {
+    method: "POST",
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+export async function z86AgentUpdateSecret(key: string, value: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/z86/agent/secrets/${key}`, {
+    method: "PUT",
+    body: JSON.stringify({ value }),
+  });
+}
+
+export async function z86AgentDeleteSecret(key: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/z86/agent/secrets/${key}`, {
+    method: "DELETE",
+  });
+}
+
+export async function z86AgentDeployCurrent() {
+  return adminApi<any>("/api/admin/z86/agent/deploy/current");
+}
+
 // ── Infrastructure: Instances ──
 
 export async function instanceAction(instanceId: string, action: "start" | "stop" | "reboot") {

@@ -258,3 +258,145 @@ async def delete_object(
     if resp.status_code != 200:
         raise HTTPException(resp.status_code, "Failed to delete object")
     return resp.json()
+
+
+# ── Agent proxy (admin only) ─────────────────────────────
+# These proxy requests to the z86 agent for remote management
+
+_agent_token_cache: dict[str, str] = {}
+
+
+async def _get_agent_token() -> str:
+    """Get or cache a JWT token from the z86 agent."""
+    if "token" in _agent_token_cache:
+        return _agent_token_cache["token"]
+    if not settings.Z86_AGENT_ENDPOINT or not settings.Z86_AGENT_PASSWORD:
+        raise HTTPException(503, "z86 agent not configured")
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"{settings.Z86_AGENT_ENDPOINT.rstrip('/')}/auth/login",
+            json={"email": settings.ADMIN_EMAIL, "password": settings.Z86_AGENT_PASSWORD},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(502, "Failed to authenticate with z86 agent")
+    token = resp.json()["token"]
+    _agent_token_cache["token"] = token
+    return token
+
+
+async def _agent_request(method: str, path: str, **kwargs) -> httpx.Response:
+    if not settings.Z86_AGENT_ENDPOINT:
+        raise HTTPException(503, "z86 agent not configured")
+    token = await _get_agent_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    async with httpx.AsyncClient(timeout=Z86_TIMEOUT) as client:
+        resp = await client.request(
+            method,
+            f"{settings.Z86_AGENT_ENDPOINT.rstrip('/')}{path}",
+            headers=headers,
+            **kwargs,
+        )
+    # Token expired — retry once
+    if resp.status_code == 401:
+        _agent_token_cache.clear()
+        token = await _get_agent_token()
+        headers = {"Authorization": f"Bearer {token}"}
+        async with httpx.AsyncClient(timeout=Z86_TIMEOUT) as client:
+            resp = await client.request(
+                method,
+                f"{settings.Z86_AGENT_ENDPOINT.rstrip('/')}{path}",
+                headers=headers,
+                **kwargs,
+            )
+    return resp
+
+
+@admin_router.get("/agent/health")
+async def agent_health(auth: AuthContext = Depends(require_admin)):
+    """z86 agent health check."""
+    if not settings.Z86_AGENT_ENDPOINT:
+        return {"configured": False}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{settings.Z86_AGENT_ENDPOINT.rstrip('/')}/health")
+        return resp.json() if resp.status_code == 200 else {"status": "error", "code": resp.status_code}
+    except httpx.ConnectError:
+        return {"status": "unreachable"}
+
+
+@admin_router.get("/agent/files/list")
+async def agent_list_files(path: str = "/opt/nso/z86", auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("GET", "/files/list", params={"path": path})
+    return resp.json()
+
+
+@admin_router.get("/agent/files/read")
+async def agent_read_file(path: str = "", auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("GET", "/files/read", params={"path": path})
+    return resp.json()
+
+
+@admin_router.post("/agent/files/write")
+async def agent_write_file(data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", "/files/write", json=data)
+    return resp.json()
+
+
+@admin_router.get("/agent/files/tree")
+async def agent_file_tree(path: str = "/opt/nso/z86", depth: int = 3, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("GET", "/files/tree", params={"path": path, "depth": depth})
+    return resp.json()
+
+
+@admin_router.post("/agent/exec")
+async def agent_exec(data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", "/exec/", json=data)
+    return resp.json()
+
+
+@admin_router.post("/agent/exec/service")
+async def agent_service(action: str, name: str, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", f"/exec/service?action={action}&name={name}")
+    return resp.json()
+
+
+@admin_router.get("/agent/secrets")
+async def agent_list_secrets(auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("GET", "/secrets")
+    return resp.json()
+
+
+@admin_router.post("/agent/secrets")
+async def agent_add_secret(data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", "/secrets", json=data)
+    return resp.json()
+
+
+@admin_router.put("/agent/secrets/{key}")
+async def agent_update_secret(key: str, data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("PUT", f"/secrets/{key}", json=data)
+    return resp.json()
+
+
+@admin_router.delete("/agent/secrets/{key}")
+async def agent_delete_secret(key: str, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("DELETE", f"/secrets/{key}")
+    return resp.json()
+
+
+@admin_router.get("/agent/deploy/current")
+async def agent_deploy_current(auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("GET", "/deploy/current")
+    return resp.json()
+
+
+@admin_router.post("/agent/deploy/self-update")
+async def agent_self_update(data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", "/deploy/self-update", json=data)
+    return resp.json()
+
+
+@admin_router.post("/agent/deploy/rollback")
+async def agent_rollback(data: dict, auth: AuthContext = Depends(require_admin)):
+    resp = await _agent_request("POST", "/deploy/rollback", json=data)
+    return resp.json()

@@ -81,9 +81,22 @@ import {
   getZ86Buckets,
   getZ86BucketObjects,
   deleteZ86Object,
+  getZ86AgentHealth,
+  z86AgentListFiles,
+  z86AgentReadFile,
+  z86AgentWriteFile,
+  z86AgentExec,
+  z86AgentService,
+  z86AgentListSecrets,
+  z86AgentAddSecret,
+  z86AgentUpdateSecret,
+  z86AgentDeleteSecret,
   type Z86Overview,
   type Z86BucketInfo,
   type Z86ObjectInfo,
+  type Z86AgentHealth,
+  type Z86FileItem,
+  type Z86ExecResult,
 } from "@/lib/api/client";
 
 type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger" | "orchestrator" | "loadbalancer" | "z86";
@@ -2246,12 +2259,12 @@ function LBNginxView() {
    ═══════════════════════════════════════ */
 
 function Z86Tab() {
-  const [view, setView] = useState<"overview" | "buckets">("overview");
+  const [view, setView] = useState<"overview" | "buckets" | "files" | "terminal" | "secrets">("overview");
 
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-        {(["overview", "buckets"] as const).map((v) => (
+        {(["overview", "buckets", "files", "terminal", "secrets"] as const).map((v) => (
           <button
             key={v}
             className={`admin-period-btn ${view === v ? "active" : ""}`}
@@ -2260,24 +2273,31 @@ function Z86Tab() {
           >
             {v === "overview" && <><BarChart3 className="h-3 w-3" /> Overview</>}
             {v === "buckets" && <><FolderOpen className="h-3 w-3" /> Buckets</>}
+            {v === "files" && <><HardDrive className="h-3 w-3" /> Files</>}
+            {v === "terminal" && <><Zap className="h-3 w-3" /> Terminal</>}
+            {v === "secrets" && <><Key className="h-3 w-3" /> Secrets</>}
           </button>
         ))}
       </div>
       {view === "overview" && <Z86OverviewView />}
       {view === "buckets" && <Z86BucketsView />}
+      {view === "files" && <Z86FilesView />}
+      {view === "terminal" && <Z86TerminalView />}
+      {view === "secrets" && <Z86SecretsView />}
     </div>
   );
 }
 
 function Z86OverviewView() {
   const [data, setData] = useState<Z86Overview | null>(null);
+  const [agentHealth, setAgentHealth] = useState<Z86AgentHealth | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getZ86Overview()
-      .then(setData)
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      getZ86Overview().then(setData).catch(() => {}),
+      getZ86AgentHealth().then(setAgentHealth).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading z86 data...</div>;
@@ -2325,6 +2345,26 @@ function Z86OverviewView() {
           <div className="admin-card-label">Endpoint</div>
           <div className="admin-card-value admin-mono" style={{ fontSize: 11 }}>{data.endpoint || "—"}</div>
         </div>
+        {agentHealth?.disk && (
+          <>
+            <div className="admin-card">
+              <div className="admin-card-label">Agent</div>
+              <div className="admin-card-value" style={{ color: agentHealth.status === "ok" ? "var(--color-green)" : "var(--color-red)" }}>
+                {agentHealth.status === "ok" ? "Online" : "Offline"}
+              </div>
+            </div>
+            <div className="admin-card">
+              <div className="admin-card-label">Disk Total</div>
+              <div className="admin-card-value">{agentHealth.disk.total_gb} GB</div>
+            </div>
+            <div className="admin-card">
+              <div className="admin-card-label">Disk Free</div>
+              <div className="admin-card-value" style={{ color: agentHealth.disk.used_pct > 90 ? "var(--color-red)" : "inherit" }}>
+                {agentHealth.disk.free_gb} GB ({(100 - agentHealth.disk.used_pct).toFixed(1)}%)
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {data.buckets && data.buckets.length > 0 && (
@@ -2465,6 +2505,290 @@ function Z86BucketsView() {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function Z86FilesView() {
+  const [currentPath, setCurrentPath] = useState("/opt/nso/z86");
+  const [files, setFiles] = useState<Z86FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editPath, setEditPath] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const loadDir = useCallback(async (path: string) => {
+    setLoading(true);
+    setEditPath(null);
+    try {
+      const data = await z86AgentListFiles(path);
+      setFiles(data.items || []);
+      setCurrentPath(data.path);
+    } catch { setFiles([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadDir(currentPath); }, []);
+
+  const openFile = async (path: string) => {
+    try {
+      const data = await z86AgentReadFile(path);
+      setEditPath(data.path);
+      setEditContent(data.content);
+    } catch {}
+  };
+
+  const saveFile = async () => {
+    if (!editPath) return;
+    setSaving(true);
+    try {
+      await z86AgentWriteFile(editPath, editContent);
+    } catch {}
+    setSaving(false);
+  };
+
+  const goUp = () => {
+    const parent = currentPath.split("/").slice(0, -1).join("/") || "/";
+    loadDir(parent);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <button className="admin-filter-btn" onClick={goUp}>../</button>
+        <span className="admin-mono" style={{ fontSize: 12, flex: 1 }}>{currentPath}</span>
+        <button className="admin-filter-btn" onClick={() => loadDir(currentPath)}>
+          <RefreshCw className="h-3 w-3" />
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="admin-loading"><div className="term-spinner" /> Loading...</div>
+      ) : (
+        <div style={{ display: "flex", gap: 12 }}>
+          <div style={{ width: editPath ? "40%" : "100%", maxHeight: "calc(100vh - 300px)", overflow: "auto" }}>
+            <div className="admin-users-list">
+              {files.map((f) => (
+                <div
+                  key={f.path}
+                  className="admin-user-row"
+                  style={{ cursor: "pointer" }}
+                  onClick={() => f.type === "dir" ? loadDir(f.path) : openFile(f.path)}
+                >
+                  <div className="admin-user-info">
+                    <div className="admin-user-avatar" style={{ background: f.type === "dir" ? "var(--color-teal)" : "var(--color-blue)" }}>
+                      {f.type === "dir" ? <FolderOpen className="h-3 w-3" /> : <HardDrive className="h-3 w-3" />}
+                    </div>
+                    <div>
+                      <div className="admin-user-email">{f.name}</div>
+                      <div className="admin-user-meta">
+                        {f.type === "file" && f.size != null ? formatBytes(f.size) : f.type}
+                        {f.permissions ? ` · ${f.permissions}` : ""}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {files.length === 0 && <div className="admin-empty">Empty directory</div>}
+            </div>
+          </div>
+
+          {editPath && (
+            <div style={{ flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span className="admin-mono" style={{ fontSize: 11, flex: 1, color: "var(--color-blue)" }}>{editPath}</span>
+                <button className="admin-filter-btn" onClick={saveFile} disabled={saving}>
+                  {saving ? "Saving..." : "Save"}
+                </button>
+                <button className="admin-filter-btn" onClick={() => setEditPath(null)}>
+                  <XCircle className="h-3 w-3" />
+                </button>
+              </div>
+              <textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                style={{
+                  width: "100%", height: "calc(100vh - 340px)",
+                  background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
+                  padding: 12, fontSize: 12, fontFamily: "monospace", resize: "none",
+                  color: "inherit",
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Z86TerminalView() {
+  const [command, setCommand] = useState("");
+  const [output, setOutput] = useState<Z86ExecResult | null>(null);
+  const [running, setRunning] = useState(false);
+  const [history, setHistory] = useState<string[]>([]);
+
+  const run = async () => {
+    if (!command.trim()) return;
+    setRunning(true);
+    setHistory((h) => [...h, command]);
+    try {
+      const result = await z86AgentExec(command);
+      setOutput(result);
+    } catch (e: any) {
+      setOutput({ stdout: "", stderr: e.message || "Error", exit_code: -1, timed_out: false });
+    }
+    setRunning(false);
+  };
+
+  const serviceAction = async (name: string, action: string) => {
+    setRunning(true);
+    try {
+      const result = await z86AgentService(name, action);
+      setOutput({ stdout: JSON.stringify(result, null, 2), stderr: "", exit_code: 0, timed_out: false });
+    } catch (e: any) {
+      setOutput({ stdout: "", stderr: e.message || "Error", exit_code: -1, timed_out: false });
+    }
+    setRunning(false);
+  };
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <button className="admin-filter-btn" onClick={() => serviceAction("z86", "status")}>z86 status</button>
+        <button className="admin-filter-btn" onClick={() => serviceAction("z86", "restart")}>z86 restart</button>
+        <button className="admin-filter-btn" onClick={() => serviceAction("z86-agent", "status")}>agent status</button>
+        <button className="admin-filter-btn" onClick={() => serviceAction("z86-agent", "restart")}>agent restart</button>
+        <button className="admin-filter-btn" onClick={() => serviceAction("nginx", "status")}>nginx status</button>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+        <input
+          type="text"
+          placeholder="$ command..."
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") run();
+            if (e.key === "ArrowUp" && history.length > 0) setCommand(history[history.length - 1]);
+          }}
+          className="admin-search-input"
+          style={{ flex: 1, fontFamily: "monospace", fontSize: 13 }}
+        />
+        <button className="admin-filter-btn" onClick={run} disabled={running}>
+          {running ? <div className="term-spinner" /> : <Play className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+
+      {output && (
+        <pre style={{
+          background: output.exit_code === 0 ? "var(--card)" : "rgba(239,68,68,0.1)",
+          border: `1px solid ${output.exit_code === 0 ? "var(--border)" : "var(--color-red)"}`,
+          borderRadius: 8, padding: 14, fontSize: 12, lineHeight: 1.5,
+          overflow: "auto", maxHeight: "calc(100vh - 340px)",
+          fontFamily: "monospace", whiteSpace: "pre-wrap", color: "inherit",
+        }}>
+          {output.stdout || output.stderr || "(no output)"}
+          {output.timed_out && "\n\n[TIMED OUT]"}
+          {output.exit_code !== 0 && `\n\n[exit code: ${output.exit_code}]`}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function Z86SecretsView() {
+  const [secrets, setSecrets] = useState<{ key: string; value: string; bucket: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newKey, setNewKey] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await z86AgentListSecrets();
+      setSecrets(data.secrets || []);
+    } catch { setSecrets([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, []);
+
+  const addSecret = async () => {
+    if (!newKey || !newValue) return;
+    await z86AgentAddSecret(newKey, newValue);
+    setNewKey(""); setNewValue("");
+    load();
+  };
+
+  const updateSecret = async (key: string) => {
+    await z86AgentUpdateSecret(key, editValue);
+    setEditing(null);
+    load();
+  };
+
+  const deleteSecret = async (key: string) => {
+    if (!confirm(`Delete ${key}?`)) return;
+    await z86AgentDeleteSecret(key);
+    load();
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading secrets...</div>;
+
+  // Group by bucket
+  const grouped: Record<string, typeof secrets> = {};
+  for (const s of secrets) {
+    (grouped[s.bucket] ??= []).push(s);
+  }
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        <input placeholder="KEY" value={newKey} onChange={(e) => setNewKey(e.target.value.toUpperCase())} className="admin-search-input" style={{ width: 200, fontFamily: "monospace", fontSize: 12 }} />
+        <input placeholder="value" value={newValue} onChange={(e) => setNewValue(e.target.value)} className="admin-search-input" style={{ flex: 1, fontSize: 12 }} />
+        <button className="admin-filter-btn" onClick={addSecret}><Plus className="h-3 w-3" /></button>
+        <button className="admin-filter-btn" onClick={load}><RefreshCw className="h-3 w-3" /></button>
+      </div>
+
+      {Object.entries(grouped).map(([bucket, items]) => (
+        <div key={bucket} style={{ marginBottom: 16 }}>
+          <h4 style={{ fontSize: 12, fontWeight: 600, margin: "0 0 6px", textTransform: "uppercase", color: "var(--color-teal)" }}>{bucket}</h4>
+          <div className="admin-users-list">
+            {items.map((s) => (
+              <div key={s.key} className="admin-user-row">
+                <div className="admin-user-info">
+                  <div className="admin-user-avatar" style={{ background: "var(--color-blue)" }}>
+                    <Key className="h-3 w-3" />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className="admin-user-email admin-mono">{s.key}</div>
+                    {editing === s.key ? (
+                      <div style={{ display: "flex", gap: 4, marginTop: 4 }}>
+                        <input value={editValue} onChange={(e) => setEditValue(e.target.value)} className="admin-search-input" style={{ flex: 1, fontSize: 11 }} />
+                        <button className="admin-filter-btn" onClick={() => updateSecret(s.key)}>Save</button>
+                        <button className="admin-filter-btn" onClick={() => setEditing(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <div className="admin-user-meta admin-mono">{s.value.length > 40 ? s.value.slice(0, 40) + "..." : s.value}</div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 4 }}>
+                  <button className="admin-filter-btn" onClick={() => { setEditing(s.key); setEditValue(s.value); }}>
+                    <Eye className="h-3 w-3" />
+                  </button>
+                  <button className="admin-filter-btn" onClick={() => deleteSecret(s.key)}>
+                    <Trash2 className="h-3 w-3" style={{ color: "var(--color-red)" }} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+      {secrets.length === 0 && <div className="admin-empty">No secrets configured</div>}
     </div>
   );
 }
