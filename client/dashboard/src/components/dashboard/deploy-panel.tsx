@@ -192,7 +192,7 @@ export function DeployPanel() {
           break;
         case "ship":
           result = await zarShip(projectId, selectedWs, { branch, instance_id: selectedInstance });
-          addLog("ship", `Shipped ${selectedWs} v${result.version || "?"} to ${instanceLabel(selectedInstance)}`, true);
+          addLog("ship", `Shipped ${selectedWs} v${result.version || "?"} to ${instanceLabel(selectedInstance)}${result.domain ? ` → https://${result.domain}` : ""}`, true);
           break;
         case "rollback":
           result = await zarRollback(projectId, selectedWs, selectedInstance);

@@ -143,6 +143,7 @@ class DeployZarRequest(BaseModel):
 class ShipRequest(BaseModel):
     branch: str = "main"
     instance_id: str = ""
+    domain: str = ""  # optional custom domain; auto-generated if empty
 
 
 class RollbackRequest(BaseModel):
@@ -301,11 +302,81 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         raise
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
+
+    # ── Auto-assign deploy domain ──
+    deploy_domain = ""
+    inst = await db.fetch_one("instances", id=instance_id)
+    inst_ip = inst.get("ip", "") if inst else ""
+
+    if inst_ip and settings.CF_API_TOKEN and settings.CF_NSO_ZONE_ID:
+        # Determine the deploy subdomain
+        if req.domain:
+            deploy_domain = req.domain
+        else:
+            # Get project owner's subdomain for namespacing
+            project = await db.fetch_one("projects", id=project_id)
+            owner_id = project.get("owner", "") if project else ""
+            owner_sub = ""
+            if owner_id:
+                owner = await db.fetch_one("users", id=owner_id)
+                owner_sub = (owner.get("subdomain", "") if owner else "").strip()
+            if owner_sub:
+                deploy_domain = f"{name}.{owner_sub}.{settings.NSO_BASE_DOMAIN}"
+            else:
+                # Fallback: workspace-projectshort.nso.dev
+                short = project_id.replace("proj_", "")[:8]
+                deploy_domain = f"{name}-{short}.{settings.NSO_BASE_DOMAIN}"
+
+        # Create or update DNS A record (proxied via Cloudflare)
+        try:
+            from server.core.providers.cloudflare import CloudflareProvider
+            cf = CloudflareProvider(settings.CF_API_TOKEN)
+            existing = await cf.find_record(settings.CF_NSO_ZONE_ID, deploy_domain, "A")
+            if existing:
+                await cf.update_dns_record(
+                    settings.CF_NSO_ZONE_ID, existing["id"],
+                    "A", deploy_domain, inst_ip, proxied=True,
+                )
+                cf_record_id = existing["id"]
+            else:
+                record = await cf.create_dns_record(
+                    settings.CF_NSO_ZONE_ID, "A", deploy_domain, inst_ip, proxied=True,
+                )
+                cf_record_id = record.get("id", "")
+            await cf.close()
+
+            # Store in domains table
+            import uuid
+            dom_existing = await db.fetch_one("domains", project_id=project_id, domain=deploy_domain)
+            if dom_existing:
+                await db.update("domains", dom_existing["id"], {
+                    "value": inst_ip, "cf_record_id": cf_record_id,
+                    "instance_id": instance_id, "managed": 1,
+                })
+            else:
+                await db.insert("domains", {
+                    "id": f"dom_{uuid.uuid4().hex[:16]}",
+                    "project_id": project_id,
+                    "instance_id": instance_id,
+                    "domain": deploy_domain,
+                    "record_type": "A",
+                    "value": inst_ip,
+                    "cf_zone_id": settings.CF_NSO_ZONE_ID,
+                    "cf_record_id": cf_record_id,
+                    "proxied": 1,
+                    "managed": 1,
+                })
+            logger.info("Deploy domain %s → %s", deploy_domain, inst_ip)
+        except Exception as exc:
+            logger.warning("Failed to create deploy domain %s: %s", deploy_domain, exc)
+            deploy_domain = f"{deploy_domain} (DNS failed)"
+
     return {
         "ok": True, "action": "ship", "workspace": name,
         "version": manifest.version, "branch": req.branch,
         "hash": manifest.hash, "r2_key": r2_key, "size": len(zar_bytes),
         "instance_id": instance_id, "snapshot": result.get("snapshot", ""),
+        "domain": deploy_domain,
     }
 
 
