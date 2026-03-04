@@ -95,7 +95,8 @@ async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -
 
 
 async def _deploy_via_agent(agent_url: str, token: str, r2_key: str,
-                            target_dir: str = "/opt/app", restart_service: str = "") -> dict:
+                            target_dir: str = "/opt/app", restart_service: str = "",
+                            secrets: dict[str, str] | None = None) -> dict:
     r2_cfg = settings.r2_config()
     try:
         async with _agent_client(DEPLOY_TIMEOUT) as client:
@@ -111,6 +112,8 @@ async def _deploy_via_agent(agent_url: str, token: str, r2_key: str,
                     "target_dir": target_dir,
                     "restart_service": restart_service,
                     "install_deps": True,
+                    "secrets": secrets or {},
+                    "use_pipeline": True,
                 },
             )
     except httpx.ConnectError:
@@ -246,9 +249,21 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    # Resolve project secrets
+    resolved_secrets: dict[str, str] = {}
+    try:
+        rows = await db.fetch_all("project_secrets", project_id=project_id)
+        for row in rows:
+            k = row.get("key", "")
+            v = row.get("value", "")
+            if k:
+                resolved_secrets[k] = v
+    except Exception:
+        pass
+
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
-        result = await _deploy_via_agent(agent_url, token, r2_key)
+        result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
     except HTTPException:
         await db.update("instances", instance_id, {"state": "error", "error": "deploy failed"})
         raise
@@ -258,6 +273,8 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
         "ok": True, "workspace": name, "branch": req.branch,
         "version": result.get("version", ""), "snapshot": result.get("snapshot", ""),
         "instance_id": instance_id,
+        "pipeline": result.get("pipeline", False),
+        "phases": result.get("phases", []),
     }
 
 
@@ -294,9 +311,21 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    # Resolve project secrets for deploy.toml ${secret:KEY} references
+    resolved_secrets: dict[str, str] = {}
+    try:
+        rows = await db.fetch_all("project_secrets", project_id=project_id)
+        for row in rows:
+            k = row.get("key", "")
+            v = row.get("value", "")
+            if k:
+                resolved_secrets[k] = v
+    except Exception as exc:
+        logger.warning("Could not load project secrets: %s", exc)
+
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
-        result = await _deploy_via_agent(agent_url, token, r2_key)
+        result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
     except HTTPException:
         await db.update("instances", instance_id, {"state": "error", "error": "ship deploy failed"})
         raise
@@ -377,6 +406,8 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         "hash": manifest.hash, "r2_key": r2_key, "size": len(zar_bytes),
         "instance_id": instance_id, "snapshot": result.get("snapshot", ""),
         "domain": deploy_domain,
+        "pipeline": result.get("pipeline", False),
+        "phases": result.get("phases", []),
     }
 
 

@@ -60,6 +60,8 @@ class PullRequest(BaseModel):
     target_dir: str = "/opt/app"
     restart_service: str = "nso-app"
     install_deps: bool = True
+    secrets: dict[str, str] = Field(default_factory=dict)  # resolved secrets for deploy.toml
+    use_pipeline: bool = True  # use deploy.toml pipeline if available
 
 
 class SelfUpdateRequest(BaseModel):
@@ -237,6 +239,9 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
             if member.name == "config.toml":
                 tar.extract(member, target)
                 continue
+            if member.name == "deploy.toml":
+                tar.extract(member, target)
+                continue
             if member.name.startswith("files/"):
                 member.name = member.name[6:]
                 if member.name:
@@ -295,6 +300,53 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
     manifest = _extract_zar(zar_bytes, req.target_dir)
     logger.info("Extracted to %s", req.target_dir)
 
+    # Check if deploy.toml exists → use new pipeline
+    deploy_toml_path = os.path.join(req.target_dir, "deploy.toml")
+    if req.use_pipeline and os.path.exists(deploy_toml_path):
+        logger.info("deploy.toml found — using deploy pipeline")
+        from pipeline import DeployPipeline
+        pipe = DeployPipeline(
+            target_dir=req.target_dir,
+            secrets=req.secrets,
+        )
+        pipe.snapshot_name = snap or ""
+
+        with open(deploy_toml_path) as f:
+            deploy_toml_content = f.read()
+
+        result = await pipe.run(deploy_toml_content)
+
+        state = _load_state()
+        state[req.target_dir] = {
+            "version": manifest.get("version", ""),
+            "hash": manifest.get("hash", ""),
+            "workspace": manifest.get("name", ""),
+            "branch": manifest.get("branch", ""),
+            "stack": manifest.get("stack", ""),
+            "deployed_at": datetime.now(timezone.utc).isoformat(),
+            "snapshot": snap,
+            "pipeline": True,
+        }
+        _save_state(state)
+
+        if not result.ok:
+            raise HTTPException(500, {
+                "error": result.error,
+                "phases": result.phases,
+                "rolled_back": result.rolled_back,
+            })
+
+        return {
+            "ok": True,
+            "version": manifest.get("version", ""),
+            "workspace": manifest.get("name", ""),
+            "stack": manifest.get("stack", ""),
+            "snapshot": snap,
+            "pipeline": True,
+            "phases": result.phases,
+        }
+
+    # Legacy flow: install deps + restart service
     install_output = ""
     stack = manifest.get("stack", "") or _detect_stack(req.target_dir)
     if req.install_deps and stack not in ("static", "unknown", ""):

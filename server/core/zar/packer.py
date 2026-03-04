@@ -52,8 +52,13 @@ def _build_tar(ws_path: Path, manifest: ZarManifest) -> bytes:
         if config_path.exists():
             tar.add(str(config_path), arcname="config.toml")
 
+        deploy_toml_path = ws_path / "deploy.toml"
+        if deploy_toml_path.exists():
+            tar.add(str(deploy_toml_path), arcname="deploy.toml")
+
+        top_level_files = {"config.toml", "deploy.toml"}
         for entry in sorted(ws_path.iterdir()):
-            if _should_exclude(entry.name) or entry.name == "config.toml":
+            if _should_exclude(entry.name) or entry.name in top_level_files:
                 continue
             _add_to_tar(tar, str(entry), f"files/{entry.name}")
 
@@ -117,7 +122,7 @@ def extract(zar_bytes: bytes, target_dir: str) -> ZarManifest:
                 logger.warning("Skipping unsafe path: %s", member.name)
                 continue
 
-            if member.name in (".zar-manifest.json", "config.toml"):
+            if member.name in (".zar-manifest.json", "config.toml", "deploy.toml"):
                 tar.extract(member, target)
                 continue
 
