@@ -34,6 +34,8 @@ class Settings:
 
     HOST = os.environ.get("NSO_HOST", "0.0.0.0")
     PORT = int(os.environ.get("NSO_PORT", "8000"))
+    SERVER_MODE = os.environ.get("NSO_SERVER_MODE", "full")  # "admin", "user", "full"
+    ADMIN_ALLOWED_IPS = os.environ.get("NSO_ADMIN_ALLOWED_IPS", "").split(",")  # IP whitelist for admin mode
     CORS_ORIGINS = os.environ.get(
         "NSO_CORS_ORIGINS",
         "https://nso.dev,https://sonfazt.nso.dev,http://localhost:3000,http://localhost:3001,http://localhost:8000"
