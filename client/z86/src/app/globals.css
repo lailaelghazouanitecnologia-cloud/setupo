@@ -86,172 +86,173 @@
   @keyframes fade-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
 
   /* ═══════════════════════════════════════
-     LANDING PAGE — Split layout
-     Right 36% fixed, left 64% scrolls.
-     BECANE structure: outer → inner → left + suffix
+     LANDING PAGE — White background, BECANE-inspired
+     Full-width scrollable. Clean, minimal.
      ═══════════════════════════════════════ */
-  .lp { display: flex; min-height: 100vh; background: var(--black-1); color: var(--white-1); }
-
-  /* ── Fixed left panel ── */
-  .lp-fixed {
-    position: fixed; left: 0; top: 0; bottom: 0;
-    width: 36%; background: var(--black-3);
-    z-index: 10; overflow: hidden;
-  }
-  .lp-noise {
-    position: absolute; inset: 0; width: 100%; height: 100%;
-    pointer-events: none; opacity: 0.6;
-  }
-  .lp-fixed-inner {
-    height: 100%; display: flex; flex-direction: column;
-    padding: 28px; position: relative; z-index: 1;
-  }
-  .lp-fixed-top {
-    display: flex; align-items: center; gap: 10px;
-  }
-  .lp-fixed-center { flex: 1; display: flex; align-items: center; }
-  .lp-fixed-title {
-    font-size: 28px; font-weight: 800; letter-spacing: -0.04em;
-    line-height: 1.2; color: var(--white-1);
-  }
-  .lp-fixed-bottom { display: flex; flex-direction: column; gap: 12px; }
-  .lp-fixed-terminal {
-    border: 1px solid var(--black-4); border-radius: var(--r-lg); overflow: hidden;
-  }
-  .lp-terminal-body {
-    padding: 16px 18px; font-family: var(--font-mono);
-    font-size: 11.5px; line-height: 2; background: var(--black-1);
-  }
-  .lp-fixed-actions { display: flex; gap: 6px; }
-
-  /* ── Scrollable right panel ── */
-  .lp-scroll {
-    width: 64%; margin-left: 36%; padding: 0 40px 0 40px;
-    overflow-y: auto;
+  .lp {
+    min-height: 100vh; background: #fafafa; color: #0a0a0a;
   }
 
-  /* Header */
+  /* ── Logo ── */
+  .lp-logo {
+    font-size: 18px; font-weight: 900; letter-spacing: 0.02em; color: #0a0a0a;
+  }
+
+  /* ── Header ── */
   .lp-header {
     position: sticky; top: 0; z-index: 20;
-    background: rgba(37,36,35,0.9); backdrop-filter: blur(16px);
-    margin: 0 -40px; padding: 0 40px;
-    border-bottom: 1px solid var(--black-4);
+    background: rgba(250,250,250,0.85); backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(0,0,0,0.06);
   }
   .lp-header-inner {
     display: flex; align-items: center; justify-content: space-between;
-    height: 52px; gap: 20px;
+    max-width: 1120px; margin: 0 auto; padding: 0 40px; height: 56px;
   }
-  .lp-header-left { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
-  .lp-header-nav { display: flex; align-items: center; gap: 4px; }
+  .lp-header-left { display: flex; align-items: center; flex-shrink: 0; }
+  .lp-header-nav { display: flex; align-items: center; gap: 2px; }
   .lp-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .lp-nav-link {
-    background: none; border: 1px solid transparent; cursor: pointer;
-    color: var(--white-5); font-size: 13px; font-weight: 400;
+    background: none; border: none; cursor: pointer;
+    color: #666; font-size: 13px; font-weight: 400;
     padding: 6px 14px; border-radius: var(--r-md);
     transition: all 0.15s;
   }
-  .lp-nav-link:hover { color: var(--white-1); background: var(--black-3); }
-  .landing-btn-sm { padding: 6px 16px; font-size: 13px; height: auto; }
+  .lp-nav-link:hover { color: #0a0a0a; background: rgba(0,0,0,0.04); }
+  .landing-btn-sm { padding: 7px 18px; font-size: 13px; height: auto; }
 
-  /* Hero */
-  .lp-hero { padding: 80px 0 60px; min-height: 85vh; display: flex; flex-direction: column; justify-content: center; }
+  /* ── Hero ── */
+  .lp-hero {
+    padding: 100px 40px 60px; display: flex; justify-content: center;
+  }
+  .lp-hero-inner {
+    max-width: 1120px; width: 100%;
+    display: flex; flex-direction: column; align-items: flex-start;
+  }
   .lp-badge {
     display: inline-flex; align-items: center; gap: 8px;
     font-size: 11px; font-weight: 500; letter-spacing: 0.04em;
-    color: var(--white-4); background: transparent; border: 1px solid var(--black-4);
-    padding: 7px 16px; border-radius: var(--r-full); margin-bottom: 28px;
+    color: #666; background: transparent; border: 1px solid rgba(0,0,0,0.1);
+    padding: 7px 16px; border-radius: var(--r-full); margin-bottom: 32px;
   }
-  .lp-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red-1); box-shadow: 0 0 10px var(--red-1); }
+  .lp-badge-dot { width: 6px; height: 6px; border-radius: 50%; background: #0a0a0a; }
   .lp-title {
-    font-size: 44px; font-weight: 800; letter-spacing: -0.05em;
-    line-height: 1.05; margin-bottom: 20px; color: var(--white-1);
+    font-size: 52px; font-weight: 800; letter-spacing: -0.05em;
+    line-height: 1.05; margin-bottom: 24px; color: #0a0a0a;
   }
-  .lp-sub { font-size: 14.5px; color: var(--white-4); line-height: 1.75; max-width: 420px; }
+  .lp-sub { font-size: 16px; color: #666; line-height: 1.7; max-width: 480px; }
+  .lp-hero-actions { display: flex; gap: 8px; margin-top: 40px; }
 
-  /* Sections — near full viewport height */
-  .lp-section { padding: 48px 0; min-height: 85vh; display: flex; flex-direction: column; justify-content: center; }
+  /* ── Terminal preview ── */
+  .lp-terminal-section {
+    padding: 0 40px 80px; display: flex; justify-content: center;
+  }
+  .lp-terminal {
+    max-width: 1120px; width: 100%;
+    background: #1a1a1a; border-radius: var(--r-xl); overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.1);
+  }
+  .lp-terminal-dots {
+    display: flex; gap: 6px; padding: 14px 18px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .lp-terminal-dots span {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: rgba(255,255,255,0.1);
+  }
+  .lp-terminal-body {
+    padding: 20px 22px; font-family: var(--font-mono);
+    font-size: 13px; line-height: 2; color: #e0e0e0;
+  }
+
+  /* ── Sections ── */
+  .lp-section { padding: 80px 0; }
+  .lp-section-inner { max-width: 1120px; margin: 0 auto; padding: 0 40px; }
   .lp-section-header {
     display: flex; align-items: center; justify-content: space-between;
-    margin-bottom: 16px; padding: 0 4px;
+    margin-bottom: 20px; padding: 0 4px;
   }
   .lp-label {
     font-size: 11px; font-weight: 600; letter-spacing: 0.12em;
-    text-transform: uppercase; color: var(--red-1);
+    text-transform: uppercase; color: #0a0a0a;
   }
-  .lp-label-suffix { font-family: var(--font-mono); font-size: 11px; color: var(--white-3); }
+  .lp-label-suffix { font-family: var(--font-mono); font-size: 11px; color: #999; }
 
-  /* Feature items — BECANE ItemBar: outer → inner → left + suffix */
+  /* ── Feature items ── */
   .lp-item-outer {
-    background: transparent; border: 1px solid var(--black-4);
+    background: transparent; border: 1px solid rgba(0,0,0,0.08);
     border-radius: var(--r-lg);
     margin-bottom: 3px; transition: all 0.12s;
   }
-  .lp-item-outer:hover { border-color: var(--white-7); }
+  .lp-item-outer:hover { border-color: rgba(0,0,0,0.18); }
   .lp-item-inner {
     display: flex; align-items: flex-start; justify-content: space-between;
     padding: 20px 22px; gap: 16px;
   }
   .lp-item-left { display: flex; gap: 16px; align-items: flex-start; flex: 1; }
-  .lp-item-num { font-family: var(--font-mono); font-size: 11px; color: var(--red-3); padding-top: 2px; flex-shrink: 0; }
+  .lp-item-num { font-family: var(--font-mono); font-size: 11px; color: #bbb; padding-top: 2px; flex-shrink: 0; }
   .lp-item-content { display: flex; flex-direction: column; gap: 5px; }
-  .lp-item-h { font-size: 14px; font-weight: 600; color: var(--white-1); }
-  .lp-item-p { font-size: 12.5px; color: var(--white-4); line-height: 1.6; }
+  .lp-item-h { font-size: 14px; font-weight: 600; color: #0a0a0a; }
+  .lp-item-p { font-size: 12.5px; color: #666; line-height: 1.6; }
   .lp-item-suffix { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; flex-shrink: 0; max-width: 140px; }
   .lp-tag {
     font-family: var(--font-mono); font-size: 10px; padding: 4px 10px;
-    background: transparent; border: 1px solid var(--black-4);
-    color: var(--white-5); border-radius: var(--r-sm);
+    background: transparent; border: 1px solid rgba(0,0,0,0.08);
+    color: #999; border-radius: var(--r-sm);
   }
 
-  /* Steps */
+  /* ── Steps ── */
   .lp-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .lp-step-outer { background: transparent; border: 1px solid var(--black-4); border-radius: var(--r-xl); transition: all 0.12s; }
-  .lp-step-outer:hover { border-color: var(--white-7); }
+  .lp-step-outer {
+    background: transparent; border: 1px solid rgba(0,0,0,0.08);
+    border-radius: var(--r-xl); transition: all 0.12s;
+  }
+  .lp-step-outer:hover { border-color: rgba(0,0,0,0.18); }
   .lp-step-inner { padding: 28px 24px; }
-  .lp-step-num { font-family: var(--font-mono); font-size: 11px; color: var(--red-3); display: block; margin-bottom: 16px; }
-  .lp-step-h { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: var(--white-1); }
-  .lp-step-p { font-size: 13px; color: var(--white-4); line-height: 1.7; }
+  .lp-step-num { font-family: var(--font-mono); font-size: 11px; color: #bbb; display: block; margin-bottom: 16px; }
+  .lp-step-h { font-size: 15px; font-weight: 600; margin-bottom: 8px; color: #0a0a0a; }
+  .lp-step-p { font-size: 13px; color: #666; line-height: 1.7; }
   .lp-step-code {
     margin-top: 16px; padding: 12px 16px; font-family: var(--font-mono); font-size: 11px;
-    background: var(--black-1); color: var(--white-3); border-radius: var(--r-md);
+    background: #1a1a1a; color: #ccc; border-radius: var(--r-md);
   }
 
-  /* Pricing */
+  /* ── Pricing ── */
   .lp-pricing { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .lp-price-outer { background: transparent; border: 1px solid var(--black-4); border-radius: var(--r-xl); transition: all 0.12s; }
-  .lp-price-outer:hover { border-color: var(--white-7); }
-  .lp-price-featured { background: var(--black-3); border-color: var(--white-7); position: relative; overflow: hidden; }
-  .lp-price-featured::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--red-1); }
-  .lp-price-featured:hover { border-color: var(--white-5); }
+  .lp-price-outer {
+    background: transparent; border: 1px solid rgba(0,0,0,0.08);
+    border-radius: var(--r-xl); transition: all 0.12s;
+  }
+  .lp-price-outer:hover { border-color: rgba(0,0,0,0.18); }
+  .lp-price-featured { background: #0a0a0a; border-color: #0a0a0a; color: #fafafa; position: relative; overflow: hidden; }
+  .lp-price-featured:hover { border-color: #333; }
   .lp-price-inner { padding: 32px 26px; display: flex; flex-direction: column; }
-  .lp-price-tier { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: var(--white-4); margin-bottom: 10px; }
-  .lp-price-featured .lp-price-tier { color: var(--red-1); }
-  .lp-price-amount { font-size: 36px; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 24px; color: var(--white-1); }
-  .lp-price-amount span { font-size: 14px; color: var(--white-4); font-weight: 400; }
+  .lp-price-tier { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.1em; color: #999; margin-bottom: 10px; }
+  .lp-price-featured .lp-price-tier { color: #888; }
+  .lp-price-amount { font-size: 36px; font-weight: 800; letter-spacing: -0.04em; margin-bottom: 24px; color: #0a0a0a; }
+  .lp-price-featured .lp-price-amount { color: #fafafa; }
+  .lp-price-amount span { font-size: 14px; color: #999; font-weight: 400; }
   .lp-price-list { list-style: none; padding: 0; margin: 0 0 28px; }
-  .lp-price-list li { font-size: 13px; color: var(--white-4); line-height: 2.2; padding-left: 14px; position: relative; }
-  .lp-price-list li::before { content: ''; position: absolute; left: 0; top: 13px; width: 4px; height: 4px; border-radius: 50%; background: var(--white-3); }
-  .lp-price-featured .lp-price-list li::before { background: var(--red-3); }
+  .lp-price-list li { font-size: 13px; color: #666; line-height: 2.2; padding-left: 14px; position: relative; }
+  .lp-price-featured .lp-price-list li { color: #aaa; }
+  .lp-price-list li::before { content: ''; position: absolute; left: 0; top: 13px; width: 4px; height: 4px; border-radius: 50%; background: #ccc; }
+  .lp-price-featured .lp-price-list li::before { background: #555; }
 
-  /* Footer — BECANE manifesto + bars */
-  .lp-footer { padding: 48px 0 32px; }
+  /* ── Footer ── */
+  .lp-footer {
+    border-top: 1px solid rgba(0,0,0,0.06); padding: 60px 0 40px;
+  }
+  .lp-footer-inner { max-width: 1120px; margin: 0 auto; padding: 0 40px; }
   .lp-footer-manifesto {
-    font-size: 16px; font-weight: 500; color: var(--white-4);
+    font-size: 16px; font-weight: 500; color: #666;
     line-height: 1.65; letter-spacing: -0.01em;
-    margin-bottom: 32px; max-width: 500px;
+    margin-bottom: 40px; max-width: 500px;
   }
-  .lp-footer-bars { display: flex; justify-content: space-between; gap: 16px; }
-  .lp-footer-bar { display: flex; align-items: center; gap: 4px; }
-  .lp-footer-bar-right { gap: 12px; }
-  .lp-footer-btn {
-    background: none; border: none; cursor: pointer;
-    color: var(--white-4); font-size: 12px; font-weight: 400;
-    padding: 6px 0; transition: color 0.15s;
+  .lp-footer-bottom {
+    display: flex; justify-content: space-between; align-items: center;
   }
-  .lp-footer-btn:hover { color: var(--white-1); }
-  .lp-footer-copy { font-size: 12px; color: var(--white-6); margin-left: 8px; }
+  .lp-footer-copy { font-size: 12px; color: #999; }
 
-  /* Shared landing components */
+  /* ── Shared landing buttons ── */
   .landing-btn {
     display: inline-flex; align-items: center; gap: 8px;
     font-size: 13px; font-weight: 500; padding: 10px 22px;
@@ -259,40 +260,40 @@
     transition: all 0.15s;
   }
   .landing-btn:active { transform: scaleX(0.99) scaleY(0.98); }
-  .landing-btn svg { width: 15px; height: 15px; }
-  .landing-btn-primary { background: var(--red-1); color: var(--white-1); }
-  .landing-btn-primary:hover { background: var(--red-2); }
-  .landing-btn-secondary { background: var(--black-4); color: var(--white-2); }
-  .landing-btn-secondary:hover { background: var(--white-7); color: var(--white-1); }
+  .landing-btn-primary { background: #0a0a0a; color: #fafafa; }
+  .landing-btn-primary:hover { background: #222; }
+  .landing-btn-ghost {
+    background: transparent; color: #666;
+    border: 1px solid rgba(0,0,0,0.12);
+  }
+  .landing-btn-ghost:hover { color: #0a0a0a; border-color: rgba(0,0,0,0.25); }
 
-  .t-prompt { color: var(--white-6); }
-  .t-cmd { color: var(--white-2); }
+  /* ── Terminal colors ── */
+  .t-prompt { color: #666; }
+  .t-cmd { color: #e0e0e0; }
   .t-flag { color: #a78bfa; }
-  .t-arg { color: #22c55e; }
-  .t-out { color: var(--white-5); }
-  .t-ok { color: #22c55e; }
-  .t-comment { color: var(--white-6); font-style: italic; }
+  .t-arg { color: #4ade80; }
+  .t-out { color: #888; }
+  .t-ok { color: #4ade80; }
   .t-cursor {
     display: inline-block; width: 8px; height: 15px;
-    background: var(--red-1); vertical-align: middle;
+    background: #e0e0e0; vertical-align: middle;
     animation: blink 1s step-end infinite; border-radius: 2px;
   }
 
-  /* Landing responsive */
+  /* ── Landing responsive ── */
   @media (max-width: 900px) {
-    .lp { flex-direction: column; }
-    .lp-fixed { position: relative; width: 100%; height: auto; min-height: 60vh; }
-    .lp-scroll { width: 100%; margin-left: 0; }
-    .lp-title { font-size: 32px; }
+    .lp-title { font-size: 36px; }
+    .lp-hero { padding: 80px 20px 40px; }
+    .lp-terminal-section { padding: 0 20px 60px; }
+    .lp-section-inner { padding: 0 20px; }
     .lp-steps { grid-template-columns: 1fr; }
     .lp-pricing { grid-template-columns: 1fr; }
     .lp-item-inner { flex-direction: column; }
     .lp-item-suffix { justify-content: flex-start; max-width: none; }
-    .lp-header { margin: 0; padding: 0 20px; }
+    .lp-header-inner { padding: 0 20px; }
     .lp-header-nav { display: none; }
-    .lp-section { min-height: auto; }
-    .lp-hero { min-height: auto; }
-    .lp-scroll { padding: 0 20px; }
+    .lp-footer-inner { padding: 0 20px; }
   }
 
   /* ═══════════════════════════════════════
