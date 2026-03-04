@@ -49,6 +49,7 @@ export function DeployPanel() {
   const [deployInfo, setDeployInfo] = useState<DeployInfo | null>(null);
   const [snapshots, setSnapshots] = useState<string[]>([]);
   const [loadError, setLoadError] = useState("");
+  const [dataLoading, setDataLoading] = useState(true);
   const logRef = useRef<HTMLDivElement>(null);
 
   // Scroll log to bottom
@@ -56,10 +57,15 @@ export function DeployPanel() {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [logs]);
 
-  // Load deploy status on mount
+  // Load deploy status when an instance is selected
   useEffect(() => {
-    loadDeployStatus();
-  }, []);
+    if (selectedInstance) {
+      loadDeployStatus();
+    } else {
+      setDeployInfo(null);
+      setSnapshots([]);
+    }
+  }, [selectedInstance]);
 
   const loadDeployStatus = () => {
     getDeployStatus()
@@ -88,14 +94,20 @@ export function DeployPanel() {
 
   // Load workspaces + instances when project changes
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId) {
+      setDataLoading(false);
+      return;
+    }
     setLoadError("");
+    setDataLoading(true);
+    setSelectedWs("");
+    setSelectedInstance("");
     (async () => {
       try {
         const wsRes = await listWorkspaces(projectId);
         const wsList = wsRes.workspaces || [];
         setWorkspaces(wsList);
-        if (wsList.length > 0 && !selectedWs) setSelectedWs(wsList[0].name);
+        if (wsList.length > 0) setSelectedWs(wsList[0].name);
       } catch (e: any) {
         setWorkspaces([]);
         setLoadError(e.message?.includes("401") ? "Not authorized to load workspaces" : "Failed to load workspaces");
@@ -104,11 +116,12 @@ export function DeployPanel() {
         const instRes = await listInstances(projectId);
         const instList = instRes.instances || [];
         setInstances(instList);
-        if (instList.length > 0 && !selectedInstance) setSelectedInstance(instList[0].id);
+        if (instList.length > 0) setSelectedInstance(instList[0].id);
       } catch (e: any) {
         setInstances([]);
         if (!loadError) setLoadError(e.message?.includes("401") ? "Not authorized to load instances" : "Failed to load instances");
       }
+      setDataLoading(false);
     })();
   }, [projectId]);
 
@@ -212,6 +225,46 @@ export function DeployPanel() {
     return inst ? (inst.label || inst.domain || inst.ip || id) : id;
   };
 
+  // No project selected
+  if (!projectId) {
+    return (
+      <div className="panel-empty">
+        <Rocket className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-title">No project selected</div>
+        <div className="panel-empty-sub">Select a project from the sidebar to manage deploys.</div>
+      </div>
+    );
+  }
+
+  // Loading state
+  if (dataLoading) {
+    return (
+      <div className="panel-empty">
+        <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-sub">Loading deploy data...</div>
+      </div>
+    );
+  }
+
+  // Project has no workspaces and no instances
+  if (workspaces.length === 0 && instances.length === 0 && !loadError) {
+    return (
+      <div className="panel-empty">
+        <Rocket className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-title">Nothing to deploy yet</div>
+        <div className="panel-empty-sub">
+          This project has no workspaces or instances. Create a workspace and an instance first, then come back to deploy.
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="panel-btn" onClick={() => useDashboardStore.getState().setActiveView("instances")}>
+            <Server className="h-3.5 w-3.5" />
+            <span>Create Instance</span>
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       {loadError && (
@@ -227,7 +280,7 @@ export function DeployPanel() {
           <Package className="h-3 w-3" style={{ color: "var(--color-teal)" }} />
           <Select value={selectedWs} onValueChange={setSelectedWs}>
             <SelectTrigger style={{ border: "none", background: "transparent", minWidth: 100, padding: "5px 8px" }}>
-              <SelectValue placeholder="Workspace..." />
+              <SelectValue placeholder={workspaces.length === 0 ? "No workspaces" : "Workspace..."} />
             </SelectTrigger>
             <SelectContent>
               {workspaces.map((ws) => <SelectItem key={ws.name} value={ws.name}>{ws.name}</SelectItem>)}
@@ -252,7 +305,7 @@ export function DeployPanel() {
           <Server className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
           <Select value={selectedInstance} onValueChange={setSelectedInstance}>
             <SelectTrigger style={{ border: "none", background: "transparent", minWidth: 100, padding: "5px 8px" }}>
-              <SelectValue placeholder="Instance..." />
+              <SelectValue placeholder={instances.length === 0 ? "No instances" : "Instance..."} />
             </SelectTrigger>
             <SelectContent>
               {instances.map((inst) => {
