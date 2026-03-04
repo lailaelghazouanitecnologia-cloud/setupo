@@ -21,7 +21,7 @@ export default function Home() {
 function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
   return (
     <div className="lp">
-      {/* ── Fixed right panel (36%) ── */}
+      {/* ── Fixed left panel (36%) ── */}
       <div className="lp-fixed">
         <div className="lp-fixed-inner">
           <div className="lp-fixed-top">
@@ -60,7 +60,7 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
         </div>
       </div>
 
-      {/* ── Scrollable left panel (64%) ── */}
+      {/* ── Scrollable right panel (64%) ── */}
       <div className="lp-scroll">
         {/* Nav bar */}
         <nav className="lp-nav">
