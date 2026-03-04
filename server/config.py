@@ -50,6 +50,11 @@ class Settings:
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 
+    # z86 — self-hosted object storage
+    Z86_ENDPOINT = os.environ.get("Z86_ENDPOINT", "")  # e.g. http://140.82.60.13:8082
+    Z86_ADMIN_TOKEN = os.environ.get("Z86_ADMIN_TOKEN", "")
+    Z86_BUCKET = os.environ.get("Z86_BUCKET", "nso")
+
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
     SMTP_USER = os.environ.get("SMTP_USER", "")

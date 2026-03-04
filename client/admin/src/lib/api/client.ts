@@ -322,6 +322,54 @@ export async function deleteStorageObject(key: string) {
   });
 }
 
+// ── Z86 Storage ──
+
+export interface Z86BucketInfo {
+  name: string;
+  owner_id: string;
+  region: string;
+  object_count: number;
+  total_size: number;
+  created_at: string;
+}
+
+export interface Z86Overview {
+  configured: boolean;
+  endpoint?: string;
+  status?: string;
+  health?: { service: string; status: string; version: string; total_buckets?: number; total_objects?: number; total_size_bytes?: number; disk_used_bytes?: number };
+  stats?: { total_buckets: number; total_objects: number; total_size_bytes: number; disk_used_bytes: number };
+  buckets?: Z86BucketInfo[];
+  total_keys?: number;
+}
+
+export interface Z86ObjectInfo {
+  key: string;
+  size: number;
+  content_type: string;
+  sha256: string;
+  updated_at: string;
+}
+
+export async function getZ86Overview() {
+  return adminApi<Z86Overview>("/api/admin/z86/overview");
+}
+
+export async function getZ86Buckets() {
+  return adminApi<Z86BucketInfo[]>("/api/admin/z86/buckets");
+}
+
+export async function getZ86BucketObjects(bucket: string, prefix = "") {
+  const q = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+  return adminApi<{ objects: Z86ObjectInfo[]; count: number; is_truncated: boolean }>(`/api/admin/z86/buckets/${bucket}/objects${q}`);
+}
+
+export async function deleteZ86Object(bucket: string, key: string) {
+  return adminApi<{ ok: boolean }>(`/api/admin/z86/buckets/${bucket}/objects/${encodeURIComponent(key)}`, {
+    method: "DELETE",
+  });
+}
+
 // ── Infrastructure: Instances ──
 
 export async function instanceAction(instanceId: string, action: "start" | "stop" | "reboot") {

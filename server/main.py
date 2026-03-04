@@ -87,6 +87,7 @@ class ServerModeMiddleware(BaseHTTPMiddleware):
 # ── Imports ────────────────────────────────────────────────
 
 from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, ready, secrets
+from server.routes import z86_storage
 from server.routes.addons import catalog as addons_catalog, connectors as addons_connectors, marketplace as addons_marketplace
 
 # Admin-only imports (skip in user mode to avoid loading unnecessary code)
@@ -180,6 +181,7 @@ app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}
 app.include_router(secrets.router, prefix="/api/projects/{project_id}/secrets", tags=["secrets"])
 app.include_router(ready.admin_router, prefix="/api/ready", tags=["ready"])
 app.include_router(ready.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
+app.include_router(z86_storage.project_router, prefix="/api/projects/{project_id}/z86", tags=["z86"])
 
 # ── Admin-only routes ──────────────────────────────────────
 
@@ -187,6 +189,7 @@ if SERVER_MODE in ("admin", "full"):
     app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
     app.include_router(orchestrator.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
     app.include_router(loadbalancer.router, prefix="/api/admin/lb", tags=["load-balancer"])
+    app.include_router(z86_storage.admin_router, prefix="/api/admin/z86", tags=["z86-admin"])
 
 # ── Static files ───────────────────────────────────────────
 

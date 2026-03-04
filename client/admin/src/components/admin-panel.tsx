@@ -77,9 +77,16 @@ import {
   type LBPool,
   type LBBackend,
   type LBRule,
+  getZ86Overview,
+  getZ86Buckets,
+  getZ86BucketObjects,
+  deleteZ86Object,
+  type Z86Overview,
+  type Z86BucketInfo,
+  type Z86ObjectInfo,
 } from "@/lib/api/client";
 
-type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger" | "orchestrator" | "loadbalancer";
+type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger" | "orchestrator" | "loadbalancer" | "z86";
 
 export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
   return (
@@ -93,6 +100,7 @@ export function AdminPanel({ tab = "overview" }: { tab?: AdminTab }) {
       {tab === "ledger" && <LedgerTab />}
       {tab === "orchestrator" && <OrchestratorTab />}
       {tab === "loadbalancer" && <LoadBalancerTab />}
+      {tab === "z86" && <Z86Tab />}
     </div>
   );
 }
@@ -2231,4 +2239,240 @@ function LBNginxView() {
       </pre>
     </div>
   );
+}
+
+/* ═══════════════════════════════════════
+   Z86 STORAGE TAB
+   ═══════════════════════════════════════ */
+
+function Z86Tab() {
+  const [view, setView] = useState<"overview" | "buckets">("overview");
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+        {(["overview", "buckets"] as const).map((v) => (
+          <button
+            key={v}
+            className={`admin-period-btn ${view === v ? "active" : ""}`}
+            onClick={() => setView(v)}
+            style={{ display: "flex", alignItems: "center", gap: 4 }}
+          >
+            {v === "overview" && <><BarChart3 className="h-3 w-3" /> Overview</>}
+            {v === "buckets" && <><FolderOpen className="h-3 w-3" /> Buckets</>}
+          </button>
+        ))}
+      </div>
+      {view === "overview" && <Z86OverviewView />}
+      {view === "buckets" && <Z86BucketsView />}
+    </div>
+  );
+}
+
+function Z86OverviewView() {
+  const [data, setData] = useState<Z86Overview | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getZ86Overview()
+      .then(setData)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading z86 data...</div>;
+  if (!data) return <div className="admin-empty">Could not load z86 data</div>;
+  if (!data.configured) return <div className="admin-empty">z86 storage not configured. Set Z86_ENDPOINT and Z86_ADMIN_TOKEN.</div>;
+  if (data.status === "unreachable") return <div className="admin-error"><AlertTriangle className="h-4 w-4" /> z86 endpoint unreachable: {data.endpoint}</div>;
+
+  const stats = data.stats;
+  const health = data.health;
+
+  return (
+    <div>
+      <div className="admin-cards-grid">
+        <div className="admin-card">
+          <div className="admin-card-label">Status</div>
+          <div className="admin-card-value" style={{ color: health?.status === "ok" ? "var(--color-green)" : "var(--color-red)" }}>
+            {health?.status === "ok" ? "Online" : "Offline"}
+          </div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Version</div>
+          <div className="admin-card-value">{health?.version || "—"}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Total Buckets</div>
+          <div className="admin-card-value">{stats?.total_buckets ?? 0}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Total Objects</div>
+          <div className="admin-card-value">{stats?.total_objects ?? 0}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Data Size</div>
+          <div className="admin-card-value">{formatBytes(stats?.total_size_bytes ?? 0)}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Disk Used</div>
+          <div className="admin-card-value">{formatBytes(stats?.disk_used_bytes ?? 0)}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Access Keys</div>
+          <div className="admin-card-value">{data.total_keys ?? 0}</div>
+        </div>
+        <div className="admin-card">
+          <div className="admin-card-label">Endpoint</div>
+          <div className="admin-card-value admin-mono" style={{ fontSize: 11 }}>{data.endpoint || "—"}</div>
+        </div>
+      </div>
+
+      {data.buckets && data.buckets.length > 0 && (
+        <>
+          <h3 style={{ fontSize: 13, fontWeight: 600, margin: "18px 0 8px" }}>Buckets</h3>
+          <div className="admin-users-list">
+            {data.buckets.map((b) => (
+              <div key={b.name} className="admin-user-row">
+                <div className="admin-user-info">
+                  <div className="admin-user-avatar" style={{ background: "var(--color-teal)" }}>
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </div>
+                  <div>
+                    <div className="admin-user-email">{b.name}</div>
+                    <div className="admin-user-meta">
+                      {b.object_count} objects · {formatBytes(b.total_size)} · owner: {b.owner_id}
+                    </div>
+                  </div>
+                </div>
+                <span className="admin-badge">{b.region}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function Z86BucketsView() {
+  const [buckets, setBuckets] = useState<Z86BucketInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [objects, setObjects] = useState<Z86ObjectInfo[]>([]);
+  const [objLoading, setObjLoading] = useState(false);
+  const [prefix, setPrefix] = useState("");
+
+  useEffect(() => {
+    getZ86Buckets()
+      .then(setBuckets)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const loadObjects = useCallback(async (bucket: string) => {
+    setSelected(bucket);
+    setObjLoading(true);
+    try {
+      const data = await getZ86BucketObjects(bucket, prefix);
+      setObjects(data.objects || []);
+    } catch { setObjects([]); }
+    setObjLoading(false);
+  }, [prefix]);
+
+  const handleDelete = async (bucket: string, key: string) => {
+    if (!confirm(`Delete ${bucket}/${key}?`)) return;
+    await deleteZ86Object(bucket, key);
+    loadObjects(bucket);
+  };
+
+  if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading buckets...</div>;
+
+  return (
+    <div>
+      <div className="admin-users-list">
+        {buckets.map((b) => (
+          <div key={b.name} className="admin-user-row" style={{ cursor: "pointer" }} onClick={() => loadObjects(b.name)}>
+            <div className="admin-user-info">
+              <div className="admin-user-avatar" style={{ background: selected === b.name ? "var(--color-blue)" : "var(--color-teal)" }}>
+                <FolderOpen className="h-3.5 w-3.5" />
+              </div>
+              <div>
+                <div className="admin-user-email">{b.name}</div>
+                <div className="admin-user-meta">{b.object_count} objects · {formatBytes(b.total_size)}</div>
+              </div>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5 admin-muted" />
+          </div>
+        ))}
+        {buckets.length === 0 && <div className="admin-empty">No buckets</div>}
+      </div>
+
+      {selected && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{selected}</h3>
+            <div style={{ flex: 1 }}>
+              <input
+                type="text"
+                placeholder="Filter by prefix..."
+                value={prefix}
+                onChange={(e) => setPrefix(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && loadObjects(selected)}
+                className="admin-search-input"
+                style={{ height: 28, fontSize: 12 }}
+              />
+            </div>
+            <button className="admin-filter-btn" onClick={() => loadObjects(selected)}>
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </div>
+
+          {objLoading ? (
+            <div className="admin-loading"><div className="term-spinner" /> Loading objects...</div>
+          ) : (
+            <div style={{
+              background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8,
+              overflow: "auto", maxHeight: "calc(100vh - 380px)",
+            }}>
+              <table style={{ width: "100%", fontSize: 12, borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Key</th>
+                    <th style={{ textAlign: "right", padding: "8px 12px", fontWeight: 500 }}>Size</th>
+                    <th style={{ textAlign: "left", padding: "8px 12px", fontWeight: 500 }}>Type</th>
+                    <th style={{ textAlign: "right", padding: "8px 12px", fontWeight: 500 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {objects.map((obj) => (
+                    <tr key={obj.key} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td className="admin-mono" style={{ padding: "6px 12px" }}>{obj.key}</td>
+                      <td style={{ padding: "6px 12px", textAlign: "right" }}>{formatBytes(obj.size)}</td>
+                      <td className="admin-muted" style={{ padding: "6px 12px" }}>{obj.content_type}</td>
+                      <td style={{ padding: "6px 12px", textAlign: "right" }}>
+                        <button className="admin-filter-btn" onClick={() => handleDelete(selected, obj.key)}>
+                          <Trash2 className="h-3 w-3" style={{ color: "var(--color-red)" }} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {objects.length === 0 && (
+                    <tr><td colSpan={4} style={{ padding: "16px 12px", textAlign: "center" }} className="admin-muted">No objects</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB", "TB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
 }

@@ -656,6 +656,20 @@ async def _migrate(db: aiosqlite.Connection):
         CREATE INDEX IF NOT EXISTS idx_lb_backends_instance ON lb_backends(instance_id);
         CREATE INDEX IF NOT EXISTS idx_lb_rules_pool ON lb_rules(pool_id);
         CREATE INDEX IF NOT EXISTS idx_lb_rules_priority ON lb_rules(priority);
+
+        -- z86 storage: access keys managed by central server
+        CREATE TABLE IF NOT EXISTS z86_keys (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            access_key_id TEXT UNIQUE NOT NULL,
+            secret_access_key TEXT NOT NULL,
+            label TEXT DEFAULT '',
+            active INTEGER DEFAULT 1,
+            bucket TEXT NOT NULL,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_z86_keys_project ON z86_keys(project_id);
     """)
 
     # Migration: add workspace columns
