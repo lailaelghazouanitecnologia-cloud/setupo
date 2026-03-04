@@ -1,4 +1,5 @@
 import os
+import hmac
 import logging
 from contextlib import asynccontextmanager
 
@@ -14,6 +15,9 @@ from server.ratelimit import RateLimitMiddleware
 
 
 SERVER_MODE = settings.SERVER_MODE  # "admin", "user", "full"
+
+# Paths that don't require the admin secret (health checks, public endpoints)
+_ADMIN_SECRET_EXEMPT = {"/api/health", "/api/billing/stripe/webhook"}
 
 
 class AdminHostMiddleware(BaseHTTPMiddleware):
@@ -38,8 +42,8 @@ class AdminHostMiddleware(BaseHTTPMiddleware):
 class ServerModeMiddleware(BaseHTTPMiddleware):
     """
     Block routes based on NSO_SERVER_MODE.
-    - admin mode: block nothing (full access)
-    - user mode: block /api/admin/*, orchestrator monitor only
+    - admin mode: requires X-Admin-Secret header + optional IP whitelist
+    - user mode: block /api/admin/*
     - full: everything enabled (default, dev)
     """
 
@@ -53,17 +57,29 @@ class ServerModeMiddleware(BaseHTTPMiddleware):
             )
 
         if SERVER_MODE == "admin":
-            # On admin instance, optionally restrict by IP
-            allowed = [ip.strip() for ip in settings.ADMIN_ALLOWED_IPS if ip.strip()]
-            if allowed:
-                client_ip = request.client.host if request.client else ""
-                forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
-                real_ip = forwarded or client_ip
-                if real_ip not in allowed and "127.0.0.1" != real_ip:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"error": "Access denied"},
-                    )
+            # Exempt health and webhook endpoints
+            if path not in _ADMIN_SECRET_EXEMPT:
+                # Require X-Admin-Secret on every request
+                admin_secret = settings.ADMIN_SECRET
+                if admin_secret:
+                    provided = request.headers.get("x-admin-secret", "")
+                    if not provided or not hmac.compare_digest(provided, admin_secret):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"error": "Access denied"},
+                        )
+
+                # Optional IP whitelist (additional layer)
+                allowed = [ip.strip() for ip in settings.ADMIN_ALLOWED_IPS if ip.strip()]
+                if allowed:
+                    client_ip = request.client.host if request.client else ""
+                    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    real_ip = forwarded or client_ip
+                    if real_ip not in allowed and real_ip != "127.0.0.1":
+                        return JSONResponse(
+                            status_code=403,
+                            content={"error": "Access denied"},
+                        )
 
         return await call_next(request)
 
@@ -121,7 +137,7 @@ app.add_middleware(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Secret"],
 )
 
 
