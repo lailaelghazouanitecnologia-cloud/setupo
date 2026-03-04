@@ -18,6 +18,7 @@ import { AddonsPanel } from "./addons-panel";
 import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
 import { SettingsPanel } from "./settings-panel";
+import { WorkspacesPanel } from "./workspaces-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -94,6 +95,7 @@ class PanelErrorBoundary extends Component<
 const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
   { id: "inbox", label: "Inbox", icon: Mail },
   { id: "instances", label: "Instances", icon: Server },
+  { id: "workspaces", label: "Workspaces", icon: FolderOpen },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
   { id: "addons", label: "Apps", icon: Blocks },
@@ -103,6 +105,7 @@ const viewTitles: Record<DashboardView, string> = {
   inbox: "Inbox",
   instances: "Instances",
   projects: "Projects",
+  workspaces: "Workspaces",
   deploy: "Deploy",
   secrets: "Secrets",
   addons: "Apps",
@@ -269,43 +272,6 @@ function ProjectSwitcher() {
   );
 }
 
-/* ═══════════════════════════════════════════
-   WORKSPACES LIST (sidebar section)
-   ═══════════════════════════════════════════ */
-function WorkspacesList() {
-  const workspaces = useDashboardStore((s) => s.workspaces);
-  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
-  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
-
-  if (workspaces.length === 0) return null;
-
-  return (
-    <div style={{ padding: "4px 0" }}>
-      <div style={{
-        padding: "6px 16px 4px",
-        fontSize: 10,
-        fontWeight: 600,
-        color: "var(--muted-foreground)",
-        textTransform: "uppercase",
-        letterSpacing: "0.05em",
-        opacity: 0.7,
-      }}>
-        Workspaces
-      </div>
-      {workspaces.map((ws) => (
-        <button
-          key={ws.id}
-          className={cn("fmenu", activeWorkspace?.id === ws.id && "active")}
-          onClick={() => setActiveWorkspace(ws)}
-          style={{ paddingLeft: 18 }}
-        >
-          <FolderOpen className="h-3 w-3" style={{ opacity: 0.6 }} />
-          <span style={{ fontSize: 12 }}>{ws.name}</span>
-        </button>
-      ))}
-    </div>
-  );
-}
 
 /* ═══════════════════════════════════════════
    USER PROFILE (bottom of sidebar)
@@ -552,12 +518,6 @@ export function DashboardLayout() {
           ))}
         </nav>
 
-        {/* Separator */}
-        <div style={{ height: 1, background: "var(--border)", margin: "4px 12px", opacity: 0.5 }} />
-
-        {/* Workspaces list */}
-        <WorkspacesList />
-
         {/* Spacer */}
         <div style={{ flex: 1 }} />
 
@@ -571,6 +531,7 @@ export function DashboardLayout() {
           {activeView === "inbox" && <PanelErrorBoundary name="Inbox"><InboxPanel /></PanelErrorBoundary>}
           {activeView === "instances" && <PanelErrorBoundary name="Instances"><InstancesPanel /></PanelErrorBoundary>}
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
+          {activeView === "workspaces" && <PanelErrorBoundary name="Workspaces"><WorkspacesPanel /></PanelErrorBoundary>}
           {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
           {activeView === "secrets" && <PanelErrorBoundary name="Secrets"><SecretsPanel /></PanelErrorBoundary>}
           {activeView === "addons" && <PanelErrorBoundary name="Apps"><AddonsPanel /></PanelErrorBoundary>}

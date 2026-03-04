@@ -360,7 +360,7 @@ export async function zarRollback(projectId: string, name: string, instanceId: s
 }
 
 export async function zarVersions(projectId: string, name: string, branch = "main") {
-  return centralApi<{ workspace: string; branch: string; versions: string[]; branches: string[] }>(
+  return centralApi<{ workspace: string; branch: string; versions: string[]; branches: Record<string, string> }>(
     `/api/projects/${projectId}/zar/${name}/versions?branch=${encodeURIComponent(branch)}`,
   );
 }

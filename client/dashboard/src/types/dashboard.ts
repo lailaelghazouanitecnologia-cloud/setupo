@@ -1,4 +1,4 @@
-export type DashboardView = "inbox" | "instances" | "projects" | "deploy" | "secrets" | "addons" | "billing" | "settings";
+export type DashboardView = "inbox" | "instances" | "projects" | "workspaces" | "deploy" | "secrets" | "addons" | "billing" | "settings";
 
 export type AddonTab = "connectors" | "plugins" | "marketplace";
 
