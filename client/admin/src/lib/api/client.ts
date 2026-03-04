@@ -245,6 +245,16 @@ export async function adminGetUserActivity(userId: string, limit = 50) {
   );
 }
 
+export async function adminCreateUser(data: { email: string; password: string; name?: string; role?: string }) {
+  return adminApi<{ ok: boolean; user: AdminUser }>("/api/admin/users", {
+    method: "POST", body: JSON.stringify(data),
+  });
+}
+
+export async function adminGetUserProjects(userId: string) {
+  return adminApi<{ projects: AdminProject[] }>(`/api/admin/users/${userId}/projects`);
+}
+
 // ── Analytics ──
 export async function getRevenueAnalytics(days = 30) {
   return adminApi<RevenueSummary>(`/api/admin/analytics/revenue?days=${days}`);

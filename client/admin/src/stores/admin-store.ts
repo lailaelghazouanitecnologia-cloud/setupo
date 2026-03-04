@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 export type Theme = "dark" | "light" | "auto";
-export type AdminView = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger" | "projects" | "orchestrator" | "loadbalancer";
+export type AdminView = "overview" | "users" | "cashflow" | "analytics" | "fraud" | "ledger";
 
 interface AdminState {
   token: string | null;

@@ -3,7 +3,7 @@
 import React from "react";
 import {
   BarChart3, Users, TrendingUp, Shield, Link2, ArrowDownUp,
-  LogOut, Sun, Moon, X, FolderOpen, Activity, Network,
+  LogOut, Sun, Moon, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAdminStore, type AdminView } from "@/stores/admin-store";
@@ -13,9 +13,6 @@ import { AdminPanel } from "./admin-panel";
 const navItems: { id: AdminView; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Overview", icon: BarChart3 },
   { id: "users", label: "Users", icon: Users },
-  { id: "projects", label: "Projects", icon: FolderOpen },
-  { id: "orchestrator", label: "Orchestrator", icon: Activity },
-  { id: "loadbalancer", label: "Load Balancer", icon: Network },
   { id: "cashflow", label: "Cashflow", icon: ArrowDownUp },
   { id: "analytics", label: "Analytics", icon: TrendingUp },
   { id: "fraud", label: "Fraud", icon: Shield },
@@ -25,9 +22,6 @@ const navItems: { id: AdminView; label: string; icon: React.ElementType }[] = [
 const viewTitles: Record<AdminView, string> = {
   overview: "Overview",
   users: "Users",
-  projects: "Projects & Workspaces",
-  orchestrator: "Orchestrator",
-  loadbalancer: "Load Balancer",
   cashflow: "Cashflow",
   analytics: "Analytics",
   fraud: "Fraud Detection",

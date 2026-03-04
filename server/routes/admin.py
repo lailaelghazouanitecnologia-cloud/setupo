@@ -35,6 +35,13 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=128)
 
 
+class CreateUserRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=6, max_length=128)
+    name: str = Field("", max_length=64)
+    role: Literal["user", "admin"] = "user"
+
+
 class UpdateUserRequest(BaseModel):
     name: str | None = Field(None, min_length=1, max_length=64)
     email: str | None = Field(None, min_length=3, max_length=254)
@@ -126,6 +133,49 @@ async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin))
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
+
+
+@router.post("/users")
+async def create_user(req: CreateUserRequest, auth: AuthContext = Depends(require_admin)):
+    """Admin create a new user account."""
+    from server.core import users
+    try:
+        user = await users.create_user(req.email, req.password, req.name)
+        if req.role != "user":
+            from server.core import db
+            await db.update("users", user["id"], role=req.role)
+            user["role"] = req.role
+        logger.info("Admin %s created user %s (%s)", _admin_id(auth), user["id"], req.email)
+        return {"ok": True, "user": user}
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
+@router.get("/users/{user_id}/projects")
+async def user_projects(user_id: str, auth: AuthContext = Depends(require_admin)):
+    """Get all projects owned by a specific user."""
+    _check_user_id(user_id)
+    from server.core import db
+    d = await db.get_db()
+    cursor = await d.execute(
+        "SELECT * FROM projects WHERE owner = ? ORDER BY created_at DESC",
+        (user_id,),
+    )
+    rows = await cursor.fetchall()
+    projects = []
+    for row in rows:
+        p = db._row_to_dict(row)
+        ws_cursor = await d.execute(
+            "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
+        )
+        p["workspace_count"] = (await ws_cursor.fetchone())[0]
+        inst_cursor = await d.execute(
+            "SELECT COUNT(*) FROM instances WHERE project_id = ?", (p["id"],),
+        )
+        p["instance_count"] = (await inst_cursor.fetchone())[0]
+        p.pop("api_key_hash", None)
+        projects.append(p)
+    return {"projects": projects}
 
 
 @router.get("/users/{user_id}/activity")
