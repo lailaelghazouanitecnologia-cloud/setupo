@@ -283,7 +283,7 @@ async def exec_on_instance(project_id: str, instance_id: str, command: str, time
         token = await _agent_login(ip)
         async with _ipv4_client(timeout + 10) as client:
             resp = await client.post(
-                f"http://{ip}:8081/exec",
+                f"http://{ip}:8081/exec/",
                 headers={"Authorization": f"Bearer {token}"},
                 json={"command": command, "timeout": timeout},
             )

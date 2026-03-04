@@ -148,6 +148,7 @@ class ShipRequest(BaseModel):
 class RollbackRequest(BaseModel):
     instance_id: str
     snapshot: str = ""
+    target_dir: str = ""
 
 
 class BranchRequest(BaseModel):
@@ -313,12 +314,14 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    target_dir = req.target_dir or "/opt/app"
+
     try:
         async with _agent_client(ROLLBACK_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
-                params={"target_dir": "/opt/app", "restart_service": ""},
+                params={"target_dir": target_dir, "restart_service": ""},
                 json={"snapshot": req.snapshot},
             )
     except httpx.ConnectError:
