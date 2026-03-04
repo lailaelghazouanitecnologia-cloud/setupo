@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useZ86Store } from "@/stores/z86-store";
 import { LoginForm, RegisterForm } from "@/components/auth-form";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -23,32 +23,36 @@ export default function Home() {
 }
 
 function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const ctx = gsap.context(() => {
-      // Hero entrance
-      gsap.from(".lp-hero", { y: 30, opacity: 0, duration: 1, ease: "power3.out" });
+      // Fixed panel entrance
+      gsap.from(".lp-fixed-title", { y: 20, opacity: 0, duration: 1, delay: 0.2, ease: "power3.out" });
+      gsap.from(".lp-fixed-terminal", { y: 20, opacity: 0, duration: 0.8, delay: 0.5, ease: "power3.out" });
+      gsap.from(".lp-fixed-actions", { y: 10, opacity: 0, duration: 0.6, delay: 0.7, ease: "power3.out" });
 
-      // Sections reveal on scroll
+      // Scroll panel sections
       gsap.utils.toArray<HTMLElement>(".lp-section").forEach((section) => {
         gsap.from(section.children, {
-          y: 40, opacity: 0, duration: 0.8, stagger: 0.08, ease: "power3.out",
-          scrollTrigger: { trigger: section, start: "top 80%", toggleActions: "play none none none" },
+          y: 30, opacity: 0, duration: 0.7, stagger: 0.06, ease: "power3.out",
+          scrollTrigger: { trigger: section, scroller: scrollRef.current, start: "top 82%", toggleActions: "play none none none" },
         });
       });
 
-      // Feature items stagger
+      // Feature items
       gsap.utils.toArray<HTMLElement>(".lp-item-outer").forEach((item, i) => {
         gsap.from(item, {
-          y: 20, opacity: 0, duration: 0.5, delay: i * 0.05, ease: "power2.out",
-          scrollTrigger: { trigger: item, start: "top 88%", toggleActions: "play none none none" },
+          y: 16, opacity: 0, duration: 0.4, delay: i * 0.04, ease: "power2.out",
+          scrollTrigger: { trigger: item, scroller: scrollRef.current, start: "top 88%", toggleActions: "play none none none" },
         });
       });
 
       // Pricing cards
       gsap.utils.toArray<HTMLElement>(".lp-price-outer").forEach((card, i) => {
         gsap.from(card, {
-          y: 40, opacity: 0, duration: 0.6, delay: i * 0.08, ease: "power3.out",
-          scrollTrigger: { trigger: card, start: "top 85%", toggleActions: "play none none none" },
+          y: 30, opacity: 0, duration: 0.5, delay: i * 0.06, ease: "power3.out",
+          scrollTrigger: { trigger: card, scroller: scrollRef.current, start: "top 85%", toggleActions: "play none none none" },
         });
       });
     });
@@ -57,27 +61,49 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
 
   return (
     <div className="lp">
-      {/* Header */}
-      <header className="lp-header">
-        <div className="lp-header-inner">
-          <div className="lp-header-left">
-            <span className="lp-logo">z86</span>
+      {/* ── Fixed left panel (36%) ── */}
+      <div className="lp-fixed">
+        <NoiseBackground />
+        <div className="lp-fixed-inner">
+          <div className="lp-fixed-top">
+            <Z86Logo width={80} height={32} />
           </div>
-          <nav className="lp-header-nav">
-            <button className="lp-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
-            <button className="lp-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
-            <button className="lp-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
-          </nav>
-          <div className="lp-header-right">
-            <button className="lp-nav-link" onClick={onLogin}>Sign in</button>
-            <button className="landing-btn landing-btn-primary landing-btn-sm" onClick={onRegister}>Get started</button>
+          <div className="lp-fixed-center">
+            <h2 className="lp-fixed-title">
+              Affordable,<br />scalable<br />infrastructure<br />you control.
+            </h2>
+          </div>
+          <div className="lp-fixed-bottom">
+            <div className="lp-fixed-terminal">
+              <div className="lp-terminal-body">
+                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./data.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
+                <div><span className="t-out">upload: ./data.tar.gz → s3://bucket/data.tar.gz</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
+              </div>
+            </div>
+            <div className="lp-fixed-actions">
+              <button className="landing-btn landing-btn-dark" onClick={onRegister} style={{ flex: 1, justifyContent: "center" }}>Get started</button>
+              <button className="landing-btn landing-btn-outline" onClick={onLogin} style={{ flex: 1, justifyContent: "center" }}>Sign in</button>
+            </div>
           </div>
         </div>
-      </header>
+      </div>
 
-      {/* Hero */}
-      <section className="lp-hero">
-        <div className="lp-hero-inner">
+      {/* ── Scrollable right panel (64%) — white bg ── */}
+      <div className="lp-scroll" ref={scrollRef}>
+        {/* Header */}
+        <header className="lp-header">
+          <div className="lp-header-inner">
+            <nav className="lp-header-nav">
+              <button className="lp-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
+              <button className="lp-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
+              <button className="lp-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
+            </nav>
+          </div>
+        </header>
+
+        {/* Hero */}
+        <section className="lp-section lp-hero">
           <div className="lp-badge">
             <span className="lp-badge-dot" />
             S3-compatible &mdash; drop-in replacement
@@ -87,32 +113,10 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
             S3-compatible API. No egress fees. No vendor lock-in.<br />
             Store files, assets, backups on infrastructure you control.
           </p>
-          <div className="lp-hero-actions">
-            <button className="landing-btn landing-btn-primary" onClick={onRegister}>Get started free</button>
-            <button className="landing-btn landing-btn-ghost" onClick={onLogin}>Sign in</button>
-          </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Terminal preview */}
-      <section className="lp-terminal-section">
-        <div className="lp-terminal">
-          <div className="lp-terminal-dots">
-            <span /><span /><span />
-          </div>
-          <div className="lp-terminal-body">
-            <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./data.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
-            <div><span className="t-out">upload: ./data.tar.gz → s3://bucket/data.tar.gz</span></div>
-            <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://bucket/</span></div>
-            <div><span className="t-out">2026-03-04 12:00:00    1048576 data.tar.gz</span></div>
-            <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="lp-section" id="features">
-        <div className="lp-section-inner">
+        {/* Features */}
+        <section className="lp-section" id="features">
           <div className="lp-section-header">
             <span className="lp-label">Features</span>
             <span className="lp-label-suffix">06</span>
@@ -140,12 +144,10 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
               </div>
             </div>
           ))}
-        </div>
-      </section>
+        </section>
 
-      {/* How it works */}
-      <section className="lp-section" id="how">
-        <div className="lp-section-inner">
+        {/* How it works */}
+        <section className="lp-section" id="how">
           <div className="lp-section-header">
             <span className="lp-label">How it works</span>
             <span className="lp-label-suffix">03</span>
@@ -166,12 +168,10 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Pricing */}
-      <section className="lp-section" id="pricing">
-        <div className="lp-section-inner">
+        {/* Pricing */}
+        <section className="lp-section" id="pricing">
           <div className="lp-section-header">
             <span className="lp-label">Pricing</span>
             <span className="lp-label-suffix">03</span>
@@ -196,23 +196,81 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
               </div>
             ))}
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* Footer */}
-      <footer className="lp-footer">
-        <div className="lp-footer-inner">
+        {/* Footer */}
+        <footer className="lp-footer">
           <div className="lp-footer-manifesto">
             S3-compatible object storage. Fast, simple, and on your terms.<br />
             No egress fees, no vendor lock-in, no complexity. Just store.
           </div>
-          <div className="lp-footer-bottom">
-            <span className="lp-logo">z86</span>
-            <span className="lp-footer-copy">&copy; 2026 z86</span>
-          </div>
-        </div>
-      </footer>
+          <span className="lp-footer-copy">&copy; 2026 z86</span>
+        </footer>
+      </div>
     </div>
   );
 }
 
+function NoiseBackground() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement!.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const img = ctx.createImageData(canvas.width, canvas.height);
+    const px = img.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const v = Math.floor(Math.random() * 18);
+      px[i] = v; px[i + 1] = v; px[i + 2] = v; px[i + 3] = 30;
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+  return <canvas ref={canvasRef} className="lp-noise" />;
+}
+
+function Z86Logo({ width = 72, height = 28 }: { width?: number; height?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const off = document.createElement("canvas");
+    off.width = cw; off.height = ch;
+    const oCtx = off.getContext("2d")!;
+    oCtx.fillStyle = "#fff";
+    const fontSize = Math.round(ch * 0.75);
+    oCtx.font = `900 ${fontSize}px "Arial Black","Impact",sans-serif`;
+    oCtx.textAlign = "center";
+    oCtx.textBaseline = "middle";
+    oCtx.fillText("z86", cw / 2, ch / 2 + 1);
+    const mask = oCtx.getImageData(0, 0, cw, ch);
+    ctx.clearRect(0, 0, cw, ch);
+    const img = ctx.createImageData(cw, ch);
+    const px = img.data;
+    const lineSpacing = Math.max(2, Math.round(ch / 40));
+    const lineWidth = Math.max(1, Math.round(lineSpacing * 0.57));
+    for (let y = 0; y < ch; y++) {
+      if ((y % lineSpacing) >= lineWidth) continue;
+      const t = y / ch;
+      const base = 255 - Math.floor(t * 180);
+      for (let x = 0; x < cw; x++) {
+        const idx = (y * cw + x) * 4;
+        if (mask.data[idx + 3] < 128) continue;
+        const noise = (Math.random() - 0.5) * 50;
+        const v = Math.max(0, Math.min(255, base + noise));
+        px[idx] = v; px[idx + 1] = v; px[idx + 2] = v; px[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+  useEffect(() => { draw(); }, [draw]);
+  return <canvas ref={canvasRef} width={width * 2} height={height * 2} style={{ width, height }} />;
+}
