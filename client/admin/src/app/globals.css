@@ -761,6 +761,57 @@
   }
 
   .admin-trow.active-row { background: var(--accent); }
+
+  /* ── User list (infra, storage) ── */
+  .admin-users-list {
+    display: flex; flex-direction: column; gap: 2px;
+    border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden;
+  }
+  .admin-user-row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; gap: 10px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.08s;
+  }
+  .admin-user-row:last-child { border-bottom: none; }
+  .admin-user-row:hover { background: var(--accent); }
+  .admin-user-info {
+    display: flex; align-items: center; gap: 10px; min-width: 0;
+  }
+  .admin-user-avatar {
+    width: 32px; height: 32px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; flex-shrink: 0;
+  }
+  .admin-user-email {
+    font-size: var(--font-sm); font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .admin-user-meta {
+    font-size: var(--font-xxs); color: var(--muted-foreground);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  /* ── Badge ── */
+  .admin-badge {
+    display: inline-flex; padding: 1px 8px; border-radius: 4px;
+    font-size: var(--font-xxs); font-weight: 500;
+    background: var(--accent); color: var(--muted-foreground);
+    white-space: nowrap;
+  }
+
+  /* ── Filter / icon button ── */
+  .admin-filter-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; border-radius: 6px;
+    border: 1px solid var(--border); background: none;
+    color: var(--muted-foreground); cursor: pointer;
+    transition: all 0.1s; flex-shrink: 0;
+  }
+  .admin-filter-btn:hover { color: var(--foreground); background: var(--accent); }
+  .admin-filter-btn:disabled { opacity: 0.4; cursor: default; }
+  .admin-filter-btn svg { width: 12px; height: 12px; }
 }
 
 /* ── Animations ── */

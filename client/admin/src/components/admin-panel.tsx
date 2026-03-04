@@ -407,7 +407,7 @@ function UsersTab() {
       </div>
 
       {showCreate && (
-        <div style={{ padding: 14, background: "var(--sidebar-bg)", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 12 }}>
+        <div style={{ padding: 14, background: "var(--card)", border: "1px solid var(--border)", borderRadius: 8, marginBottom: 12 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8 }}>Create User</div>
           {createErr && <div className="admin-error" style={{ marginBottom: 8 }}>{createErr}</div>}
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
@@ -614,7 +614,7 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
                   style={{
                     display: "flex", alignItems: "center", gap: 10,
                     padding: "8px 10px", borderRadius: 6, cursor: "pointer",
-                    background: expandedProject === p.id ? "var(--sidebar-bg)" : "transparent",
+                    background: expandedProject === p.id ? "var(--card)" : "transparent",
                     border: "1px solid var(--border)",
                     fontSize: 13,
                   }}
@@ -630,7 +630,7 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
                   }} />
                 </div>
                 {expandedProject === p.id && (
-                  <div style={{ padding: "6px 12px 8px 32px", background: "var(--sidebar-bg)", borderRadius: "0 0 6px 6px" }}>
+                  <div style={{ padding: "6px 12px 8px 32px", background: "var(--card)", borderRadius: "0 0 6px 6px" }}>
                     {projectWorkspaces.length === 0 ? (
                       <div style={{ fontSize: 12, opacity: 0.5, padding: "4px 0" }}>No workspaces</div>
                     ) : (
