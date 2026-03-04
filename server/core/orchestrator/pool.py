@@ -63,6 +63,15 @@ async def register_node(req: RegisterNodeRequest) -> PoolNode:
     })
 
     logger.info("Node registered: %s (instance=%s, role=%s)", node_id, req.instance_id, req.role.value)
+
+    # Auto-sync to load balancer if runner/hybrid
+    if req.role in (NodeRole.RUNNER, NodeRole.HYBRID) and node.ip:
+        try:
+            from server.core.loadbalancer.sync import sync_node_to_lb
+            await sync_node_to_lb(req.instance_id, node.ip)
+        except Exception as e:
+            logger.warning("LB sync failed for %s: %s", req.instance_id, e)
+
     return node
 
 
@@ -101,6 +110,14 @@ async def remove_node(node_id: str):
     # Check no active builds
     if node.get("active_builds", 0) > 0:
         raise ConflictError("Node has active builds. Set status to 'draining' first.")
+
+    # Remove from load balancer
+    instance_id = node.get("instance_id", "")
+    try:
+        from server.core.loadbalancer.sync import remove_node_from_lb
+        await remove_node_from_lb(instance_id)
+    except Exception as e:
+        logger.warning("LB remove failed for %s: %s", instance_id, e)
 
     await db.delete("instance_pool", node_id)
     logger.info("Node removed: %s", node_id)

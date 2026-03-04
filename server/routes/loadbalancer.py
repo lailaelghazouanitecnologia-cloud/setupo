@@ -165,3 +165,68 @@ async def get_nginx_config(_admin=Depends(require_admin)):
 async def get_nginx_upstreams(_admin=Depends(require_admin)):
     """Generate only the upstream blocks."""
     return await generate_upstream_config()
+
+
+# ── Sync with Orchestrator ────────────────────────────────
+
+@router.post("/sync")
+async def sync_lb_with_orchestrator(_admin=Depends(require_admin)):
+    """Full sync: ensure all active orchestrator nodes are LB backends."""
+    from server.core.loadbalancer.sync import full_sync
+    result = await full_sync()
+    return {"ok": True, **result}
+
+
+@router.post("/drain/{instance_id}")
+async def drain_instance(instance_id: str, _admin=Depends(require_admin)):
+    """Set an instance to draining (no new traffic, finish existing)."""
+    from server.core.loadbalancer.sync import drain_node_in_lb
+    await drain_node_in_lb(instance_id)
+    return {"ok": True, "message": f"Instance {instance_id} set to draining"}
+
+
+# ── Stats ─────────────────────────────────────────────────
+
+@router.get("/stats")
+async def lb_stats(_admin=Depends(require_admin)):
+    """Per-backend traffic stats."""
+    from server.core import db
+    d = await db.get_db()
+
+    # Per-pool stats
+    pools = await pool_manager.list_pools()
+    pool_stats = []
+    for p in pools:
+        healthy = len([b for b in p.backends if b.status == BackendStatus.HEALTHY])
+        unhealthy = len([b for b in p.backends if b.status == BackendStatus.UNHEALTHY])
+        draining = len([b for b in p.backends if b.status == BackendStatus.DRAINING])
+        total_reqs = sum(b.total_requests for b in p.backends)
+        total_conns = sum(b.active_connections for b in p.backends)
+
+        backend_stats = []
+        for b in p.backends:
+            backend_stats.append({
+                "id": b.id,
+                "ip": b.ip,
+                "port": b.port,
+                "status": b.status.value,
+                "weight": b.weight,
+                "active_connections": b.active_connections,
+                "total_requests": b.total_requests,
+                "failed_health_checks": b.failed_health_checks,
+                "last_health_check": b.last_health_check,
+            })
+
+        pool_stats.append({
+            "pool_id": p.id,
+            "name": p.name,
+            "algorithm": p.algorithm.value,
+            "healthy": healthy,
+            "unhealthy": unhealthy,
+            "draining": draining,
+            "total_requests": total_reqs,
+            "active_connections": total_conns,
+            "backends": backend_stats,
+        })
+
+    return {"pools": pool_stats}

@@ -135,6 +135,9 @@ app = FastAPI(
 # ── Middleware ─────────────────────────────────────────────
 
 app.add_middleware(RateLimitMiddleware)
+if SERVER_MODE == "admin":
+    from server.core.loadbalancer.proxy import LBProxyMiddleware
+    app.add_middleware(LBProxyMiddleware)
 app.add_middleware(ServerModeMiddleware)
 if SERVER_MODE in ("admin", "full"):
     app.add_middleware(AdminHostMiddleware)
