@@ -7,7 +7,8 @@ import { KeysPanel } from "./panels/keys";
 import { UsagePanel } from "./panels/usage";
 import { SettingsPanel } from "./panels/settings";
 
-const NAV_ITEMS: { id: string; label: string; icon: string }[] = [
+type PanelId = "overview" | "buckets" | "keys" | "usage" | "settings";
+const NAV_ITEMS: { id: PanelId; label: string; icon: string }[] = [
   { id: "overview", label: "Overview", icon: "⊞" },
   { id: "buckets", label: "Buckets", icon: "◫" },
   { id: "keys", label: "Keys", icon: "⚿" },
