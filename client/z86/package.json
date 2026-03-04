@@ -9,6 +9,7 @@
     "export": "next build && cp -r out/* static/"
   },
   "dependencies": {
+    "gsap": "^3.14.2",
     "next": "15.1.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

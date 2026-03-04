@@ -1,8 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { useZ86Store } from "@/stores/z86-store";
 import { LoginForm, RegisterForm } from "@/components/auth-form";
 import { DashboardLayout } from "@/components/dashboard-layout";
+import gsap from "gsap";
+import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+gsap.registerPlugin(ScrollTrigger);
 
 export default function Home() {
   const { view, setView, token } = useZ86Store();
@@ -19,39 +23,80 @@ export default function Home() {
 }
 
 function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      // Animate each section on scroll
+      gsap.utils.toArray<HTMLElement>(".lp-section, .lp-hero").forEach((section) => {
+        gsap.from(section.children, {
+          y: 40, opacity: 0, duration: 0.8, stagger: 0.1, ease: "power3.out",
+          scrollTrigger: {
+            trigger: section,
+            scroller: scrollRef.current,
+            start: "top 80%",
+            toggleActions: "play none none none",
+          },
+        });
+      });
+
+      // Animate feature items
+      gsap.utils.toArray<HTMLElement>(".lp-item-outer").forEach((item, i) => {
+        gsap.from(item, {
+          x: -30, opacity: 0, duration: 0.5, delay: i * 0.06, ease: "power2.out",
+          scrollTrigger: {
+            trigger: item,
+            scroller: scrollRef.current,
+            start: "top 85%",
+            toggleActions: "play none none none",
+          },
+        });
+      });
+
+      // Animate pricing cards
+      gsap.utils.toArray<HTMLElement>(".lp-price-outer").forEach((card, i) => {
+        gsap.from(card, {
+          y: 50, opacity: 0, duration: 0.6, delay: i * 0.1, ease: "power3.out",
+          scrollTrigger: {
+            trigger: card,
+            scroller: scrollRef.current,
+            start: "top 85%",
+            toggleActions: "play none none none",
+          },
+        });
+      });
+
+      // Fixed panel title
+      gsap.from(".lp-fixed-title", { y: 20, opacity: 0, duration: 1, delay: 0.3, ease: "power3.out" });
+      gsap.from(".lp-fixed-terminal", { y: 20, opacity: 0, duration: 0.8, delay: 0.6, ease: "power3.out" });
+      gsap.from(".lp-fixed-actions", { y: 10, opacity: 0, duration: 0.6, delay: 0.8, ease: "power3.out" });
+    });
+
+    return () => ctx.revert();
+  }, []);
+
   return (
     <div className="lp">
       {/* ── Fixed left panel (36%) ── */}
       <div className="lp-fixed">
+        <NoiseBackground />
         <div className="lp-fixed-inner">
           <div className="lp-fixed-top">
-            <Z86Logo size={32} />
-            <span className="lp-brand">z86</span>
+            <Z86Logo width={80} height={32} />
           </div>
           <div className="lp-fixed-center">
-            <div className="lp-terminal">
-              <div className="lp-terminal-bar">
-                <span className="landing-terminal-dot" />
-                <span className="landing-terminal-dot" />
-                <span className="landing-terminal-dot" />
-                <span className="landing-terminal-title">~/my-app</span>
-              </div>
+            <h2 className="lp-fixed-title">
+              Affordable,<br />scalable<br />infrastructure<br />you control.
+            </h2>
+          </div>
+          <div className="lp-fixed-bottom">
+            <div className="lp-fixed-terminal">
               <div className="lp-terminal-body">
-                <div><span className="t-comment"># Works with any S3 client</span></div>
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./backup.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
-                <div><span className="t-out">upload: ./backup.tar.gz → s3://bucket/backup.tar.gz</span></div>
-                <div style={{ height: 4 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://bucket/</span></div>
-                <div><span className="t-out">2026-03-04  backups/</span></div>
-                <div><span className="t-out">2026-03-04  assets/</span></div>
-                <div style={{ height: 4 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">curl</span> <span className="t-flag">-I</span> <span className="t-arg">https://s3.z86.dev/bucket/logo.png</span></div>
-                <div><span className="t-out">HTTP/2 200</span> <span className="t-ok">OK</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./data.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
+                <div><span className="t-out">upload: ./data.tar.gz → s3://bucket/data.tar.gz</span></div>
                 <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
               </div>
             </div>
-          </div>
-          <div className="lp-fixed-bottom">
             <div className="lp-fixed-actions">
               <button className="landing-btn landing-btn-primary" onClick={onRegister} style={{ flex: 1, justifyContent: "center" }}>Get started</button>
               <button className="landing-btn landing-btn-secondary" onClick={onLogin} style={{ flex: 1, justifyContent: "center" }}>Sign in</button>
@@ -61,21 +106,24 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
       </div>
 
       {/* ── Scrollable right panel (64%) ── */}
-      <div className="lp-scroll">
-        {/* Nav bar */}
-        <nav className="lp-nav">
-          <div className="lp-nav-inner">
-            <div className="lp-nav-left">
-              <Z86Logo size={16} />
-              <span className="lp-nav-brand">z86</span>
+      <div className="lp-scroll" ref={scrollRef}>
+        {/* Header */}
+        <header className="lp-header">
+          <div className="lp-header-inner">
+            <div className="lp-header-left">
+              <Z86Logo width={40} height={16} />
             </div>
-            <div className="lp-nav-right">
+            <nav className="lp-header-nav">
               <button className="lp-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
               <button className="lp-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
               <button className="lp-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
+            </nav>
+            <div className="lp-header-right">
+              <button className="lp-nav-link" onClick={onLogin}>Sign in</button>
+              <button className="landing-btn landing-btn-primary landing-btn-sm" onClick={onRegister}>Get started</button>
             </div>
           </div>
-        </nav>
+        </header>
 
         {/* Hero */}
         <section className="lp-hero">
@@ -203,11 +251,71 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
   );
 }
 
-const Z86Logo = ({ size = 28 }: { size?: number }) => (
-  <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <rect x="8" y="8" width="84" height="84" rx="16" stroke="currentColor" strokeWidth="6" />
-    <rect x="24" y="28" width="52" height="10" rx="5" fill="currentColor" opacity="0.3" />
-    <rect x="24" y="45" width="52" height="10" rx="5" fill="currentColor" opacity="0.6" />
-    <rect x="24" y="62" width="52" height="10" rx="5" fill="currentColor" />
-  </svg>
-);
+function NoiseBackground() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.parentElement!.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const img = ctx.createImageData(cw, ch);
+    const px = img.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const v = Math.floor(Math.random() * 18);
+      px[i] = v; px[i + 1] = v; px[i + 2] = v; px[i + 3] = 30;
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+  return <canvas ref={canvasRef} className="lp-noise" />;
+}
+
+function Z86Logo({ width = 72, height = 28 }: { width?: number; height?: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const draw = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const cw = canvas.width;
+    const ch = canvas.height;
+    // text mask
+    const off = document.createElement("canvas");
+    off.width = cw; off.height = ch;
+    const oCtx = off.getContext("2d")!;
+    oCtx.fillStyle = "#fff";
+    const fontSize = Math.round(ch * 0.75);
+    oCtx.font = `900 ${fontSize}px "Arial Black","Impact",sans-serif`;
+    oCtx.textAlign = "center";
+    oCtx.textBaseline = "middle";
+    oCtx.fillText("z86", cw / 2, ch / 2 + 1);
+    const mask = oCtx.getImageData(0, 0, cw, ch);
+    // draw scan-lines
+    ctx.clearRect(0, 0, cw, ch);
+    const img = ctx.createImageData(cw, ch);
+    const px = img.data;
+    const lineSpacing = Math.max(2, Math.round(ch / 40));
+    const lineWidth = Math.max(1, Math.round(lineSpacing * 0.57));
+    for (let y = 0; y < ch; y++) {
+      if ((y % lineSpacing) >= lineWidth) continue;
+      const t = y / ch;
+      const base = 255 - Math.floor(t * 180);
+      for (let x = 0; x < cw; x++) {
+        const idx = (y * cw + x) * 4;
+        if (mask.data[idx + 3] < 128) continue;
+        const noise = (Math.random() - 0.5) * 50;
+        const v = Math.max(0, Math.min(255, base + noise));
+        px[idx] = v; px[idx + 1] = v; px[idx + 2] = v; px[idx + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }, []);
+  useEffect(() => { draw(); }, [draw]);
+  // use 2x resolution for retina
+  return <canvas ref={canvasRef} width={width * 2} height={height * 2} style={{ width, height }} />;
+}
