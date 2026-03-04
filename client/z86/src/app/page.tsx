@@ -3,10 +3,6 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { useZ86Store } from "@/stores/z86-store";
 import { LoginForm, RegisterForm } from "@/components/auth-form";
 import { DashboardLayout } from "@/components/dashboard-layout";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
-
-gsap.registerPlugin(ScrollTrigger);
 
 export default function Home() {
   const { view, setView, token } = useZ86Store();
@@ -22,195 +18,175 @@ export default function Home() {
   return <LandingPage onLogin={() => setView("login")} onRegister={() => setView("register")} />;
 }
 
+/* ═══════════════════════════════════════
+   LANDING — Split: dark left + white right
+   Editorial style, serif headings, list layouts
+   ═══════════════════════════════════════ */
+
 function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // IntersectionObserver scroll reveal
   useEffect(() => {
-    const ctx = gsap.context(() => {
-      // Fixed panel entrance
-      gsap.from(".lp-fixed-title", { y: 20, opacity: 0, duration: 1, delay: 0.2, ease: "power3.out" });
-      gsap.from(".lp-fixed-terminal", { y: 20, opacity: 0, duration: 0.8, delay: 0.5, ease: "power3.out" });
-      gsap.from(".lp-fixed-actions", { y: 10, opacity: 0, duration: 0.6, delay: 0.7, ease: "power3.out" });
-
-      // Scroll panel sections
-      gsap.utils.toArray<HTMLElement>(".lp-section").forEach((section) => {
-        gsap.from(section.children, {
-          y: 30, opacity: 0, duration: 0.7, stagger: 0.06, ease: "power3.out",
-          scrollTrigger: { trigger: section, scroller: scrollRef.current, start: "top 82%", toggleActions: "play none none none" },
-        });
+    const root = scrollRef.current;
+    if (!root) return;
+    const els = root.querySelectorAll<HTMLElement>(".fi");
+    const ob = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (!e.isIntersecting) return;
+        // Stagger items within same parent
+        let delay = 0;
+        const t = e.target as HTMLElement;
+        if (t.classList.contains("I")) {
+          const siblings = Array.from(t.parentElement?.querySelectorAll(".I") || []);
+          delay = siblings.indexOf(t) * 45;
+        }
+        setTimeout(() => t.classList.add("v"), delay);
+        ob.unobserve(t);
       });
-
-      // Feature items
-      gsap.utils.toArray<HTMLElement>(".lp-item-outer").forEach((item, i) => {
-        gsap.from(item, {
-          y: 16, opacity: 0, duration: 0.4, delay: i * 0.04, ease: "power2.out",
-          scrollTrigger: { trigger: item, scroller: scrollRef.current, start: "top 88%", toggleActions: "play none none none" },
-        });
-      });
-
-      // Pricing cards
-      gsap.utils.toArray<HTMLElement>(".lp-price-outer").forEach((card, i) => {
-        gsap.from(card, {
-          y: 30, opacity: 0, duration: 0.5, delay: i * 0.06, ease: "power3.out",
-          scrollTrigger: { trigger: card, scroller: scrollRef.current, start: "top 85%", toggleActions: "play none none none" },
-        });
-      });
-    });
-    return () => ctx.revert();
+    }, { threshold: 0.08, root });
+    els.forEach((el) => ob.observe(el));
+    return () => ob.disconnect();
   }, []);
 
   return (
-    <div className="lp">
-      {/* ── Fixed left panel (36%) ── */}
-      <div className="lp-fixed">
+    <div className="LP">
+      {/* ── LEFT — dark fixed panel ── */}
+      <aside className="L">
         <ShaderBackground />
-        <div className="lp-fixed-inner">
-          <div className="lp-fixed-top">
-            <Z86Logo width={80} height={32} />
+        <div className="L-top">
+          <Z86Logo width={80} height={32} />
+        </div>
+        <div className="L-center">
+          <h2 className="L-heading">Affordable,<br />scalable<br />infrastructure<br />you control.</h2>
+        </div>
+        <div className="L-bottom">
+          <div className="L-terminal">
+            <div><span className="L-o">$</span> <span className="L-c">aws s3 cp</span> <span className="L-a">./data.tar.gz</span> <span className="L-a">s3://bucket/</span></div>
+            <div><span className="L-o">upload: ./data.tar.gz → s3://bucket/data.tar.gz</span></div>
+            <div><span className="L-o">$</span> <span className="L-cur" /></div>
           </div>
-          <div className="lp-fixed-center">
-            <h2 className="lp-fixed-title">
-              Affordable,<br />scalable<br />infrastructure<br />you control.
-            </h2>
-          </div>
-          <div className="lp-fixed-bottom">
-            <div className="lp-fixed-terminal">
-              <div className="lp-terminal-body">
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./data.tar.gz</span> <span className="t-flag">s3://bucket/</span></div>
-                <div><span className="t-out">upload: ./data.tar.gz → s3://bucket/data.tar.gz</span></div>
-                <div><span className="t-prompt">$</span> <span className="t-cursor" /></div>
-              </div>
-            </div>
-            <div className="lp-fixed-actions">
-              <button className="landing-btn landing-btn-dark" onClick={onRegister} style={{ flex: 1, justifyContent: "center" }}>Get started</button>
-              <button className="landing-btn landing-btn-outline" onClick={onLogin} style={{ flex: 1, justifyContent: "center" }}>Sign in</button>
-            </div>
+          <div className="L-actions">
+            <button className="L-btn L-btn-light" onClick={onRegister}>Get started</button>
+            <button className="L-btn L-btn-ghost" onClick={onLogin}>Sign in</button>
           </div>
         </div>
-      </div>
+      </aside>
 
-      {/* ── Scrollable right panel (64%) — white bg ── */}
-      <div className="lp-scroll" ref={scrollRef}>
+      {/* ── RIGHT — clean white scroll ── */}
+      <main className="R" ref={scrollRef}>
         {/* Header */}
-        <header className="lp-header">
-          <div className="lp-header-inner">
-            <nav className="lp-header-nav">
-              <button className="lp-nav-link" onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
-              <button className="lp-nav-link" onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
-              <button className="lp-nav-link" onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
+        <header className="H">
+          <div className="H-in">
+            <nav className="H-nav">
+              <button className="H-a" onClick={() => document.getElementById("ft")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
+              <button className="H-a" onClick={() => document.getElementById("hw")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
+              <button className="H-a" onClick={() => document.getElementById("pr")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
             </nav>
+            <div className="H-r">
+              <button className="H-a" onClick={onLogin}>Sign in</button>
+              <button className="H-btn" onClick={onRegister}>Get started</button>
+            </div>
           </div>
         </header>
 
-        {/* Hero */}
-        <section className="lp-section lp-hero">
-          <div className="lp-badge">
-            <span className="lp-badge-dot" />
-            S3-compatible &mdash; drop-in replacement
-          </div>
-          <h1 className="lp-title">Object storage<br />without the<br />complexity</h1>
-          <p className="lp-sub">
-            S3-compatible API. No egress fees. No vendor lock-in.<br />
-            Store files, assets, backups on infrastructure you control.
-          </p>
-        </section>
+        {/* Page info — hero */}
+        <div className="PI">
+          <p className="PI-sub">S3-compatible storage</p>
+          <h1 className="PI-title">Object storage<br />without the<br />complexity</h1>
+          <p className="PI-desc">No egress fees. No vendor lock-in. Store files, assets and backups on infrastructure you control.</p>
+        </div>
 
         {/* Features */}
-        <section className="lp-section" id="features">
-          <div className="lp-section-header">
-            <span className="lp-label">Features</span>
-            <span className="lp-label-suffix">06</span>
-          </div>
+        <section className="S" id="ft">
+          <div className="S-hdr"><span className="S-label">Features</span><span className="S-n">06</span></div>
           {[
-            { n: "01", h: "S3-Compatible API", p: "PUT, GET, DELETE, HEAD, LIST — all standard S3 operations. Use aws-cli, boto3, minio, or any S3 SDK.", tags: ["AWS4-HMAC", "REST API"] },
-            { n: "02", h: "Zero Egress Fees", p: "Download your data as much as you want. No bandwidth charges, no surprise bills.", tags: ["free egress", "predictable"] },
-            { n: "03", h: "Dashboard", p: "Browse buckets, upload files, manage access keys, and track usage from the web.", tags: ["web UI", "real-time"] },
-            { n: "04", h: "Access Key Management", p: "Create, rotate, and revoke HMAC keys. Scope keys to specific buckets.", tags: ["HMAC keys", "scoping"] },
-            { n: "05", h: "SHA-256 Integrity", p: "Every object is checksummed on upload. Verify integrity at any time.", tags: ["checksums", "integrity"] },
-            { n: "06", h: "Self-Hosted", p: "Your data stays on your infrastructure. No third-party dependencies.", tags: ["self-hosted", "privacy"] },
+            { n: "01", h: "S3-Compatible API", p: "PUT, GET, DELETE, HEAD, LIST — use aws-cli, boto3, or any S3 SDK.", tags: ["AWS4-HMAC", "REST"] },
+            { n: "02", h: "Zero Egress Fees", p: "Download as much as you want. No bandwidth charges.", tags: ["Free egress"] },
+            { n: "03", h: "Dashboard", p: "Browse buckets, manage keys, track usage from the web.", tags: ["Web UI"] },
+            { n: "04", h: "Access Keys", p: "Create, rotate, revoke HMAC keys. Scope to buckets.", tags: ["HMAC", "Scoping"] },
+            { n: "05", h: "SHA-256 Integrity", p: "Every object checksummed on upload.", tags: ["Checksums"] },
+            { n: "06", h: "Self-Hosted", p: "Your data stays on your infrastructure.", tags: ["Privacy"] },
           ].map((f) => (
-            <div key={f.n} className="lp-item-outer">
-              <div className="lp-item-inner">
-                <span className="lp-item-left">
-                  <span className="lp-item-num">{f.n}</span>
-                  <span className="lp-item-content">
-                    <span className="lp-item-h">{f.h}</span>
-                    <span className="lp-item-p">{f.p}</span>
-                  </span>
+            <div key={f.n} className="I fi">
+              <span className="I-l">
+                <span className="I-num">{f.n}</span>
+                <span className="I-body">
+                  <span className="I-h">{f.h}</span>
+                  <span className="I-p">{f.p}</span>
                 </span>
-                <span className="lp-item-suffix">
-                  {f.tags.map(t => <span key={t} className="lp-tag">{t}</span>)}
-                </span>
-              </div>
+              </span>
+              <span className="I-r">
+                {f.tags.map(t => <span key={t} className="I-tag">{t}</span>)}
+              </span>
             </div>
           ))}
         </section>
 
         {/* How it works */}
-        <section className="lp-section" id="how">
-          <div className="lp-section-header">
-            <span className="lp-label">How it works</span>
-            <span className="lp-label-suffix">03</span>
-          </div>
-          <div className="lp-steps">
-            {[
-              { n: "01", h: "Create an account", p: "Sign up at z86.dev. Free tier includes 1 GB with no credit card.", cmd: "$ open https://z86.dev" },
-              { n: "02", h: "Get your keys", p: "Create an access key from the dashboard. Point any S3 client to s3.z86.dev.", cmd: "$ aws configure --endpoint s3.z86.dev" },
-              { n: "03", h: "Store & retrieve", p: "Upload objects, list buckets, download files. Same S3 API you already know.", cmd: "$ aws s3 cp file.zip s3://bucket/" },
-            ].map((s) => (
-              <div key={s.n} className="lp-step-outer">
-                <div className="lp-step-inner">
-                  <span className="lp-step-num">{s.n}</span>
-                  <h3 className="lp-step-h">{s.h}</h3>
-                  <p className="lp-step-p">{s.p}</p>
-                  <div className="lp-step-code">{s.cmd}</div>
-                </div>
+        <section className="S" id="hw">
+          <div className="S-hdr"><span className="S-label">How it works</span><span className="S-n">03</span></div>
+          {[
+            { n: "01", h: "Create an account", p: "Sign up at z86.dev. Free tier, 1 GB, no credit card.", cmd: "$ open https://z86.dev" },
+            { n: "02", h: "Get your keys", p: "Create an access key, point any S3 client to s3.z86.dev.", cmd: "$ aws configure --endpoint s3.z86.dev" },
+            { n: "03", h: "Store & retrieve", p: "Upload, list, download. Same API you already know.", cmd: "$ aws s3 cp file.zip s3://bucket/" },
+          ].map((s) => (
+            <div key={s.n} className="ST fi">
+              <span className="ST-num">{s.n}</span>
+              <div className="ST-body">
+                <div className="ST-h">{s.h}</div>
+                <div className="ST-p">{s.p}</div>
+                <span className="ST-code">{s.cmd}</span>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </section>
 
         {/* Pricing */}
-        <section className="lp-section" id="pricing">
-          <div className="lp-section-header">
-            <span className="lp-label">Pricing</span>
-            <span className="lp-label-suffix">03</span>
-          </div>
-          <div className="lp-pricing">
-            {[
-              { tier: "Free", price: "$0", per: "/mo", items: ["1 GB storage", "3 buckets", "2 access keys", "Unlimited egress", "S3-compatible API"], btn: "Get started free", action: onRegister, featured: false },
-              { tier: "Pro", price: "$5", per: "/mo", items: ["100 GB storage", "50 buckets", "10 access keys", "Unlimited egress", "Priority support"], btn: "Start with Pro", action: onRegister, featured: true },
-              { tier: "Enterprise", price: "Custom", per: "", items: ["Unlimited storage", "Dedicated infrastructure", "SLA guarantee", "Custom integrations", "White-glove onboarding"], btn: "Contact us", action: onLogin, featured: false },
-            ].map((p) => (
-              <div key={p.tier} className={`lp-price-outer${p.featured ? " lp-price-featured" : ""}`}>
-                <div className="lp-price-inner">
-                  <span className="lp-price-tier">{p.tier}</span>
-                  <span className="lp-price-amount">{p.price}<span>{p.per}</span></span>
-                  <ul className="lp-price-list">
-                    {p.items.map(i => <li key={i}>{i}</li>)}
-                  </ul>
-                  <button className={`landing-btn ${p.featured ? "landing-btn-primary" : "landing-btn-ghost"}`} onClick={p.action} style={{ width: "100%", justifyContent: "center" }}>
-                    {p.btn}
-                  </button>
-                </div>
+        <section className="S" id="pr">
+          <div className="S-hdr"><span className="S-label">Pricing</span><span className="S-n">03</span></div>
+          {[
+            { tier: "Free", price: "$0", per: "/mo", tags: ["1 GB", "3 buckets", "2 keys", "unlimited egress"], btn: "Get started free", action: onRegister, featured: false },
+            { tier: "Pro", price: "$5", per: "/mo", tags: ["100 GB", "50 buckets", "10 keys", "priority support"], btn: "Start with Pro", action: onRegister, featured: true },
+            { tier: "Enterprise", price: "Custom", per: "", tags: ["unlimited", "dedicated infra", "SLA", "white-glove"], btn: "Contact us", action: onLogin, featured: false },
+          ].map((p) => (
+            <div key={p.tier} className={`PR fi${p.featured ? " PR-feat" : ""}`}>
+              <div className="PR-top">
+                <span className="PR-tier">{p.tier}</span>
+                <span className="PR-amt">{p.price}{p.per && <span>{p.per}</span>}</span>
               </div>
-            ))}
-          </div>
+              <div className="PR-tags">
+                {p.tags.map(t => <span key={t} className="PR-tag">{t}</span>)}
+              </div>
+              <button className="PR-btn" onClick={p.action}>
+                <span>{p.btn}</span>
+                <span className="PR-arr">&rarr;</span>
+              </button>
+            </div>
+          ))}
         </section>
 
         {/* Footer */}
-        <footer className="lp-footer">
-          <div className="lp-footer-manifesto">
-            S3-compatible object storage. Fast, simple, and on your terms.<br />
-            No egress fees, no vendor lock-in, no complexity. Just store.
-          </div>
-          <span className="lp-footer-copy">&copy; 2026 z86</span>
+        <footer className="F">
+          <div className="F-man">S3-compatible object storage. Fast, simple, and on your terms. No egress fees, no vendor lock-in, no complexity.</div>
+          <nav className="F-bars">
+            <div className="F-bar F-bl"><a className="F-em" href="mailto:hello@z86.dev">hello@z86.dev</a></div>
+            <div className="F-bar F-br">
+              <span className="F-cp">&copy; 2026 z86</span>
+              <a className="F-lk" href="#">Terms</a>
+              <a className="F-lk" href="#">Privacy</a>
+              <a className="F-lk" href="#">Docs</a>
+            </div>
+          </nav>
         </footer>
-      </div>
+      </main>
     </div>
   );
 }
 
+/* ═══════════════════════════════════════
+   SHADER — slow gradient mesh on dark bg
+   ═══════════════════════════════════════ */
 function ShaderBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rafRef = useRef<number>(0);
@@ -221,175 +197,121 @@ function ShaderBackground() {
     const gl = canvas.getContext("webgl", { alpha: false, antialias: false });
     if (!gl) return;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const rect = canvas.parentElement!.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    gl.viewport(0, 0, canvas.width, canvas.height);
+    function resize() {
+      canvas!.width = canvas!.clientWidth * 2;
+      canvas!.height = canvas!.clientHeight * 2;
+      gl!.viewport(0, 0, canvas!.width, canvas!.height);
+    }
+    resize();
+    window.addEventListener("resize", resize);
 
-    // Vertex shader — fullscreen quad
-    const vs = gl.createShader(gl.VERTEX_SHADER)!;
-    gl.shaderSource(vs, `
-      attribute vec2 p;
-      varying vec2 uv;
-      void main() {
-        uv = p * 0.5 + 0.5;
-        gl_Position = vec4(p, 0.0, 1.0);
-      }
-    `);
-    gl.compileShader(vs);
+    const vsSrc = `attribute vec2 p;void main(){gl_Position=vec4(p,0,1);}`;
+    const fsSrc = `
+precision mediump float;
+uniform float t;
+uniform vec2 r;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+             mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+float fbm(vec2 p){
+  float v=0.0,a=0.5;
+  for(int i=0;i<4;i++){v+=a*noise(p);p*=2.0;a*=0.5;}
+  return v;
+}
+void main(){
+  vec2 uv=gl_FragCoord.xy/r;
+  float n1=fbm(uv*3.0+vec2(t*0.08,t*0.06));
+  float n2=fbm(uv*2.5+vec2(-t*0.05,t*0.09)+4.0);
+  float n3=fbm(uv*4.0+vec2(t*0.03,-t*0.07)+8.0);
+  vec3 c1=vec3(0.08,0.06,0.14);
+  vec3 c2=vec3(0.04,0.10,0.12);
+  vec3 c3=vec3(0.12,0.04,0.08);
+  vec3 col=c1*n1+c2*n2+c3*n3;
+  col=mix(vec3(0.035),col,0.9);
+  float grain=hash(uv*r+t*100.0)*0.03;
+  col+=grain;
+  gl_FragColor=vec4(col,1.0);
+}`;
 
-    // Fragment shader — dark red bg with flowing white lines
-    const fs = gl.createShader(gl.FRAGMENT_SHADER)!;
-    gl.shaderSource(fs, `
-      precision mediump float;
-      varying vec2 uv;
-      uniform float t;
-      uniform vec2 res;
+    function sh(type: number, src: string) {
+      const s = gl!.createShader(type)!;
+      gl!.shaderSource(s, src);
+      gl!.compileShader(s);
+      return s;
+    }
+    const pg = gl.createProgram()!;
+    gl.attachShader(pg, sh(gl.VERTEX_SHADER, vsSrc));
+    gl.attachShader(pg, sh(gl.FRAGMENT_SHADER, fsSrc));
+    gl.linkProgram(pg);
+    gl.useProgram(pg);
 
-      // Noise helper
-      float hash(vec2 p) {
-        return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
-      }
-
-      float noise(vec2 p) {
-        vec2 i = floor(p);
-        vec2 f = fract(p);
-        f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
-      }
-
-      void main() {
-        vec2 p = uv;
-        float aspect = res.x / res.y;
-
-        // Dark red base with subtle gradient
-        vec3 bg1 = vec3(0.18, 0.02, 0.02);  // deep dark red
-        vec3 bg2 = vec3(0.12, 0.01, 0.03);  // darker red-black
-        vec3 bg = mix(bg1, bg2, uv.y * 0.8 + noise(uv * 2.0 + t * 0.05) * 0.2);
-
-        // Flowing white lines — multiple layers
-        float lines = 0.0;
-
-        // Layer 1: horizontal flowing curves
-        for (float i = 0.0; i < 8.0; i++) {
-          float y0 = (i + 0.5) / 8.0;
-          float wave = sin(p.x * (3.0 + i * 0.7) + t * (0.3 + i * 0.05) + i * 1.7) * 0.06;
-          wave += sin(p.x * (5.0 + i * 1.3) - t * (0.2 + i * 0.03)) * 0.03;
-          float d = abs(p.y - y0 - wave);
-          float thickness = 0.002 + 0.001 * sin(t * 0.5 + i);
-          lines += smoothstep(thickness * 2.0, thickness * 0.3, d) * (0.15 + 0.1 * sin(i * 2.0 + t * 0.4));
-        }
-
-        // Layer 2: diagonal lines moving slowly
-        for (float i = 0.0; i < 5.0; i++) {
-          float angle = 0.3 + i * 0.15;
-          float pos = p.x * cos(angle) + p.y * sin(angle);
-          float wave = sin(pos * 12.0 + t * (0.2 + i * 0.04) + i * 3.0);
-          wave = smoothstep(0.92, 1.0, wave) * (0.12 + 0.06 * sin(t * 0.3 + i));
-          lines += wave;
-        }
-
-        // Layer 3: subtle noise-displaced grid lines
-        float n1 = noise(vec2(p.x * 3.0 + t * 0.1, p.y * 15.0));
-        float grid = smoothstep(0.48, 0.5, fract(p.y * 40.0 + n1 * 0.3 + t * 0.05));
-        grid *= smoothstep(0.5, 0.52, fract(p.y * 40.0 + n1 * 0.3 + t * 0.05));
-        lines += grid * 0.06;
-
-        // White lines with slight warmth
-        vec3 lineColor = vec3(0.95, 0.90, 0.88);
-        vec3 col = bg + lineColor * lines;
-
-        // Vignette
-        float vig = 1.0 - smoothstep(0.3, 1.5, length((uv - 0.5) * 1.6));
-        col *= vig * 0.85 + 0.15;
-
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `);
-    gl.compileShader(fs);
-
-    const prog = gl.createProgram()!;
-    gl.attachShader(prog, vs);
-    gl.attachShader(prog, fs);
-    gl.linkProgram(prog);
-    gl.useProgram(prog);
-
-    // Fullscreen quad
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
-    const pLoc = gl.getAttribLocation(prog, "p");
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    const pLoc = gl.getAttribLocation(pg, "p");
     gl.enableVertexAttribArray(pLoc);
     gl.vertexAttribPointer(pLoc, 2, gl.FLOAT, false, 0, 0);
 
-    const tLoc = gl.getUniformLocation(prog, "t");
-    const rLoc = gl.getUniformLocation(prog, "res");
-    gl.uniform2f(rLoc, canvas.width, canvas.height);
+    const ut = gl.getUniformLocation(pg, "t");
+    const ur = gl.getUniformLocation(pg, "r");
 
-    let start = 0;
-    const render = (now: number) => {
-      if (!start) start = now;
-      const elapsed = (now - start) * 0.001;
-      gl.uniform1f(tLoc, elapsed);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-      rafRef.current = requestAnimationFrame(render);
+    const loop = (now: number) => {
+      gl!.uniform1f(ut, now * 0.001);
+      gl!.uniform2f(ur, canvas!.width, canvas!.height);
+      gl!.drawArrays(gl!.TRIANGLE_STRIP, 0, 4);
+      rafRef.current = requestAnimationFrame(loop);
     };
-    rafRef.current = requestAnimationFrame(render);
+    rafRef.current = requestAnimationFrame(loop);
 
-    return () => cancelAnimationFrame(rafRef.current);
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", resize);
+    };
   }, []);
 
-  return (
-    <>
-      <canvas ref={canvasRef} className="lp-shader" />
-      <div className="lp-shader-blur" />
-    </>
-  );
+  return <canvas ref={canvasRef} className="L-shader" />;
 }
 
-function Z86Logo({ width = 72, height = 28 }: { width?: number; height?: number }) {
+/* ═══════════════════════════════════════
+   LOGO — scan-line canvas
+   ═══════════════════════════════════════ */
+function Z86Logo({ width = 80, height = 32 }: { width?: number; height?: number }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const draw = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const cw = canvas.width;
-    const ch = canvas.height;
-    const off = document.createElement("canvas");
-    off.width = cw; off.height = ch;
-    const oCtx = off.getContext("2d")!;
-    oCtx.fillStyle = "#fff";
-    const fontSize = Math.round(ch * 0.75);
-    oCtx.font = `900 ${fontSize}px "Arial Black","Impact",sans-serif`;
-    oCtx.textAlign = "center";
-    oCtx.textBaseline = "middle";
-    oCtx.fillText("z86", cw / 2, ch / 2 + 1);
-    const mask = oCtx.getImageData(0, 0, cw, ch);
-    ctx.clearRect(0, 0, cw, ch);
-    const img = ctx.createImageData(cw, ch);
-    const px = img.data;
-    const lineSpacing = Math.max(2, Math.round(ch / 40));
-    const lineWidth = Math.max(1, Math.round(lineSpacing * 0.57));
-    for (let y = 0; y < ch; y++) {
-      if ((y % lineSpacing) >= lineWidth) continue;
-      const t = y / ch;
-      const base = 255 - Math.floor(t * 180);
-      for (let x = 0; x < cw; x++) {
-        const idx = (y * cw + x) * 4;
-        if (mask.data[idx + 3] < 128) continue;
-        const noise = (Math.random() - 0.5) * 50;
-        const v = Math.max(0, Math.min(255, base + noise));
-        px[idx] = v; px[idx + 1] = v; px[idx + 2] = v; px[idx + 3] = 255;
+    const c = canvasRef.current;
+    if (!c) return;
+    const x = c.getContext("2d");
+    if (!x) return;
+    const w = c.width, h = c.height;
+    const o = document.createElement("canvas");
+    o.width = w; o.height = h;
+    const g = o.getContext("2d")!;
+    g.fillStyle = "#fff";
+    g.font = `900 28px "Arial Black",Impact,sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("z86", w / 2, h / 2 + 1);
+    const m = g.getImageData(0, 0, w, h);
+    x.clearRect(0, 0, w, h);
+    const d = x.getImageData(0, 0, w, h);
+    const p = d.data;
+    for (let y = 0; y < h; y++) {
+      if ((y % 4) >= 2) continue;
+      const t = y / h;
+      const b = Math.floor(200 - t * 80);
+      for (let i = 0; i < w; i++) {
+        const j = (y * w + i) * 4;
+        if (m.data[j + 3] < 100) continue;
+        const v = Math.max(0, Math.min(255, b + (Math.random() - 0.5) * 40));
+        p[j] = v; p[j + 1] = v; p[j + 2] = v; p[j + 3] = 255;
       }
     }
-    ctx.putImageData(img, 0, 0);
+    x.putImageData(d, 0, 0);
   }, []);
   useEffect(() => { draw(); }, [draw]);
-  return <canvas ref={canvasRef} width={width * 2} height={height * 2} style={{ width, height }} />;
+  return <canvas ref={canvasRef} width={width} height={height} style={{ width, height }} />;
 }

@@ -33,83 +33,90 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="settings">
-      <div className="settings-header">
-        <h1>Settings</h1>
+    <div className="panel" style={{ maxWidth: 640 }}>
+      {/* ── Header ── */}
+      <div className="panel-line panel-line-header">
+        <h1 className="panel-title">Settings</h1>
       </div>
 
-      <div className="settings-body">
-        {/* ── Profile ── */}
-        <section className="settings-section">
-          <h2>Profile</h2>
-          <form onSubmit={saveProfile} className="settings-form">
-            <div className="settings-field">
-              <label htmlFor="s-name">Name</label>
-              <input id="s-name" type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
-            </div>
-            <div className="settings-field">
-              <label htmlFor="s-email">Email</label>
-              <input id="s-email" type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" />
-            </div>
-            {msg && <p className="settings-msg">{msg}</p>}
-            <div>
-              <button type="submit" className="settings-btn" disabled={saving}>{saving ? "Saving..." : "Save"}</button>
-            </div>
-          </form>
-        </section>
-
-        {/* ── Change Password ── */}
-        <section className="settings-section">
-          <h2>Change Password</h2>
-          <form onSubmit={changePassword} className="settings-form">
-            <div className="settings-field">
-              <label htmlFor="s-curpwd">Current password</label>
-              <input id="s-curpwd" type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} required />
-            </div>
-            <div className="settings-field">
-              <label htmlFor="s-newpwd">New password</label>
-              <input id="s-newpwd" type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} required minLength={8} />
-            </div>
-            {pwdMsg && <p className="settings-msg">{pwdMsg}</p>}
-            <div>
-              <button type="submit" className="settings-btn" disabled={pwdSaving}>{pwdSaving ? "Changing..." : "Change Password"}</button>
-            </div>
-          </form>
-        </section>
-
-        {/* ── S3 Endpoint ── */}
-        <section className="settings-section">
-          <h2>S3 Endpoint</h2>
-          <div className="settings-form">
-            <div className="settings-row">
-              <span>Endpoint URL</span>
-              <code>https://s3.z86.dev</code>
-            </div>
-            <div className="settings-row">
-              <span>Region</span>
-              <code>auto</code>
-            </div>
-            <div className="settings-row">
-              <span>Path Style</span>
-              <code>true</code>
-            </div>
+      {/* ── Profile ── */}
+      <div className="stg-section">
+        <div className="stg-section-hdr">
+          <span className="stg-section-label">Profile</span>
+          <span className="stg-section-desc">Update your account information</span>
+        </div>
+        <form onSubmit={saveProfile} className="stg-form">
+          <label className="stg-field">
+            <span className="stg-field-label">Name</span>
+            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" />
+          </label>
+          <label className="stg-field">
+            <span className="stg-field-label">Email</span>
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@example.com" />
+          </label>
+          {msg && <p className={msg.includes("updated") ? "stg-msg-ok" : "stg-msg-err"}>{msg}</p>}
+          <div className="stg-actions">
+            <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Saving..." : "Save changes"}</button>
           </div>
-        </section>
+        </form>
+      </div>
 
-        {/* ── Plan ── */}
-        <section className="settings-section settings-section-last">
-          <h2>Plan</h2>
-          <div className="settings-form">
-            <div className="settings-plan">
-              <span className="settings-plan-name">{user?.plan || "free"}</span>
-              <span className="settings-plan-desc">
-                {user?.plan === "pro" ? "100 GB storage, unlimited buckets" :
-                 user?.plan === "enterprise" ? "Unlimited storage, dedicated infra" :
-                 "1 GB storage, 3 buckets, 2 keys"}
-              </span>
-            </div>
+      {/* ── Change Password ── */}
+      <div className="stg-section">
+        <div className="stg-section-hdr">
+          <span className="stg-section-label">Password</span>
+          <span className="stg-section-desc">Update your account password</span>
+        </div>
+        <form onSubmit={changePassword} className="stg-form">
+          <label className="stg-field">
+            <span className="stg-field-label">Current password</span>
+            <input type="password" value={currentPwd} onChange={e => setCurrentPwd(e.target.value)} required />
+          </label>
+          <label className="stg-field">
+            <span className="stg-field-label">New password</span>
+            <input type="password" value={newPwd} onChange={e => setNewPwd(e.target.value)} required minLength={8} />
+          </label>
+          {pwdMsg && <p className={pwdMsg.includes("changed") ? "stg-msg-ok" : "stg-msg-err"}>{pwdMsg}</p>}
+          <div className="stg-actions">
+            <button type="submit" className="btn-primary" disabled={pwdSaving}>{pwdSaving ? "Changing..." : "Change password"}</button>
           </div>
-        </section>
+        </form>
+      </div>
+
+      {/* ── S3 Endpoint ── */}
+      <div className="stg-section">
+        <div className="stg-section-hdr">
+          <span className="stg-section-label">S3 Endpoint</span>
+          <span className="stg-section-desc">Connection details for your S3 client</span>
+        </div>
+        <div className="stg-kv-list">
+          <div className="stg-kv"><span className="stg-kv-key">Endpoint URL</span><code className="stg-kv-val">https://s3.z86.dev</code></div>
+          <div className="stg-kv"><span className="stg-kv-key">Region</span><code className="stg-kv-val">auto</code></div>
+          <div className="stg-kv"><span className="stg-kv-key">Path Style</span><code className="stg-kv-val">true</code></div>
+        </div>
+      </div>
+
+      {/* ── Plan ── */}
+      <div className="stg-section stg-section-last">
+        <div className="stg-section-hdr">
+          <span className="stg-section-label">Plan</span>
+          <span className="stg-section-desc">Your current subscription</span>
+        </div>
+        <div className="stg-plan">
+          <div className="stg-plan-name">{user?.plan || "free"}</div>
+          <div className="stg-plan-desc">
+            {user?.plan === "pro" ? "100 GB storage, 50 buckets, 10 access keys, priority support" :
+             user?.plan === "enterprise" ? "Unlimited storage, dedicated infrastructure, SLA guarantee" :
+             "1 GB storage, 3 buckets, 2 access keys, unlimited egress"}
+          </div>
+          <div className="stg-plan-tags">
+            {(user?.plan === "pro" ? ["100 GB", "50 buckets", "10 keys"] :
+              user?.plan === "enterprise" ? ["unlimited", "dedicated", "SLA"] :
+              ["1 GB", "3 buckets", "2 keys"]).map(t => (
+              <span key={t} className="stg-plan-tag">{t}</span>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
