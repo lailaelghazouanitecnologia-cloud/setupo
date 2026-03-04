@@ -4,7 +4,7 @@
 set -e
 
 echo "=== z86 Object Storage Setup ==="
-echo "Domain: z86.dev"
+echo "Domains: z86.dev + z86.nso.dev"
 
 # Create data directory
 mkdir -p /data/z86/buckets
@@ -79,13 +79,13 @@ cp /opt/nso/doc/deploy/nginx-z86.conf /etc/nginx/sites-available/z86
 ln -sf /etc/nginx/sites-available/z86 /etc/nginx/sites-enabled/z86
 rm -f /etc/nginx/sites-enabled/default
 nginx -t && systemctl reload nginx
-echo "nginx configured for z86.dev"
+echo "nginx configured for z86.dev + z86.nso.dev"
 
 # SSL certificate
-echo "Setting up SSL for z86.dev..."
+echo "Setting up SSL for z86.dev + z86.nso.dev..."
 if ! [ -f /etc/letsencrypt/live/z86.dev/fullchain.pem ]; then
     apt-get install -y certbot python3-certbot-nginx > /dev/null 2>&1 || true
-    certbot --nginx -d z86.dev -d s3.z86.dev --non-interactive --agree-tos --email admin@nso.dev || echo "SSL setup failed — run certbot manually after DNS is configured"
+    certbot --nginx -d z86.dev -d s3.z86.dev -d z86.nso.dev --non-interactive --agree-tos --email admin@nso.dev || echo "SSL setup failed — run certbot manually after DNS is configured"
 fi
 
 echo ""
@@ -96,7 +96,8 @@ echo "  z86 storage:   http://localhost:8082/health"
 echo "  z86 agent:     http://localhost:8083/health"
 echo ""
 echo "URLs:"
-echo "  Dashboard:     https://z86.dev"
+echo "  Landing:       https://z86.dev"
+echo "  NSO subdomain: https://z86.nso.dev"
 echo "  S3 API:        https://s3.z86.dev/{bucket}/{key}"
 echo "  Agent:         https://z86.dev/agent/"
 echo ""
@@ -109,5 +110,6 @@ echo "  Z86_AGENT_ENDPOINT=https://z86.dev/agent"
 echo "  Z86_AGENT_PASSWORD=${Z86_AGENT_PASS}"
 echo ""
 echo "DNS — Point these records to $(hostname -I | awk '{print $1}'):"
-echo "  z86.dev     → A record"
-echo "  s3.z86.dev  → A record"
+echo "  z86.dev      → A record"
+echo "  s3.z86.dev   → A record"
+echo "  z86.nso.dev  → A record (or CNAME → z86.dev)"
