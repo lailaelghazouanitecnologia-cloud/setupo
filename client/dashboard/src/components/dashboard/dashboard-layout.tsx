@@ -128,6 +128,8 @@ function ProjectSwitcher() {
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
   const dropRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -197,7 +199,17 @@ function ProjectSwitcher() {
   return (
     <div className="proj-switcher" ref={dropRef}>
       {/* Trigger button */}
-      <button className="proj-trigger" onClick={() => setOpen(!open)}>
+      <button
+        className="proj-trigger"
+        ref={triggerRef}
+        onClick={() => {
+          if (!open && triggerRef.current) {
+            const rect = triggerRef.current.getBoundingClientRect();
+            setDropPos({ top: rect.bottom + 4, left: rect.left });
+          }
+          setOpen(!open);
+        }}
+      >
         <Layers className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
         <span className="proj-trigger-name">{triggerLabel}</span>
         <ChevronDown
@@ -210,9 +222,9 @@ function ProjectSwitcher() {
         />
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown (fixed position, floats over everything) */}
       {open && (
-        <div className="proj-dropdown">
+        <div className="proj-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
           {/* Projects section */}
           <div className="proj-dropdown-label">Project</div>
           {projects.map((p) => (
