@@ -1,11 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useZ86Store } from "@/stores/z86-store";
-import { login, register } from "@/lib/api/client";
-import { DashboardLayout } from "@/components/dashboard/dashboard-layout";
-
-type PageView = "landing" | "login" | "register";
+const NSO_URL = "https://nso.dev";
 
 const Z86Logo = ({ size = 28 }: { size?: number }) => (
   <svg width={size} height={size} viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -16,7 +11,7 @@ const Z86Logo = ({ size = 28 }: { size?: number }) => (
   </svg>
 );
 
-function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
+export default function Home() {
   return (
     <div className="landing-page">
       <nav className="landing-nav">
@@ -40,13 +35,13 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
               </button>
             </div>
             <span className="landing-slash" style={{ margin: "0 16px" }} />
-            <button className="landing-nav-link" onClick={() => onNavigate("login")}>
+            <a className="landing-nav-link" href={NSO_URL}>
               Sign in
-            </button>
+            </a>
             <span className="landing-slash" />
-            <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")} style={{ marginLeft: 2 }}>
+            <a className="landing-btn landing-btn-primary" href={NSO_URL} style={{ marginLeft: 2 }}>
               Get started
-            </button>
+            </a>
           </div>
         </div>
       </nav>
@@ -65,13 +60,13 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                 S3-compatible API. No egress fees. No vendor lock-in. Store files, assets, backups, and deploy artifacts on infrastructure you control.
               </p>
               <div className="landing-hero-actions">
-                <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")}>
+                <a className="landing-btn landing-btn-primary" href={NSO_URL}>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                   Start storing
-                </button>
-                <button className="landing-btn landing-btn-secondary" onClick={() => onNavigate("login")}>
-                  Sign in
-                </button>
+                </a>
+                <a className="landing-btn landing-btn-secondary" href={NSO_URL}>
+                  Sign in via NSO
+                </a>
               </div>
             </div>
             <div className="landing-terminal">
@@ -86,12 +81,12 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                 <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">./backup.tar.gz</span> <span className="t-flag">s3://my-bucket/backups/</span></div>
                 <div><span className="t-out">upload: ./backup.tar.gz → s3://my-bucket/backups/backup.tar.gz</span></div>
                 <div style={{ height: 6 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://my-bucket/</span> <span className="t-flag">--endpoint-url</span> <span className="t-arg">https://z86.dev</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cmd">aws s3 ls</span> <span className="t-flag">s3://my-bucket/</span> <span className="t-flag">--endpoint-url</span> <span className="t-arg">https://s3.z86.dev</span></div>
                 <div><span className="t-out">2026-03-04  backups/</span></div>
                 <div><span className="t-out">2026-03-04  assets/</span></div>
                 <div><span className="t-out">2026-03-04  deploys/</span></div>
                 <div style={{ height: 6 }} />
-                <div><span className="t-prompt">$</span> <span className="t-cmd">curl</span> <span className="t-flag">-I</span> <span className="t-arg">https://z86.dev/my-bucket/assets/logo.png</span></div>
+                <div><span className="t-prompt">$</span> <span className="t-cmd">curl</span> <span className="t-flag">-I</span> <span className="t-arg">https://s3.z86.dev/my-bucket/assets/logo.png</span></div>
                 <div><span className="t-out">HTTP/2 200</span> <span className="t-ok">OK</span></div>
                 <div><span className="t-out">content-length: 24576</span></div>
                 <div><span className="t-out">etag: &quot;a1b2c3d4e5f6...&quot;</span></div>
@@ -108,7 +103,7 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
               <div className="landing-cap-intro">
                 <div className="landing-s-label">Features</div>
                 <h2 className="landing-s-title">Everything you need from object storage</h2>
-                <p>z86 is a self-hosted, S3-compatible object storage service. Use any S3 client or SDK to store and retrieve objects.</p>
+                <p>z86 is a self-hosted, S3-compatible object storage service. Managed as a project within the NSO platform.</p>
               </div>
               <div className="landing-cap-list">
                 <div className="landing-cap-item">
@@ -137,7 +132,7 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                   <span className="landing-cap-num">03</span>
                   <div>
                     <h3 className="landing-cap-h">Access Key Management</h3>
-                    <p className="landing-cap-p">Create, rotate, and revoke access keys from the dashboard. Scope keys to specific buckets for fine-grained access control.</p>
+                    <p className="landing-cap-p">Create, rotate, and revoke access keys from the NSO dashboard. Scope keys to specific buckets for fine-grained access control.</p>
                   </div>
                   <div className="landing-cap-tags">
                     <span className="landing-tag">HMAC keys</span>
@@ -147,12 +142,12 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">04</span>
                   <div>
-                    <h3 className="landing-cap-h">Dashboard</h3>
-                    <p className="landing-cap-p">Browse buckets, upload files, manage objects, and monitor storage usage from a clean web interface. No CLI required.</p>
+                    <h3 className="landing-cap-h">Managed via NSO</h3>
+                    <p className="landing-cap-p">z86 is an NSO project. Browse buckets, manage objects, monitor usage, and configure storage &mdash; all from the NSO dashboard.</p>
                   </div>
                   <div className="landing-cap-tags">
-                    <span className="landing-tag">web UI</span>
-                    <span className="landing-tag">file browser</span>
+                    <span className="landing-tag">NSO dashboard</span>
+                    <span className="landing-tag">admin panel</span>
                   </div>
                 </div>
                 <div className="landing-cap-item">
@@ -169,12 +164,12 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                 <div className="landing-cap-item">
                   <span className="landing-cap-num">06</span>
                   <div>
-                    <h3 className="landing-cap-h">NSO Integration</h3>
-                    <p className="landing-cap-p">Seamlessly integrated with the NSO platform. .zar packages, deploy artifacts, and project assets are automatically stored on z86.</p>
+                    <h3 className="landing-cap-h">.zar Integration</h3>
+                    <p className="landing-cap-p">NSO&apos;s .zar package system stores deploy artifacts directly on z86. Pack, push, deploy &mdash; all backed by z86 storage.</p>
                   </div>
                   <div className="landing-cap-tags">
-                    <span className="landing-tag">NSO</span>
                     <span className="landing-tag">.zar</span>
+                    <span className="landing-tag">deploy</span>
                   </div>
                 </div>
               </div>
@@ -190,23 +185,23 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
             <div className="landing-how-grid">
               <div className="landing-how-card">
                 <div className="landing-how-num">01</div>
-                <h3>Create account</h3>
-                <p>Sign up and get your storage bucket provisioned automatically. Access keys are generated and ready to use.</p>
+                <h3>Sign in to NSO</h3>
+                <p>Log in to your NSO account at nso.dev. z86 storage is provisioned automatically for your project.</p>
                 <div className="landing-how-code">
-                  <span className="t-prompt">$</span> <span className="t-cmd">z86 login</span>
+                  <span className="t-prompt">$</span> <span className="t-cmd">nso login</span>
                 </div>
               </div>
               <div className="landing-how-card">
                 <div className="landing-how-num">02</div>
                 <h3>Configure</h3>
-                <p>Point any S3 client to z86.dev. Use your access key and secret key. That&apos;s it &mdash; no region selection, no complex IAM.</p>
+                <p>Point any S3 client to s3.z86.dev. Use your access key and secret key from the NSO dashboard. No region selection, no complex IAM.</p>
                 <div className="landing-how-code">
-                  <span className="t-prompt">$</span> <span className="t-cmd">aws configure</span> <span className="t-flag">--endpoint</span> <span className="t-arg">z86.dev</span>
+                  <span className="t-prompt">$</span> <span className="t-cmd">aws configure</span> <span className="t-flag">--endpoint</span> <span className="t-arg">s3.z86.dev</span>
                 </div>
               </div>
               <div className="landing-how-card">
                 <div className="landing-how-num">03</div>
-                <h3>Store & retrieve</h3>
+                <h3>Store &amp; retrieve</h3>
                 <p>Upload objects, list buckets, download files. Same S3 API you already know. Works with every tool and SDK.</p>
                 <div className="landing-how-code">
                   <span className="t-prompt">$</span> <span className="t-cmd">aws s3 cp</span> <span className="t-arg">file.zip</span> <span className="t-flag">s3://bucket/</span>
@@ -230,11 +225,11 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                   <li>1 bucket</li>
                   <li>Unlimited egress</li>
                   <li>S3-compatible API</li>
-                  <li>Web dashboard</li>
+                  <li>NSO dashboard</li>
                 </ul>
-                <button className="landing-btn landing-btn-secondary" onClick={() => onNavigate("register")} style={{ width: "100%" }}>
+                <a className="landing-btn landing-btn-secondary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
                   Get started free
-                </button>
+                </a>
               </div>
               <div className="landing-pricing-card landing-pricing-featured">
                 <div className="landing-pricing-tier">Pro</div>
@@ -246,9 +241,9 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                   <li>Multiple access keys</li>
                   <li>Priority support</li>
                 </ul>
-                <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")} style={{ width: "100%" }}>
+                <a className="landing-btn landing-btn-primary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
                   Start with Pro
-                </button>
+                </a>
               </div>
               <div className="landing-pricing-card">
                 <div className="landing-pricing-tier">Enterprise</div>
@@ -260,9 +255,9 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
                   <li>Custom integrations</li>
                   <li>White-glove onboarding</li>
                 </ul>
-                <button className="landing-btn landing-btn-secondary" style={{ width: "100%" }}>
+                <a className="landing-btn landing-btn-secondary" href={NSO_URL} style={{ width: "100%", justifyContent: "center" }}>
                   Contact us
-                </button>
+                </a>
               </div>
             </div>
           </div>
@@ -275,16 +270,16 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
               <div className="landing-cta-inner">
                 <div>
                   <h2>Start storing in minutes</h2>
-                  <p>Create an account and get your first bucket. No credit card required.</p>
+                  <p>Sign in to NSO and get z86 storage provisioned for your project. No credit card required.</p>
                 </div>
                 <div className="landing-cta-actions">
-                  <button className="landing-btn landing-btn-primary" onClick={() => onNavigate("register")}>
+                  <a className="landing-btn landing-btn-primary" href={NSO_URL}>
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-                    Create free account
-                  </button>
-                  <button className="landing-btn landing-btn-secondary" onClick={() => onNavigate("login")}>
-                    Sign in
-                  </button>
+                    Go to NSO
+                  </a>
+                  <a className="landing-btn landing-btn-secondary" href="https://docs.nso.dev/z86" target="_blank" rel="noopener noreferrer">
+                    Documentation
+                  </a>
                 </div>
               </div>
             </div>
@@ -299,135 +294,12 @@ function LandingPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
               <button onClick={() => document.getElementById("features")?.scrollIntoView({ behavior: "smooth" })}>Features</button>
               <button onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>How it works</button>
               <button onClick={() => document.getElementById("pricing")?.scrollIntoView({ behavior: "smooth" })}>Pricing</button>
-              <a href="https://nso.dev" target="_blank" rel="noopener noreferrer">NSO Platform</a>
+              <a href={NSO_URL} target="_blank" rel="noopener noreferrer">NSO Platform</a>
             </div>
-            <span className="landing-footer-copy">&copy; 2026 z86</span>
+            <span className="landing-footer-copy">&copy; 2026 z86 &mdash; an NSO project</span>
           </div>
         </div>
       </footer>
     </div>
   );
-}
-
-function LoginPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const setToken = useZ86Store((s) => s.setToken);
-  const setUser = useZ86Store((s) => s.setUser);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const res = await login(email, password);
-      setUser(res.email, res.role);
-      setToken(res.token);
-    } catch (err: any) {
-      setError(err.message?.includes("401") ? "Invalid email or password" : "Connection error");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-header">
-          <Z86Logo />
-          <span className="login-brand">z86</span>
-        </div>
-        <p className="login-subtitle">Sign in to your storage</p>
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="login-field">
-            <label className="login-label">Email</label>
-            <input className="login-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email" />
-          </div>
-          <div className="login-field">
-            <label className="login-label">Password</label>
-            <input className="login-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" required autoComplete="current-password" />
-          </div>
-          {error && <p className="login-error">{error}</p>}
-          <button type="submit" disabled={loading} className="login-submit">{loading ? "Signing in..." : "Sign in"}</button>
-        </form>
-        <div className="login-footer">
-          <span>Don&apos;t have an account? <button className="login-link" onClick={() => onNavigate("register")}>Create one</button></span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RegisterPage({ onNavigate }: { onNavigate: (view: PageView) => void }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const setToken = useZ86Store((s) => s.setToken);
-  const setUser = useZ86Store((s) => s.setUser);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    try {
-      const res = await register(email, password, name);
-      setUser(res.email, res.role);
-      setToken(res.token);
-    } catch (err: any) {
-      if (err.message?.includes("409")) setError("Email already registered");
-      else if (err.message?.includes("400")) setError("Invalid email or password too short (min 6 chars)");
-      else setError("Registration failed. Please try again.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-header">
-          <Z86Logo />
-          <span className="login-brand">z86</span>
-        </div>
-        <p className="login-subtitle">Create your storage account</p>
-        <form onSubmit={handleSubmit} className="login-form">
-          <div className="login-field">
-            <label className="login-label">Name</label>
-            <input className="login-input" type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" autoComplete="name" />
-          </div>
-          <div className="login-field">
-            <label className="login-label">Email</label>
-            <input className="login-input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required autoComplete="email" />
-          </div>
-          <div className="login-field">
-            <label className="login-label">Password</label>
-            <input className="login-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Min. 6 characters" required minLength={6} autoComplete="new-password" />
-          </div>
-          {error && <p className="login-error">{error}</p>}
-          <button type="submit" disabled={loading} className="login-submit">{loading ? "Creating account..." : "Create account"}</button>
-        </form>
-        <div className="login-footer">
-          <span>Already have an account? <button className="login-link" onClick={() => onNavigate("login")}>Sign in</button></span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default function Home() {
-  const token = useZ86Store((s) => s.token);
-  const [mounted, setMounted] = useState(false);
-  const [view, setView] = useState<PageView>("landing");
-
-  useEffect(() => { setMounted(true); }, []);
-
-  if (!mounted) return null;
-
-  if (token) return <DashboardLayout />;
-
-  if (view === "login") return <LoginPage onNavigate={setView} />;
-  if (view === "register") return <RegisterPage onNavigate={setView} />;
-  return <LandingPage onNavigate={setView} />;
 }
