@@ -117,10 +117,8 @@ function ProjectSwitcher() {
   const projects = useDashboardStore((s) => s.projects);
   const activeProject = useDashboardStore((s) => s.activeProject);
   const setActiveProject = useDashboardStore((s) => s.setActiveProject);
-  const workspaces = useDashboardStore((s) => s.workspaces);
-  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
-  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
   const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
   const projectLoading = useDashboardStore((s) => s.projectLoading);
   const setActiveView = useDashboardStore((s) => s.setActiveView);
 
@@ -151,6 +149,14 @@ function ProjectSwitcher() {
       const proj: ProjectInfo = res.project;
       useDashboardStore.getState().setProjects([...projects, proj]);
       setActiveProject(proj);
+      setWorkspaces([]);
+      setActiveWorkspace(null);
+      // Load workspaces for new project
+      try {
+        const { listWorkspaces } = await import("@/lib/api/client");
+        const wsRes = await listWorkspaces(proj.id);
+        setWorkspaces(wsRes.workspaces || []);
+      } catch {}
       setNewName("");
       setCreating(false);
       setOpen(false);
@@ -160,26 +166,25 @@ function ProjectSwitcher() {
   };
 
   const handleSelectProject = async (proj: ProjectInfo) => {
+    if (proj.id === activeProject?.id) {
+      setOpen(false);
+      return;
+    }
     setActiveProject(proj);
+    setWorkspaces([]);
+    setActiveWorkspace(null);
+    setOpen(false);
     try {
       const { listWorkspaces } = await import("@/lib/api/client");
       const res = await listWorkspaces(proj.id);
       const wsList: WorkspaceInfo[] = res.workspaces || [];
       setWorkspaces(wsList);
-      const savedWsId = localStorage.getItem("nso_active_workspace");
-      const restored = wsList.find((w) => w.id === savedWsId);
-      setActiveWorkspace(restored || wsList[0] || null);
+      setActiveWorkspace(wsList[0] || null);
     } catch {
       setWorkspaces([]);
     }
   };
 
-  const handleSelectWorkspace = (ws: WorkspaceInfo) => {
-    setActiveWorkspace(ws);
-    setOpen(false);
-  };
-
-  // Loading
   if (projectLoading) {
     return (
       <div className="proj-switcher">
@@ -191,12 +196,8 @@ function ProjectSwitcher() {
     );
   }
 
-  // Trigger label
-  const triggerLabel = activeProject?.name || "Select project";
-
   return (
     <div className="proj-switcher" ref={dropRef}>
-      {/* Trigger button */}
       <button
         className="proj-trigger"
         ref={triggerRef}
@@ -209,7 +210,7 @@ function ProjectSwitcher() {
         }}
       >
         <Layers className="h-3.5 w-3.5" style={{ opacity: 0.6 }} />
-        <span className="proj-trigger-name">{triggerLabel}</span>
+        <span className="proj-trigger-name">{activeProject?.name || "Select project"}</span>
         <ChevronDown
           className="h-3 w-3"
           style={{
@@ -220,10 +221,8 @@ function ProjectSwitcher() {
         />
       </button>
 
-      {/* Dropdown (fixed position, floats over everything) */}
       {open && (
         <div className="proj-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
-          {/* Projects section */}
           <div className="proj-dropdown-label">Project</div>
           {projects.map((p) => (
             <button
@@ -256,8 +255,6 @@ function ProjectSwitcher() {
               </button>
             </div>
           )}
-
-          {/* Footer */}
           <div className="proj-dropdown-sep" />
           <button
             className="proj-dropdown-item"
@@ -268,6 +265,44 @@ function ProjectSwitcher() {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   WORKSPACES LIST (sidebar section)
+   ═══════════════════════════════════════════ */
+function WorkspacesList() {
+  const workspaces = useDashboardStore((s) => s.workspaces);
+  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
+
+  if (workspaces.length === 0) return null;
+
+  return (
+    <div style={{ padding: "4px 0" }}>
+      <div style={{
+        padding: "6px 16px 4px",
+        fontSize: 10,
+        fontWeight: 600,
+        color: "var(--muted-foreground)",
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        opacity: 0.7,
+      }}>
+        Workspaces
+      </div>
+      {workspaces.map((ws) => (
+        <button
+          key={ws.id}
+          className={cn("fmenu", activeWorkspace?.id === ws.id && "active")}
+          onClick={() => setActiveWorkspace(ws)}
+          style={{ paddingLeft: 18 }}
+        >
+          <FolderOpen className="h-3 w-3" style={{ opacity: 0.6 }} />
+          <span style={{ fontSize: 12 }}>{ws.name}</span>
+        </button>
+      ))}
     </div>
   );
 }
@@ -516,6 +551,12 @@ export function DashboardLayout() {
             </button>
           ))}
         </nav>
+
+        {/* Separator */}
+        <div style={{ height: 1, background: "var(--border)", margin: "4px 12px", opacity: 0.5 }} />
+
+        {/* Workspaces list */}
+        <WorkspacesList />
 
         {/* Spacer */}
         <div style={{ flex: 1 }} />
