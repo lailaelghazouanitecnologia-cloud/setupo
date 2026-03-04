@@ -8,8 +8,9 @@ import {
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import {
-  listProjects, createProject, listWorkspaces, listInstances,
+  listWorkspaces, listInstances,
   zarPack, zarPush, zarDeploy, zarShip, zarRollback,
   zarVersions, getDeployStatus, getDeploySnapshots,
 } from "@/lib/api/client";
@@ -34,8 +35,8 @@ interface DeployInfo {
 }
 
 export function DeployPanel() {
-  const [projects, setProjects] = useState<any[]>([]);
-  const [projectId, setProjectId] = useState("");
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const projectId = activeProject?.id || "";
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const [instances, setInstances] = useState<any[]>([]);
   const [selectedWs, setSelectedWs] = useState("");
@@ -55,25 +56,8 @@ export function DeployPanel() {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [logs]);
 
-  // Load projects on mount — auto-create if none exist
+  // Load deploy status on mount
   useEffect(() => {
-    (async () => {
-      try {
-        const res = await listProjects();
-        let projs = res.projects || [];
-        if (projs.length === 0) {
-          try {
-            const created = await createProject("main");
-            projs = [created.project];
-          } catch { /* ignore */ }
-        }
-        setProjects(projs);
-        if (projs.length > 0) setProjectId(projs[0].id);
-      } catch {
-        setProjects([]);
-      }
-    })();
-    // Load deploy status from agent
     loadDeployStatus();
   }, []);
 
@@ -238,17 +222,6 @@ export function DeployPanel() {
 
       {/* Config bar */}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        {/* Project */}
-        {projects.length > 1 && (
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger style={{ minWidth: 120 }}>
-              <SelectValue placeholder="Project..." />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        )}
         {/* Workspace */}
         <div className="deploy-field">
           <Package className="h-3 w-3" style={{ color: "var(--color-teal)" }} />

@@ -6,6 +6,7 @@ import {
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader, Globe,
 } from "lucide-react";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   listProjects, createProject as apiCreateProject,
   listInstances, createInstance, deleteInstance,
@@ -387,33 +388,26 @@ const selectStyle: React.CSSProperties = {
    ═══════════════════════════════════════════ */
 
 function InstancesTab() {
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const projectId = activeProject?.id || null;
   const [loading, setLoading] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
-  const [projectId, setProjectId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Instance | null>(null);
   const [panel, setPanel] = useState<"terminal" | "files" | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
   const fetchData = async () => {
+    if (!projectId) {
+      setInstances([]);
+      setLoading(false);
+      setError("No project selected");
+      return;
+    }
     setLoading(true);
     setError("");
     try {
-      const projRes = await listProjects();
-      let proj = projRes.projects?.[0];
-      if (!proj) {
-        // Auto-create default project for admin
-        try {
-          const created = await apiCreateProject("main");
-          proj = created.project;
-        } catch {
-          setError("No projects — failed to auto-create");
-          setLoading(false);
-          return;
-        }
-      }
-      setProjectId(proj.id);
-      const instRes = await listInstances(proj.id);
+      const instRes = await listInstances(projectId);
       setInstances(instRes.instances || []);
     } catch {
       setInstances([]);
@@ -421,7 +415,7 @@ function InstancesTab() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [projectId]);
 
   // Auto-refresh every 10s during install, otherwise 30s
   const hasInstalling = instances.some((i) => i.state === "creating" || i.state === "installing");

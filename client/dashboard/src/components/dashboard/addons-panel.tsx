@@ -11,8 +11,9 @@ import {
   HeartPulse, Shield, Table, Mail, Timer,
   Star, ExternalLink, Check,
 } from "lucide-react";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import {
-  listProjects, listAddons, installAddon, uninstallAddon, updateAddon,
+  listAddons, installAddon, uninstallAddon, updateAddon,
   testConnector,
   pluginStorageList, pluginStorageDelete,
   pluginLogsList, pluginDnsList, pluginMonitoring, pluginBackupsList,
@@ -626,28 +627,14 @@ function AddonCard({
 // ═══════════════════════════════════════════
 
 export function AddonsPanel() {
-  const [projectId, setProjectId] = useState("");
-  const [projects, setProjects] = useState<any[]>([]);
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const projectId = activeProject?.id || "";
   const [addons, setAddons] = useState<AddonInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [actionId, setActionId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<AddonTab>("connectors");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await listProjects();
-        const projs = res.projects || [];
-        setProjects(projs);
-        if (projs.length > 0) setProjectId(projs[0].id);
-      } catch {
-        setProjects([]);
-        setLoading(false);
-      }
-    })();
-  }, []);
 
   useEffect(() => {
     if (!projectId) return;
@@ -714,19 +701,6 @@ export function AddonsPanel() {
 
   return (
     <div>
-      {/* Project selector */}
-      {projects.length > 1 && (
-        <div style={{ marginBottom: 16 }}>
-          <Select value={projectId} onValueChange={setProjectId}>
-            <SelectTrigger style={{ maxWidth: 240 }}>
-              <SelectValue placeholder="Select project..." />
-            </SelectTrigger>
-            <SelectContent>
-              {projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {/* Tab bar */}
       <div className="tab-bar">
