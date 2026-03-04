@@ -91,7 +91,7 @@ from server.routes.addons import catalog as addons_catalog, connectors as addons
 
 # Admin-only imports (skip in user mode to avoid loading unnecessary code)
 if SERVER_MODE in ("admin", "full"):
-    from server.routes import admin, orchestrator
+    from server.routes import admin, orchestrator, loadbalancer
 
 logging.basicConfig(
     level=logging.INFO,
@@ -105,16 +105,22 @@ async def lifespan(app: FastAPI):
     logger.info("NSO starting in '%s' mode...", SERVER_MODE)
     await db.init_db()
 
-    # Only start orchestrator monitor on admin/full instances
+    # Only start orchestrator monitor + LB health checker on admin/full instances
     stop_monitor = None
+    stop_health = None
     if SERVER_MODE in ("admin", "full"):
         from server.core.orchestrator.monitor import start_monitor, stop_monitor as _stop
+        from server.core.loadbalancer.health import start_health_checker, stop_health_checker as _stop_hc
         await start_monitor()
+        await start_health_checker()
         stop_monitor = _stop
+        stop_health = _stop_hc
 
     yield
 
     logger.info("NSO shutting down...")
+    if stop_health:
+        await stop_health()
     if stop_monitor:
         await stop_monitor()
     await db.close_db()
@@ -177,6 +183,7 @@ app.include_router(ready.project_router, prefix="/api/projects/{project_id}/read
 if SERVER_MODE in ("admin", "full"):
     app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
     app.include_router(orchestrator.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
+    app.include_router(loadbalancer.router, prefix="/api/admin/lb", tags=["load-balancer"])
 
 # ── Static files ───────────────────────────────────────────
 
