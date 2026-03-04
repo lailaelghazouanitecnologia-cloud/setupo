@@ -193,45 +193,47 @@ export interface SecretScope {
   count?: number;
 }
 
-export async function listSecretScopes() {
-  return apiCall<{ scopes: SecretScope[]; count: number }>("/agent/secrets/scopes");
+// ── Project-scoped secrets (central API) ──
+
+export async function listSecretScopes(projectId: string) {
+  return centralApi<{ scopes: SecretScope[]; count: number }>(`/api/projects/${projectId}/secrets/scopes`);
 }
 
-export async function createSecretScope(domain: string) {
-  return apiCall<{ ok: boolean; scope: string; domain: string }>("/agent/secrets/scopes", {
+export async function createSecretScope(projectId: string, name: string) {
+  return centralApi<{ ok: boolean; scope: string; domain: string }>(`/api/projects/${projectId}/secrets/scopes`, {
     method: "POST",
-    body: JSON.stringify({ domain }),
+    body: JSON.stringify({ name }),
   });
 }
 
-export async function deleteSecretScope(domain: string) {
-  return apiCall<{ ok: boolean; domain: string }>(`/agent/secrets/scopes/${encodeURIComponent(domain)}`, {
+export async function deleteSecretScope(projectId: string, domain: string) {
+  return centralApi<{ ok: boolean; domain: string }>(`/api/projects/${projectId}/secrets/scopes/${encodeURIComponent(domain)}`, {
     method: "DELETE",
   });
 }
 
-export async function listSecrets(scope = "general") {
-  return apiCall<{ secrets: AgentSecret[]; buckets: Record<string, { key: string; value: string }[]>; count: number; scope: string }>(
-    `/agent/secrets?scope=${encodeURIComponent(scope)}`,
+export async function listSecrets(projectId: string, scope = "general") {
+  return centralApi<{ secrets: AgentSecret[]; buckets: Record<string, { key: string; value: string }[]>; count: number; scope: string }>(
+    `/api/projects/${projectId}/secrets?scope=${encodeURIComponent(scope)}`,
   );
 }
 
-export async function addSecret(key: string, value: string, scope = "general") {
-  return apiCall<{ ok: boolean; key: string; bucket: string; scope: string }>(`/agent/secrets?scope=${encodeURIComponent(scope)}`, {
+export async function addSecret(projectId: string, key: string, value: string, scope = "general") {
+  return centralApi<{ ok: boolean; key: string; bucket: string; scope: string }>(`/api/projects/${projectId}/secrets`, {
     method: "POST",
-    body: JSON.stringify({ key, value }),
+    body: JSON.stringify({ key, value, scope }),
   });
 }
 
-export async function updateSecret(key: string, value: string, scope = "general") {
-  return apiCall<{ ok: boolean; key: string; scope: string }>(`/agent/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
+export async function updateSecret(projectId: string, key: string, value: string, scope = "general") {
+  return centralApi<{ ok: boolean; key: string; scope: string }>(`/api/projects/${projectId}/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
     method: "PUT",
     body: JSON.stringify({ value }),
   });
 }
 
-export async function deleteSecret(key: string, scope = "general") {
-  return apiCall<{ ok: boolean; key: string; scope: string }>(`/agent/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
+export async function deleteSecret(projectId: string, key: string, scope = "general") {
+  return centralApi<{ ok: boolean; key: string; scope: string }>(`/api/projects/${projectId}/secrets/${encodeURIComponent(key)}?scope=${encodeURIComponent(scope)}`, {
     method: "DELETE",
   });
 }

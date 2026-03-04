@@ -6,6 +6,7 @@ import {
   Shield, ChevronDown, ChevronRight, FolderKey, Folder,
   Globe, Server, X,
 } from "lucide-react";
+import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   listSecrets, addSecret as apiAddSecret, deleteSecret as apiDeleteSecret,
   listSecretScopes, createSecretScope, deleteSecretScope,
@@ -29,6 +30,9 @@ const BUCKET_META: Record<string, Bucket> = {
 const BUCKET_ORDER = ["auth", "providers", "storage", "system", "custom"];
 
 export function SecretsPanel() {
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const projectId = activeProject?.id || "";
+
   const [secrets, setSecrets] = useState<AgentSecret[]>([]);
   const [scopes, setScopes] = useState<SecretScope[]>([]);
   const [activeScope, setActiveScope] = useState("general");
@@ -44,20 +48,21 @@ export function SecretsPanel() {
   const [newDomain, setNewDomain] = useState("");
 
   const fetchScopes = async () => {
+    if (!projectId) return;
     try {
-      const res = await listSecretScopes();
+      const res = await listSecretScopes(projectId);
       setScopes(res.scopes || []);
     } catch {
-      // Scopes endpoint not available — fallback to general only
       setScopes([{ id: "general", label: "General", type: "general", domain: null }]);
     }
   };
 
   const fetchSecrets = async (scope?: string) => {
+    if (!projectId) return;
     setLoading(true);
     setError(null);
     try {
-      const res = await listSecrets(scope ?? activeScope);
+      const res = await listSecrets(projectId, scope ?? activeScope);
       setSecrets(res.secrets || []);
     } catch (err: any) {
       setError(err.message || "Failed to load secrets");
@@ -66,18 +71,33 @@ export function SecretsPanel() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchScopes(); }, []);
+  // Reset when project changes
   useEffect(() => {
-    fetchSecrets(activeScope);
+    setActiveScope("general");
+    setSecrets([]);
+    setScopes([]);
     setRevealed(new Set());
+    if (projectId) {
+      fetchScopes();
+      fetchSecrets("general");
+    }
+  }, [projectId]);
+
+  // Reload when scope changes
+  useEffect(() => {
+    if (projectId) {
+      fetchSecrets(activeScope);
+      setRevealed(new Set());
+    }
   }, [activeScope]);
 
   const handleAdd = async () => {
+    if (!projectId) return;
     const k = newKey.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
     const v = newValue.trim();
     if (!k || !v) return;
     try {
-      await apiAddSecret(k, v, activeScope);
+      await apiAddSecret(projectId, k, v, activeScope);
       setNewKey("");
       setNewValue("");
       setAdding(false);
@@ -88,9 +108,10 @@ export function SecretsPanel() {
   };
 
   const handleDelete = async (key: string) => {
+    if (!projectId) return;
     if (!confirm(`Remove ${key}?`)) return;
     try {
-      await apiDeleteSecret(key, activeScope);
+      await apiDeleteSecret(projectId, key, activeScope);
       fetchSecrets();
     } catch (err: any) {
       setError(err.message || "Failed to delete secret");
@@ -98,10 +119,11 @@ export function SecretsPanel() {
   };
 
   const handleAddScope = async () => {
+    if (!projectId) return;
     const d = newDomain.trim().toLowerCase();
     if (!d) return;
     try {
-      await createSecretScope(d);
+      await createSecretScope(projectId, d);
       setNewDomain("");
       setAddingScope(false);
       await fetchScopes();
@@ -112,9 +134,10 @@ export function SecretsPanel() {
   };
 
   const handleDeleteScope = async (domain: string) => {
+    if (!projectId) return;
     if (!confirm(`Delete scope "${domain}" and all its secrets?`)) return;
     try {
-      await deleteSecretScope(domain);
+      await deleteSecretScope(projectId, domain);
       if (activeScope === `domain:${domain}`) setActiveScope("general");
       fetchScopes();
     } catch (err: any) {
@@ -148,6 +171,17 @@ export function SecretsPanel() {
     if (value.length <= 4) return "****";
     return value.slice(0, 2) + "*".repeat(Math.min(value.length - 4, 20)) + value.slice(-2);
   };
+
+  // No project selected
+  if (!projectId) {
+    return (
+      <div className="panel-empty">
+        <Shield className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-title">No project selected</div>
+        <div className="panel-empty-sub">Select a project from the sidebar to manage secrets.</div>
+      </div>
+    );
+  }
 
   // Group by bucket
   const grouped: Record<string, AgentSecret[]> = {};
@@ -235,7 +269,7 @@ export function SecretsPanel() {
         ) : (
           <button className="scope-chip add" onClick={() => setAddingScope(true)}>
             <Plus className="h-3 w-3" />
-            <span>Domain</span>
+            <span>Scope</span>
           </button>
         )}
       </div>
@@ -302,7 +336,7 @@ export function SecretsPanel() {
           <div className="panel-empty-title">No secrets</div>
           <div className="panel-empty-sub">
             {activeScope === "general"
-              ? "Environment variables managed by the agent"
+              ? "Add environment variables and secrets for this project"
               : `No secrets for ${activeScopeLabel}`}
           </div>
           <button className="panel-btn" onClick={() => setAdding(true)}>
