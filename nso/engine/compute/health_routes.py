@@ -1,9 +1,10 @@
 import platform
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Request
 
 from nso.shared.models import Capabilities
+from nso.shared.deps import require_admin
 from nso.engine.compute.types import INSTANCE_CONFIGS
 
 router = APIRouter()
@@ -20,6 +21,15 @@ async def health():
         "uptime_seconds": int(uptime),
         "platform": platform.system(),
     }
+
+
+@router.get("/services", dependencies=[Depends(require_admin)])
+async def services_status(request: Request):
+    """Get status of all background services (admin only)."""
+    services = getattr(request.app.state, "services", None)
+    if not services:
+        return {"services": {}, "message": "ServiceManager not active (user mode)"}
+    return services.status()
 
 
 @router.get("/capabilities")

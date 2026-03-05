@@ -87,16 +87,16 @@ async def lifespan(app: FastAPI):
     logger.info("NSO starting in '%s' mode...", SERVER_MODE)
     await db.init_db()
 
-    stop_monitor = None
-    stop_health = None
-    stop_reconciler = None
+    services = None
     if SERVER_MODE in ("admin", "full"):
-        from nso.engine.orchestrator.monitor import start_monitor, stop_monitor as _stop
-        from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker as _stop_hc
-        from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler as _stop_rec
-        from nso.engine.compute.pool_reconciler import start_pool_reconciler, stop_pool_reconciler as _stop_pool
+        from nso.shared.manager import ServiceManager
+        from nso.engine.orchestrator.monitor import start_monitor, stop_monitor
+        from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker
+        from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler
+        from nso.engine.compute.pool_reconciler import start_pool_reconciler, stop_pool_reconciler
+        from nso.engine.compute import host_manager, vm_manager
 
-        # Run spec + event + pool migrations
+        # Run migrations
         from nso.engine.orchestrator.state import SPEC_MIGRATIONS
         from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
         from nso.engine.compute.pool import POOL_MIGRATIONS, seed_plans
@@ -105,31 +105,31 @@ async def lifespan(app: FastAPI):
             await conn.execute(migration)
         await conn.commit()
 
-        # Seed default compute plans
         await seed_plans()
-
-        # Enable event persistence to DB
         set_persist_handler(_db_persist_handler)
 
-        await start_monitor()
-        await start_health_checker()
-        await start_reconciler()
-        await start_pool_reconciler()
-        stop_monitor = _stop
-        stop_health = _stop_hc
-        stop_reconciler = _stop_rec
+        # Register all background services with dependency ordering
+        services = ServiceManager()
+        services.register("monitor", start_monitor, stop_monitor)
+        services.register("lb_health", start_health_checker, stop_health_checker)
+        services.register("reconciler", start_reconciler, stop_reconciler,
+                          depends_on=["monitor"])
+        services.register("host_manager", host_manager.start, host_manager.stop,
+                          health_fn=host_manager.is_healthy)
+        services.register("vm_manager", vm_manager.start, vm_manager.stop,
+                          health_fn=vm_manager.is_healthy,
+                          depends_on=["host_manager"])
+        services.register("pool_reconciler", start_pool_reconciler, stop_pool_reconciler,
+                          depends_on=["host_manager"])
+
+        await services.start_all()
+        app.state.services = services
 
     yield
 
     logger.info("NSO shutting down...")
-    if SERVER_MODE in ("admin", "full"):
-        await stop_pool_reconciler()
-    if stop_reconciler:
-        await stop_reconciler()
-    if stop_health:
-        await stop_health()
-    if stop_monitor:
-        await stop_monitor()
+    if services:
+        await services.stop_all()
     await db.close_db()
 
 
