@@ -26,21 +26,25 @@ from typing import Any
 import httpx
 
 from nso.shared import db
+from nso.shared.events import emit
 from nso.engine.orchestrator.state import (
     ConditionStatus,
     InstancePhase,
     InstanceResource,
+    InstanceSpec,
     InstanceStatus,
     ScalingPolicy,
     SystemSpec,
     WorkspaceResource,
     WorkspaceDeployStatus,
     WorkspaceStatus,
+    apply_instance_spec,
     apply_system_spec,
     get_instance_resource,
     get_system_spec,
     list_all_instance_resources,
     log_reconcile_action,
+    request_instance_deletion,
     set_condition,
     update_instance_status,
 )
@@ -152,11 +156,52 @@ async def _reconcile_instance(inst: InstanceResource):
             set_condition(conditions, "Provisioned", ConditionStatus.TRUE,
                           "AlreadyExists", f"Provider ID: {status.provider_id}", inst.spec_generation)
             changed = True
+        elif existing:
+            # Instance row exists but no provider_id — provisioning in progress
+            state = existing.get("state", "")
+            if state == "error":
+                status.phase = InstancePhase.ERROR
+                status.error = existing.get("error", "Provisioning failed")
+                changed = True
+            # else: still creating, wait
         else:
-            # Need to create — this is handled by compute service
-            # We just mark the condition so the API layer can trigger creation
-            set_condition(conditions, "Provisioned", ConditionStatus.FALSE,
-                          "AwaitingCreation", "Instance needs to be created", inst.spec_generation)
+            # No instance row at all — trigger provisioning
+            try:
+                from nso.shared.models import CreateInstanceRequest, InstanceType
+                from nso.engine.compute.service import create_instance
+
+                create_req = CreateInstanceRequest(
+                    type=InstanceType(spec.metadata.get("type", "app")),
+                    region=spec.region,
+                    plan=spec.plan,
+                    label=inst.name or f"nso-{inst.id[:12]}",
+                    workspace=spec.workspace,
+                    domain=spec.domain,
+                )
+                await create_instance(inst.project_id, create_req)
+
+                status.phase = InstancePhase.PROVISIONING
+                set_condition(conditions, "Provisioned", ConditionStatus.FALSE,
+                              "Creating", f"Provisioning {spec.plan} in {spec.region}", inst.spec_generation)
+                changed = True
+
+                await emit("instance.provisioning", {
+                    "instance_id": inst.id,
+                    "project_id": inst.project_id,
+                    "plan": spec.plan,
+                    "region": spec.region,
+                }, source="reconciler")
+
+            except Exception as e:
+                status.phase = InstancePhase.ERROR
+                status.error = f"Failed to create instance: {e}"
+                set_condition(conditions, "Provisioned", ConditionStatus.FALSE,
+                              "CreateFailed", str(e)[:200], inst.spec_generation)
+                changed = True
+                await emit("instance.error", {
+                    "instance_id": inst.id,
+                    "error": str(e)[:200],
+                }, source="reconciler")
 
     # Phase: PROVISIONING — waiting for IP from provider
     elif status.phase == InstancePhase.PROVISIONING:
@@ -186,6 +231,11 @@ async def _reconcile_instance(inst: InstanceResource):
                 set_condition(conditions, "AgentReady", ConditionStatus.TRUE,
                               "AgentResponding", f"Agent at {status.ip}:{AGENT_PORT}", inst.spec_generation)
                 changed = True
+                await emit("instance.ready", {
+                    "instance_id": inst.id,
+                    "ip": status.ip,
+                    "project_id": inst.project_id,
+                }, source="reconciler")
             else:
                 set_condition(conditions, "AgentReady", ConditionStatus.FALSE,
                               "AgentNotReady", "Waiting for agent to come online", inst.spec_generation)
@@ -252,6 +302,11 @@ async def _reconcile_instance(inst: InstanceResource):
                 set_condition(conditions, "Recovered", ConditionStatus.TRUE,
                               "AgentRecovered", "Agent back online", inst.spec_generation)
                 changed = True
+                await emit("instance.recovered", {
+                    "instance_id": inst.id,
+                    "project_id": inst.project_id,
+                    "ip": status.ip,
+                }, source="reconciler")
 
     # Update DB if anything changed
     if changed:
@@ -288,38 +343,69 @@ async def _handle_deletion(inst: InstanceResource):
         except Exception:
             pass
 
-    # The actual VPS destruction is handled by compute service
-    # We just mark for deletion and let the existing flow handle it
+    # Destroy the VPS via compute service
     existing = await db.fetch_one("instances", id=inst.id)
-    if existing and existing.get("state") != "destroying":
-        await db.update("instances", inst.id, {"state": "destroying"})
+    if existing:
+        provider_id = existing.get("provider_id", "")
+        if provider_id and existing.get("state") != "destroying":
+            try:
+                from nso.engine.compute.service import delete_instance
+                await delete_instance(inst.project_id, inst.id)
+            except Exception as e:
+                logger.error("Failed to destroy VPS for %s: %s", inst.id, e)
+                # Mark as orphaned, don't delete the spec record
+                await db.update("instances", inst.id, {"state": "orphaned", "error": str(e)[:200]})
+                await emit("instance.orphaned", {
+                    "instance_id": inst.id,
+                    "provider_id": provider_id,
+                    "error": str(e)[:200],
+                }, source="reconciler")
+                return
+        elif not provider_id:
+            # Never provisioned — just clean up DB
+            await db.delete("instances", inst.id)
 
     status.phase = InstancePhase.TERMINATED
     await update_instance_status(inst.id, status)
     await log_reconcile_action("instance", inst.id, "delete", result="ok")
+    await emit("instance.deleted", {
+        "instance_id": inst.id,
+        "project_id": inst.project_id,
+    }, source="reconciler")
 
 
 # ── Auto-scaling ──
 
 async def _check_scaling(project_id: str, instances: list[InstanceResource]):
-    """Check if project needs to scale up or down based on its scaling policy."""
+    """
+    Check if project needs to scale up or down based on its scaling policy.
+
+    Scale up: creates a new instance spec (reconciler will provision it next sweep).
+    Scale down: marks the least-loaded instance for deletion.
+    Respects cooldown periods to avoid thrashing.
+    """
     sys_spec = await get_system_spec(project_id)
     if not sys_spec:
         return
 
     policy = sys_spec.scaling
+    active = [i for i in instances if i.status.phase in (
+        InstancePhase.RUNNING, InstancePhase.READY, InstancePhase.PROVISIONING, InstancePhase.INSTALLING,
+    )]
     running = [i for i in instances if i.status.phase == InstancePhase.RUNNING]
+    current_count = len(active)
 
-    if not running:
-        # No running instances — can't scale based on metrics
-        if len(instances) < policy.min_instances:
-            await log_reconcile_action(
-                "scaling", project_id, "scale_up_needed",
-                detail=f"Running: 0, min: {policy.min_instances}",
-            )
+    # Enforce minimum instances
+    if current_count < policy.min_instances:
+        deficit = policy.min_instances - current_count
+        for i in range(deficit):
+            await _scale_up(project_id, sys_spec, instances, reason=f"Below minimum ({current_count}/{policy.min_instances})")
         return
 
-    # Compute average metrics
+    # Need running instances with metrics to make scaling decisions
+    if not running:
+        return
+
     avg_cpu = 0.0
     avg_mem = 0.0
     metric_count = 0
@@ -327,31 +413,143 @@ async def _check_scaling(project_id: str, instances: list[InstanceResource]):
     for inst in running:
         metrics = inst.status.system_metrics
         if metrics:
-            avg_cpu += metrics.get("cpu_percent", metrics.get("load", [0])[0] if isinstance(metrics.get("load"), list) else 0)
+            cpu = metrics.get("mem_percent", 0)
+            # Handle load array vs direct cpu_percent
+            if isinstance(metrics.get("load"), list) and metrics["load"]:
+                cpu = metrics["load"][0] * 100  # normalize load average
+            elif metrics.get("cpu_percent"):
+                cpu = metrics["cpu_percent"]
+            avg_cpu += cpu
             avg_mem += metrics.get("mem_percent", 0)
             metric_count += 1
 
-    if metric_count > 0:
-        avg_cpu /= metric_count
-        avg_mem /= metric_count
+    if metric_count == 0:
+        return
 
-    current_count = len(running)
+    avg_cpu /= metric_count
+    avg_mem /= metric_count
+
+    # Check cooldown — don't scale if we recently scaled
+    last_scale = await _get_last_scale_time(project_id)
+    now = time.time()
 
     # Scale up check
     if current_count < policy.max_instances:
         if avg_cpu > policy.target_cpu_percent or avg_mem > policy.target_mem_percent:
-            await log_reconcile_action(
-                "scaling", project_id, "scale_up_recommended",
-                detail=f"avg_cpu={avg_cpu:.1f}%, avg_mem={avg_mem:.1f}%, current={current_count}, max={policy.max_instances}",
-            )
+            if now - last_scale > policy.scale_up_cooldown:
+                await _scale_up(
+                    project_id, sys_spec, instances,
+                    reason=f"High load: cpu={avg_cpu:.1f}%, mem={avg_mem:.1f}%",
+                )
+                await _set_last_scale_time(project_id, now)
 
-    # Scale down check
-    if current_count > policy.min_instances:
-        if avg_cpu < policy.target_cpu_percent * 0.5 and avg_mem < policy.target_mem_percent * 0.5:
-            await log_reconcile_action(
-                "scaling", project_id, "scale_down_recommended",
-                detail=f"avg_cpu={avg_cpu:.1f}%, avg_mem={avg_mem:.1f}%, current={current_count}, min={policy.min_instances}",
+    # Scale down check — only if metrics are well below target
+    elif current_count > policy.min_instances:
+        if avg_cpu < policy.target_cpu_percent * 0.3 and avg_mem < policy.target_mem_percent * 0.3:
+            if now - last_scale > policy.scale_down_cooldown:
+                await _scale_down(
+                    project_id, running,
+                    reason=f"Low load: cpu={avg_cpu:.1f}%, mem={avg_mem:.1f}%",
+                )
+                await _set_last_scale_time(project_id, now)
+
+
+async def _scale_up(project_id: str, sys_spec: SystemSpec, existing: list[InstanceResource], reason: str):
+    """Create a new instance spec — the reconciler will provision it on next sweep."""
+    import secrets as _secrets
+
+    new_id = f"inst_{_secrets.token_hex(8)}"
+
+    # Copy spec from an existing running instance, or use defaults
+    template_spec = None
+    for inst in existing:
+        if inst.status.phase == InstancePhase.RUNNING and inst.spec.processes:
+            template_spec = inst.spec
+            break
+
+    new_spec = InstanceSpec(
+        provider="vultr",
+        plan=sys_spec.default_plan,
+        region=sys_spec.default_region,
+        workspace=template_spec.workspace if template_spec else "",
+        processes=template_spec.processes if template_spec else [],
+        metadata={"scaled_from": "auto", "reason": reason},
+    )
+
+    await apply_instance_spec(project_id, new_id, new_spec, name=f"auto-{new_id[:8]}")
+
+    await log_reconcile_action(
+        "scaling", project_id, "scale_up",
+        result="ok", detail=f"Created {new_id}: {reason}",
+    )
+    await emit("scaling.up", {
+        "project_id": project_id,
+        "instance_id": new_id,
+        "reason": reason,
+        "plan": new_spec.plan,
+    }, source="reconciler")
+
+    logger.info("Scale UP for project %s: %s (%s)", project_id, new_id, reason)
+
+
+async def _scale_down(project_id: str, running: list[InstanceResource], reason: str):
+    """Mark the least-loaded instance for deletion."""
+    if not running:
+        return
+
+    # Find the instance with lowest load
+    lowest = running[0]
+    lowest_load = float("inf")
+
+    for inst in running:
+        metrics = inst.status.system_metrics
+        if metrics:
+            load = metrics.get("mem_percent", 0) + (
+                metrics.get("cpu_percent", 0) or
+                (metrics.get("load", [0])[0] * 100 if isinstance(metrics.get("load"), list) else 0)
             )
+            if load < lowest_load:
+                lowest_load = load
+                lowest = inst
+
+    # Don't delete auto-scaled instances that were just created (extra safety)
+    if lowest.status.last_reconciled:
+        try:
+            created = datetime.fromisoformat(lowest.created_at)
+            age = (datetime.now(timezone.utc) - created).total_seconds()
+            if age < 600:  # Don't kill instances younger than 10 minutes
+                return
+        except Exception:
+            pass
+
+    await request_instance_deletion(lowest.id)
+
+    await log_reconcile_action(
+        "scaling", project_id, "scale_down",
+        result="ok", detail=f"Marked {lowest.id} for deletion: {reason}",
+    )
+    await emit("scaling.down", {
+        "project_id": project_id,
+        "instance_id": lowest.id,
+        "reason": reason,
+    }, source="reconciler")
+
+    logger.info("Scale DOWN for project %s: removing %s (%s)", project_id, lowest.id, reason)
+
+
+# ── Scaling state helpers ──
+
+_last_scale_times: dict[str, float] = {}
+
+
+async def _get_last_scale_time(project_id: str) -> float:
+    """Get the last time a scaling action was taken for a project."""
+    return _last_scale_times.get(project_id, 0)
+
+
+async def _set_last_scale_time(project_id: str, t: float):
+    """Record when a scaling action was taken."""
+    _last_scale_times[project_id] = t
 
 
 # ── Agent communication ──

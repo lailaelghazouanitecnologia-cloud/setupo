@@ -95,12 +95,16 @@ async def lifespan(app: FastAPI):
         from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker as _stop_hc
         from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler as _stop_rec
 
-        # Run spec migrations for desired state tables
+        # Run spec + event migrations
         from nso.engine.orchestrator.state import SPEC_MIGRATIONS
+        from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
         conn = await db.get_db()
-        for migration in SPEC_MIGRATIONS:
+        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION:
             await conn.execute(migration)
         await conn.commit()
+
+        # Enable event persistence to DB
+        set_persist_handler(_db_persist_handler)
 
         await start_monitor()
         await start_health_checker()

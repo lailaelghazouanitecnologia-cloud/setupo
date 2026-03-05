@@ -356,9 +356,10 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
 
         result = await pipe.run(deploy_toml_content)
 
+        version = manifest.get("version", "")
         state = _load_state()
         state[req.target_dir] = {
-            "version": manifest.get("version", ""),
+            "version": version,
             "hash": manifest.get("hash", ""),
             "workspace": manifest.get("name", ""),
             "branch": manifest.get("branch", ""),
@@ -376,9 +377,12 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
                 "rolled_back": result.rolled_back,
             })
 
+        # Hand off process management to supervisor
+        await _handoff_to_supervisor(pipe.config, req.target_dir, version)
+
         return {
             "ok": True,
-            "version": manifest.get("version", ""),
+            "version": version,
             "workspace": manifest.get("name", ""),
             "stack": manifest.get("stack", ""),
             "snapshot": snap,
@@ -508,6 +512,51 @@ async def deploy_rollback(
     _save_state(state)
 
     return {"ok": True, "restored": snap_name, "service_restart": code == 0}
+
+
+async def _handoff_to_supervisor(config: dict, working_dir: str, version: str):
+    """
+    After deploy pipeline completes, hand process management to the supervisor.
+
+    Reads [services] from deploy.toml config and converts them to ProcessSpecs.
+    The supervisor will start, monitor, and auto-restart these processes.
+    This replaces the old pattern of blindly calling systemctl.
+    """
+    from supervisor import supervisor, ProcessSpec
+
+    services = config.get("services", {})
+    if not services:
+        # Legacy: single service, use restart_service from state
+        return
+
+    env = {}
+    # Merge env from config
+    env_config = config.get("env", {})
+    if isinstance(env_config, dict):
+        env.update(env_config)
+
+    specs = []
+    for name, svc_config in services.items():
+        if not isinstance(svc_config, dict):
+            continue
+        command = svc_config.get("command", "")
+        if not command:
+            continue
+
+        specs.append(ProcessSpec.from_deploy_config(
+            name=name,
+            svc_config=svc_config,
+            env=env,
+            working_dir=working_dir,
+            version=version,
+        ))
+
+    if specs:
+        supervisor.set_desired(specs, version=version)
+        logger.info(
+            "Supervisor handoff: %d processes for version %s: %s",
+            len(specs), version, [s.name for s in specs],
+        )
 
 
 @router.get("/current")
