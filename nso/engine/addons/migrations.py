@@ -74,6 +74,41 @@ TABLES = """
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- GitHub webhook configs (connector: auto-deploy on push)
+    CREATE TABLE IF NOT EXISTS webhook_configs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        workspace_name TEXT NOT NULL,
+        instance_id TEXT DEFAULT '',
+        github_repo TEXT NOT NULL,
+        github_branch TEXT DEFAULT 'main',
+        secret TEXT NOT NULL,
+        enabled INTEGER DEFAULT 1,
+        auto_deploy INTEGER DEFAULT 1,
+        last_triggered TEXT DEFAULT '',
+        last_status TEXT DEFAULT '',
+        last_error TEXT DEFAULT '',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS webhook_deliveries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        webhook_id TEXT NOT NULL,
+        event TEXT DEFAULT 'push',
+        github_delivery_id TEXT DEFAULT '',
+        branch TEXT DEFAULT '',
+        commit_sha TEXT DEFAULT '',
+        commit_message TEXT DEFAULT '',
+        author TEXT DEFAULT '',
+        status TEXT DEFAULT 'pending',
+        deploy_result TEXT DEFAULT '',
+        error TEXT DEFAULT '',
+        received_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        finished_at TEXT DEFAULT '',
+        FOREIGN KEY (webhook_id) REFERENCES webhook_configs(id) ON DELETE CASCADE
+    );
+
     -- Uptime Monitor: health check targets and results
     CREATE TABLE IF NOT EXISTS uptime_targets (
         id TEXT PRIMARY KEY,
@@ -160,6 +195,10 @@ INDEXES = """
     CREATE UNIQUE INDEX IF NOT EXISTS idx_addons_unique ON addons(project_id, addon_id, addon_type);
     CREATE INDEX IF NOT EXISTS idx_modules_name ON modules(name);
     CREATE INDEX IF NOT EXISTS idx_modules_published ON modules(published);
+
+    CREATE INDEX IF NOT EXISTS idx_webhook_configs_project ON webhook_configs(project_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_webhook_configs_repo ON webhook_configs(project_id, github_repo, github_branch);
+    CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_webhook ON webhook_deliveries(webhook_id);
 
     CREATE INDEX IF NOT EXISTS idx_uptime_targets_project ON uptime_targets(project_id);
     CREATE INDEX IF NOT EXISTS idx_uptime_results_target ON uptime_results(target_id);

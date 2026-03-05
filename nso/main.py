@@ -175,6 +175,7 @@ from nso.engine.addons import plugins_routes, plugin_api_routes, modules_routes
 from nso.engine.addons.routes_addons import catalog as addons_catalog
 from nso.engine.addons.routes_addons import connectors as addons_connectors
 from nso.engine.addons.routes_addons import marketplace as addons_marketplace
+from nso.engine.addons.routes_addons import webhooks as github_webhooks
 from nso.engine.billing import routes as billing_routes
 from nso.engine.notifications import routes as notifications_routes
 from nso.engine.build import routes as build_routes
@@ -202,6 +203,7 @@ app.include_router(plugin_api_routes.router, prefix="/api/projects/{project_id}/
 app.include_router(addons_catalog.router, prefix="/api/projects/{project_id}/addons", tags=["addons"])
 app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/addons/connectors", tags=["addons-connectors"])
 app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
+app.include_router(github_webhooks.router, prefix="/api/projects/{project_id}/webhooks/github", tags=["webhooks"])
 app.include_router(ready_routes.admin_router, prefix="/api/ready", tags=["ready"])
 app.include_router(ready_routes.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
 app.include_router(pool_routes.router, prefix="/api/compute/pool", tags=["compute-pool"])
