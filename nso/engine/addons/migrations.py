@@ -110,6 +110,7 @@ TABLES = """
     );
 
     -- AI Apps: admin-published AI services powered by Baseten
+    -- Apps are interactive pipelines with stages/templates
     CREATE TABLE IF NOT EXISTS ai_apps (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -134,8 +135,28 @@ TABLES = """
         system_prompt TEXT DEFAULT '',
         max_timeout_seconds INTEGER DEFAULT 60,
         total_runs INTEGER DEFAULT 0,
+        pipeline_stages TEXT DEFAULT '[]',
+        templates TEXT DEFAULT '{}',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- AI App sessions: ongoing multi-step interactions with an app
+    CREATE TABLE IF NOT EXISTS ai_app_sessions (
+        id TEXT PRIMARY KEY,
+        app_id TEXT NOT NULL,
+        project_id TEXT NOT NULL,
+        user_id TEXT DEFAULT '',
+        thread_id TEXT DEFAULT '',
+        current_stage TEXT DEFAULT '',
+        stage_data TEXT DEFAULT '{}',
+        collected_data TEXT DEFAULT '{}',
+        status TEXT DEFAULT 'active',
+        output_folder TEXT DEFAULT 'assets',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (app_id) REFERENCES ai_apps(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 
     -- AI App memory: per-project preferences + context for AI agent
@@ -262,6 +283,9 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_ai_apps_slug ON ai_apps(slug);
     CREATE INDEX IF NOT EXISTS idx_ai_apps_published ON ai_apps(published);
     CREATE INDEX IF NOT EXISTS idx_ai_apps_category ON ai_apps(category);
+    CREATE INDEX IF NOT EXISTS idx_ai_app_sessions_app ON ai_app_sessions(app_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_app_sessions_project ON ai_app_sessions(project_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_app_sessions_thread ON ai_app_sessions(thread_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_app_memory_unique ON ai_app_memory(project_id, app_id);
     CREATE INDEX IF NOT EXISTS idx_ai_app_runs_app ON ai_app_runs(app_id);
     CREATE INDEX IF NOT EXISTS idx_ai_app_runs_project ON ai_app_runs(project_id);
