@@ -89,17 +89,31 @@ async def lifespan(app: FastAPI):
 
     stop_monitor = None
     stop_health = None
+    stop_reconciler = None
     if SERVER_MODE in ("admin", "full"):
         from nso.engine.orchestrator.monitor import start_monitor, stop_monitor as _stop
         from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker as _stop_hc
+        from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler as _stop_rec
+
+        # Run spec migrations for desired state tables
+        from nso.engine.orchestrator.state import SPEC_MIGRATIONS
+        conn = await db.get_db()
+        for migration in SPEC_MIGRATIONS:
+            await conn.execute(migration)
+        await conn.commit()
+
         await start_monitor()
         await start_health_checker()
+        await start_reconciler()
         stop_monitor = _stop
         stop_health = _stop_hc
+        stop_reconciler = _stop_rec
 
     yield
 
     logger.info("NSO shutting down...")
+    if stop_reconciler:
+        await stop_reconciler()
     if stop_health:
         await stop_health()
     if stop_monitor:

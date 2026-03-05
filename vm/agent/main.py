@@ -18,6 +18,7 @@ from files import router as files_router
 from exec import router as exec_router
 from deploy import router as deploy_router
 from envvars import router as secrets_router
+from supervisor import supervisor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,20 +28,26 @@ logger = logging.getLogger("nso-agent")
 
 HOST = os.environ.get("NSO_AGENT_HOST", "0.0.0.0")
 PORT = int(os.environ.get("NSO_AGENT_PORT", "8081"))
+_start_time = 0.0
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import time
+    global _start_time
+    _start_time = time.monotonic()
     logger.info("NSO Agent starting on %s:%d", HOST, PORT)
     await store.init()
+    await supervisor.start()
     yield
-    logger.info("NSO Agent shutting down")
+    logger.info("NSO Agent shutting down — draining processes")
+    await supervisor.stop()
     await store.close()
 
 
 app = FastAPI(
     title="NSO Agent",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -59,8 +66,103 @@ app.include_router(secrets_router)
 
 @app.get("/health")
 async def health():
+    """Rich health endpoint — reports agent, system, and process state."""
+    import time
+
     count = await store.count_tracked()
-    return HealthResponse(tracked_instances=count)
+
+    # System metrics (read directly, no exec hack)
+    system = {}
+    try:
+        st = os.statvfs("/")
+        disk_total = st.f_blocks * st.f_frsize
+        disk_free = st.f_bavail * st.f_frsize
+        system["disk_percent"] = round((1 - disk_free / disk_total) * 100, 1) if disk_total else 0
+        system["disk_free_gb"] = round(disk_free / (1024**3), 1)
+    except Exception:
+        pass
+
+    try:
+        with open("/proc/meminfo") as f:
+            mem = {}
+            for line in f.readlines()[:5]:
+                parts = line.split()
+                if len(parts) >= 2:
+                    mem[parts[0].rstrip(":")] = int(parts[1])
+            total = mem.get("MemTotal", 1)
+            avail = mem.get("MemAvailable", mem.get("MemFree", 0))
+            system["mem_percent"] = round((1 - avail / total) * 100, 1)
+            system["mem_total_mb"] = round(total / 1024)
+    except Exception:
+        pass
+
+    try:
+        la = os.getloadavg()
+        system["load"] = [round(la[0], 2), round(la[1], 2), round(la[2], 2)]
+    except Exception:
+        pass
+
+    try:
+        with open("/proc/uptime") as f:
+            system["uptime"] = int(float(f.read().split()[0]))
+    except Exception:
+        pass
+
+    sup_status = supervisor.get_status()
+
+    return {
+        "agent_version": "0.3.0",
+        "agent_uptime": round(time.monotonic() - _start_time),
+        "tracked_instances": count,
+        "system": system,
+        "supervisor": sup_status,
+        "converged": sup_status["converged"],
+    }
+
+
+@app.get("/supervisor/status")
+async def supervisor_status(admin: AdminUser = Depends(require_admin)):
+    """Detailed supervisor state."""
+    return supervisor.get_status()
+
+
+@app.post("/supervisor/apply")
+async def supervisor_apply(data: dict, admin: AdminUser = Depends(require_admin)):
+    """
+    Apply desired process specs to the supervisor.
+
+    Body: {"processes": [{"name": "api", "command": "...", "port": 8000, ...}], "version": "1.0.0"}
+    """
+    from supervisor import ProcessSpec
+
+    processes = data.get("processes", [])
+    version = data.get("version", "")
+
+    if not processes:
+        raise HTTPException(400, "No processes specified")
+
+    specs = []
+    for p in processes:
+        if not p.get("name") or not p.get("command"):
+            raise HTTPException(400, f"Process spec missing name or command: {p}")
+        specs.append(ProcessSpec.from_dict({**p, "version": version}))
+
+    supervisor.set_desired(specs, version=version)
+
+    return {
+        "ok": True,
+        "spec_generation": supervisor.spec_generation,
+        "processes": [s.name for s in specs],
+    }
+
+
+@app.post("/supervisor/stop/{name}")
+async def supervisor_stop_process(name: str, admin: AdminUser = Depends(require_admin)):
+    """Remove a process from desired state (will be stopped by reconciler)."""
+    if name not in supervisor.desired:
+        raise HTTPException(404, f"Process '{name}' not in desired state")
+    supervisor.remove_desired(name)
+    return {"ok": True, "removed": name}
 
 @app.post("/auth/login", response_model=LoginResponse)
 async def login(req: LoginRequest):
