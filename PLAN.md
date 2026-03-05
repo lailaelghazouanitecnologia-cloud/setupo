@@ -1,331 +1,216 @@
-# Plan de Refactoring — Frontend NSO Dashboard + Admin
+# NSO — Análisis Estructural Completo del Proyecto
 
-## Resumen del Análisis
+## Resumen
 
-Se analizaron **13,000+ líneas** de código frontend en 2 dashboards (main + admin).
-Se encontraron **80+ problemas** categorizados en 12 áreas.
-
----
-
-## Fase 1: Bugs Críticos y CSS Rotos (Prioridad ALTA)
-
-### 1.1 CSS Variables Indefinidas
-**Archivos:** `client/dashboard/src/app/globals.css`
-- `--sidebar-bg` usada en líneas 281, 1401, 1461 pero **nunca definida**. Debe ser `--sidebar-background`.
-- Resultado: esos elementos caen a `inherit` silenciosamente, rompiendo el layout en light mode.
-
-### 1.2 Variables de Color Duplicadas Entre Temas
-- `--color-yellow`, `--color-green`, `--color-teal`, `--color-red`, `--color-blue`, `--color-purple` se definen idénticamente en `:root` y `.dark`. Son theme-independent → definir una sola vez en `:root`.
-
-### 1.3 Catch Blocks Silenciosos en API Client
-**Archivo:** `client/dashboard/src/lib/api/client.ts`
-- Línea 56: `catch {}` en `parseErrorText()` — traga errores de parsing JSON.
-- Línea 91: `catch {}` en login agent auth — usuario queda autenticado en API pero no en agent, sin aviso.
-
-### 1.4 Page Reload en 401 (Token Expirado)
-**Archivo:** `client/dashboard/src/lib/api/client.ts` línea 43
-- `window.location.reload()` pierde todo estado no guardado del usuario.
-- Cambiar por logout limpio + redirect a login sin reload.
-
-### 1.5 Active Project No Se Restaura
-**Archivo:** `client/dashboard/src/stores/dashboard-store.ts`
-- `setActiveProject()` guarda ID en localStorage (`nso_active_project`).
-- Pero al iniciar, **nunca se lee**. El proyecto activo se pierde entre sesiones.
+| Área | Archivos | Líneas | Bytes |
+|------|----------|--------|-------|
+| `nso/` (central server) | ~100 .py | 28,922 | — |
+| `vm/` (agent + CLI) | ~15 .py | 5,640 | — |
+| `client/` (dashboards) | ~30 .ts/.tsx | 13,930 | — |
+| `tests/` | 7 .py | 1,163 | — |
+| **Total** | **~152** | **49,655** | — |
 
 ---
 
-## Fase 2: Extraer Utilidades Compartidas (Eliminar Duplicación)
+## 1. Backend — `nso/engine/` (13 módulos, 28,922 líneas)
 
-### 2.1 Crear `client/dashboard/src/lib/format.ts`
-Funciones duplicadas en 6+ archivos:
-- `formatSize(bytes)` — duplicada en deploy-panel, instances-panel, workspaces-panel, admin-panel
-- `timeAgo(date)` — duplicada en loadbalancer-panel, orchestrator-panel, admin-panel
-- `fmt(value)` / `formatNum(n)` — duplicada 5 veces en admin-panel
-- `stateColor(state)` / `stateBadgeClass(state)` — duplicada en instances-panel, admin-panel
+### Tamaño por módulo
 
-### 2.2 Crear `client/dashboard/src/lib/terminal-styles.ts`
-Colores hardcodeados del terminal duplicados:
-- `deploy-panel.tsx` líneas 705-706: `#0d1117`, `#c9d1d9`, `#484f58`
-- `instances-panel.tsx` líneas 700-731: mismos colores
-- Centralizar como CSS variables o constantes exportadas.
+| Módulo | Archivos | Líneas | Patrón estándar? |
+|--------|----------|--------|-----------------|
+| `addons` | 13 | 4,476 | Parcial (muchos sub-routes) |
+| `compute` | 19 | 3,933 | No (pool, quota, hosts, vms mezclados) |
+| `orchestrator` | 18 | 3,657 | Parcial (reconciler muy grande) |
+| `billing` | 4 | 2,871 | No (service.py monolítico) |
+| `admin` | 5 | 2,095 | No (analytics.py monolítico) |
+| `deploy_agent` | 5 | 1,497 | Sí |
+| `validator` | 5 | 1,216 | Sí |
+| `workspace` | 9 | 1,286 | Sí |
+| `storage` | 6 | 1,074 | Sí |
+| `build` | 4 | 667 | Sí |
+| `deploy` | 6 | 683 | Sí |
+| `auth` | 5 | 540 | Sí |
+| `notifications` | 4 | 432 | Sí |
+| `dns` | 4 | 255 | Sí |
+| `projects` | 4 | 236 | Sí |
 
-### 2.3 Crear constantes de colores inline
-**Problema:** 50+ colores hardcodeados en JSX inline styles en lugar de usar CSS variables.
-- `addons-panel.tsx` líneas 292-298: `rgba(2,184,204,0.1)` → `var(--color-teal-10)`
-- `admin-panel.tsx` líneas 1210, 1691: `var(--color-green, green)` fallbacks inline
+### Archivos monolíticos (> 600 líneas) — DEBEN PARTIRSE
+
+| Archivo | Líneas | Problema | Propuesta |
+|---------|--------|----------|-----------|
+| `billing/service.py` | **1,798** | Una clase con 40+ métodos: plans, subs, invoices, wallets, coupons, credit notes, metrics, usage, payments, taxes, events | Partir en: `plan_service.py`, `subscription_service.py`, `invoice_service.py`, `wallet_service.py`, `coupon_service.py`, `usage_service.py`, `payment_service.py` |
+| `admin/analytics.py` | **931** | Funciones monolíticas de analytics, cashflow, snapshots | Partir en: `revenue.py`, `growth.py`, `cashflow.py`, `snapshots.py` |
+| `billing/routes.py` | **833** | Router monolítico con 40+ endpoints | Partir en sub-routers por área |
+| `admin/routes.py` | **696** | Admin routes mezcladas | Partir en: `admin_user_routes.py`, `admin_analytics_routes.py`, `admin_infra_routes.py` |
+| `compute/pool.py` | **644** | Pool state + CRUD + logic mezclados | Separar state/CRUD/operations |
+| `orchestrator/reconciler.py` | **599** | Reconciliación masiva | OK por complejidad intrínseca |
+| `addons/ai_apps_service.py` | **561** | AI apps session + pipeline + tools | Partir en: `ai_session.py`, `ai_pipeline.py`, `ai_tools.py` |
+
+### Patrón estándar de módulos
+
+Cada módulo debería tener:
+```
+engine/{module}/
+├── config.toml      # Metadata del módulo
+├── routes.py        # FastAPI routes (thin layer)
+├── service.py       # Business logic
+├── migrations.py    # Schema SQL
+└── models.py        # Pydantic models (opcional)
+```
+
+**Módulos que no siguen el patrón:**
+- `compute/` — 19 archivos, incluye pool, quota, hosts, vm_manager, ready, health, pool_reconciler. Debería dividirse en 2-3 submódulos: `compute/instances/`, `compute/pool/`, `compute/hosts/`
+- `addons/` — 13 archivos mezclando plugins, modules, connectors, marketplace, AI apps. El AI apps debería ser su propio módulo `engine/ai/`
+- `orchestrator/` — 18 archivos con monitor, reconciler, scheduler, loadbalancer, LB proxy, LB health, states. Correcto dado la complejidad
 
 ---
 
-## Fase 3: Partir Componentes Monolíticos
+## 2. Shared — `nso/shared/` (7 archivos, ~1,100 líneas)
 
-### 3.1 Dashboard Principal — Componentes Grandes
-
-| Archivo | Líneas | Acción |
+| Archivo | Líneas | Estado |
 |---------|--------|--------|
-| `billing-panel.tsx` | 1272 | Separar en `BillingOverview`, `BillingPlans`, `BillingInvoices`, `BillingWallets`, `BillingCoupons` |
-| `admin-panel.tsx` | 989 | Separar en `AdminOverview`, `AdminUsers`, `AdminAnalytics`, `AdminFraud`, `AdminLedger` |
-| `instances-panel.tsx` | 972 | Extraer `TerminalPanel`, `FilesPanel`, `CreateInstanceForm`, `ServicesTab` |
-| `addons-panel.tsx` | 804 | Extraer `PluginDetailView`, `ConnectorDetailView`, `MarketplaceCard` |
-| `deploy-panel.tsx` | 776 | Extraer `DeployConfig`, `ZarVersions`, `DeployLogs` |
+| `manager.py` | 308 | Bien — ServiceManager con health checks |
+| `models.py` | 293 | Bien — Pydantic models compartidos |
+| `events.py` | 235 | Bien — Event bus pub/sub |
+| `db.py` | 193 | Bien — CRUD genérico con validación SQL |
+| `auth/resolve.py` | 152 | Bien — Token resolution 3-way |
+| `ratelimit.py` | 86 | Bien |
+| `auth/jwt.py` | 81 | Bien |
+| `deps.py` | 41 | Bien |
+| `errors.py` | 30 | Bien |
+| `auth/keys.py` | 18 | Bien |
 
-### 3.2 Admin Dashboard — Componente Masivo
-
-**`client/admin/src/components/admin-panel.tsx`** — **2,802 líneas en un solo archivo**.
-
-Debe separarse en:
-```
-client/admin/src/components/
-├── admin-panel.tsx          (router de tabs, <200 líneas)
-├── tabs/
-│   ├── overview-tab.tsx
-│   ├── cashflow-tab.tsx
-│   ├── users-tab.tsx
-│   ├── user-detail.tsx
-│   ├── analytics-tab.tsx
-│   ├── fraud-tab.tsx
-│   ├── ledger-tab.tsx
-│   ├── infra-tab/
-│   │   ├── index.tsx
-│   │   ├── instances-view.tsx
-│   │   ├── database-view.tsx
-│   │   └── storage-view.tsx
-│   ├── orchestrator-tab/
-│   │   ├── index.tsx
-│   │   ├── overview.tsx
-│   │   ├── nodes.tsx
-│   │   ├── builds.tsx
-│   │   └── alerts.tsx
-│   ├── loadbalancer-tab/
-│   │   ├── index.tsx
-│   │   ├── overview.tsx
-│   │   ├── pools.tsx
-│   │   ├── rules.tsx
-│   │   └── nginx.tsx
-│   └── z86-tab/
-│       ├── index.tsx
-│       ├── overview.tsx
-│       ├── buckets.tsx
-│       ├── files.tsx
-│       ├── terminal.tsx
-│       └── secrets.tsx
-```
+**Observaciones:**
+- `db.py` usa f-strings para SQL pero con `_validate_identifier()` — protegido contra injection
+- `events.py` es fire-and-forget sin guaranteed delivery — OK para nuestro caso
+- `manager.py` tiene service dependencies con restart automático — buena infra
 
 ---
 
-## Fase 4: API Client — Robustez
+## 3. VM Agent — `vm/agent/` (13 archivos, 4,487 líneas)
 
-### 4.1 Separar API Client por Contexto
-**Problema actual:** `apiCall()` default usa `nso_token` (agent), `centralApi()` wrapper usa `nso_api_token`.
-Fácil confundir cuál usar.
+| Archivo | Líneas | Función |
+|---------|--------|---------|
+| `pipeline.py` | 773 | Pipeline de deploy con fases |
+| `supervisor.py` | 759 | Process supervisor para deploys |
+| `pool_handler.py` | 700 | Handler para pool VMs |
+| `deploy.py` | 636 | Deploy .zar, snapshot, rollback |
+| `ai.py` | 325 | AI agent chat (deploy assistant) |
+| `envvars.py` | 262 | Env var CRUD con buckets |
+| `main.py` | 232 | Entry point + router mount |
+| `store.py` | 228 | SQLite metrics store |
+| `files.py` | 220 | File operations (browse/read/write) |
+| `exec.py` | 144 | Command execution |
+| `auth.py` | 125 | Agent-local JWT auth |
+| `models.py` | 83 | Agent models |
 
-**Solución:**
-```typescript
-// client/dashboard/src/lib/api/agent-client.ts
-export function agentCall<T>(path: string, options?: RequestInit): Promise<T>
-
-// client/dashboard/src/lib/api/central-client.ts
-export function centralCall<T>(path: string, options?: RequestInit): Promise<T>
-```
-
-### 4.2 Añadir Request Timeout
-- Ninguna llamada API tiene timeout configurado.
-- `fetch()` puede colgar indefinidamente si el servidor no responde.
-- Añadir `AbortController` con timeout de 30s default.
-
-### 4.3 Añadir Request Retry con Backoff
-- Para errores transitorios (503, network errors).
-- 3 reintentos con backoff exponencial (1s, 2s, 4s).
-
-### 4.4 Logout Limpio en vez de Reload
-- Actual: `window.location.reload()` en 401.
-- Nuevo: emit logout event → store.logout() → show login page sin perder contexto.
-
-### 4.5 Agent Auth Warning
-- Login intenta obtener agent JWT (línea 91).
-- Si falla, silenciosamente continúa.
-- Mostrar warning: "Agent no disponible — funciones de deploy limitadas".
+**Problemas:**
+- `pipeline.py` (773 líneas) + `supervisor.py` (759 líneas) + `pool_handler.py` (700 líneas) son archivos grandes pero con responsabilidades distintas — aceptable
+- `deploy.py` (636 líneas) mezcla deploy, snapshot, rollback, self-update — podría partirse
 
 ---
 
-## Fase 5: Store — Separar Concerns
+## 4. VM CLI — `vm/cli/` (3 archivos, 1,153 líneas)
 
-### 5.1 Separar Auth Store de Project Store
-**Actual:** Un solo `dashboard-store.ts` con auth + projects + workspaces + theme.
+| Archivo | Líneas | Función |
+|---------|--------|---------|
+| `main.py` | 897 | Todos los comandos CLI |
+| `client.py` | 157 | HTTP client con auth/retries |
+| `output.py` | 98 | Terminal formatting helpers |
 
-**Nuevo:**
-```typescript
-// stores/auth-store.ts — token, user, theme
-// stores/project-store.ts — projects, workspaces, active selections
-```
-
-### 5.2 Restaurar Active Project al Iniciar
-- Leer `localStorage.getItem("nso_active_project")` en init.
-- Hacer fetch del proyecto para validar que existe.
-- Si no existe, limpiar la referencia.
-
-### 5.3 Limpiar Token Inconsistency
-- `setToken()` escribe solo `nso_api_token`.
-- `getInitialToken()` lee `nso_api_token || nso_token`.
-- Logout limpia ambos.
-- Inconsistencia: ¿qué pasa si solo existe `nso_token`?
+**Problema:** `main.py` con 897 líneas tiene TODOS los comandos (login, ship, exec, instances, projects, workspaces, deploy, secrets, etc.). Debería partirse en subcommands.
 
 ---
 
-## Fase 6: Type Safety
+## 5. Tests — `tests/` (7 archivos, 1,163 líneas)
 
-### 6.1 Eliminar `any` Types
-Instancias encontradas:
-- `client.ts`: `catch (err: any)` × 20+ instancias → usar `unknown`
-- `admin-panel.tsx`: `useState<any>(null)` × 10+ instancias → definir interfaces
-- `addons-panel.tsx`: `{f: any}` → `FileObject`
-- `instances-panel.tsx`: `useState<any[]>` → `FileItem[]`
+| Archivo | Líneas | Qué testea |
+|---------|--------|------------|
+| `conftest.py` | — | Fixtures |
+| `test_auth.py` | — | Auth endpoints |
+| `test_billing.py` | — | Billing service |
+| `test_blockchain.py` | — | Blockchain ledger |
+| `test_email.py` | — | Email service |
+| `test_orchestrator.py` | — | Orchestrator |
 
-### 6.2 Completar Interfaces de API Response
-**Archivo:** `client/dashboard/src/types/dashboard.ts` (solo 61 líneas)
-Falta: ProjectResponse, WorkspaceResponse, DeployStatus, AddonCatalogItem, BillingPlan, etc.
+**Cobertura MÍNIMA — áreas SIN tests:**
+- `compute/` (pool, VMs, hosts, quota) — 0 tests
+- `deploy/` (deploy pipeline, storage, .zar) — 0 tests
+- `workspace/` (CRUD, config, secrets) — 0 tests
+- `addons/` (plugins, connectors, marketplace, AI) — 0 tests
+- `admin/` (analytics, user management) — 0 tests
+- `dns/` (domains) — 0 tests
+- `projects/` (CRUD) — 0 tests
+- VM agent (deploy, files, exec) — 0 tests
+- CLI — 0 tests
+- Frontend — 0 tests
 
-### 6.3 Unificar Secret Types
-- `Secret` en dashboard.ts: `{ key, value?, masked }`
-- `AgentSecret` en client.ts: `{ key, value, bucket }`
-- Crear un solo tipo con campos opcionales.
-
----
-
-## Fase 7: Inline Styles → CSS Classes
-
-### 7.1 Componentes con Exceso de Inline Styles
-| Componente | Líneas con inline styles | Acción |
-|------------|--------------------------|--------|
-| `addons-panel.tsx` | 50+ líneas (MarketplaceCard) | Mover a `.marketplace-card` en CSS |
-| `instances-panel.tsx` | 40+ líneas (forms, badges) | Mover a `.inst-form`, `.inst-badge` |
-| `secrets-panel.tsx` | 30+ líneas (scope selector) | Mover a `.scope-selector` en CSS |
-| `dashboard-layout.tsx` | 20+ líneas (error boundary) | Mover a `.error-boundary` en CSS |
-| `admin-panel.tsx` | 100+ líneas (cards, tables, modals) | Mover a admin globals.css |
-
-### 7.2 Terminal Styles
-Hardcodeados en JSX:
-```tsx
-style={{ background: "#0d1117", color: "#c9d1d9" }}
-```
-→ Crear clases CSS:
-```css
-.terminal-panel {
-  background: var(--terminal-bg, #0d1117);
-  color: var(--terminal-fg, #c9d1d9);
-}
-```
+**Solo 5 de 15 módulos tienen tests. Cobertura estimada: ~15%.**
 
 ---
 
-## Fase 8: Estado y Race Conditions
+## 6. `main.py` — Registro de Rutas
 
-### 8.1 Race Conditions Identificadas
-- `instances-panel.tsx` líneas 442-460: `handleStop/handleStart` llaman `fetchData()` sin await.
-- `projects-panel.tsx` líneas 160-166: `handleSwitchTo` llama async `listWorkspaces` sin error handling.
-- `deploy-panel.tsx` líneas 310-318: Múltiples llamadas async en secuencia sin coordinación.
-- `admin-panel.tsx` línea 1269-1275: `loadTable` puede dejar UI inconsistente si falla la API.
+`nso/main.py` (244 líneas) tiene:
+- `ROUTE_REGISTRY` dict (no usado — vestigio del auto-discovery)
+- 25+ `app.include_router()` calls
+- `lifespan` con imports inline condicionados a `SERVER_MODE`
+- 3 middlewares custom (AdminHost, ServerMode, RateLimit + LBProxy)
 
-### 8.2 Estado No Reseteado al Cambiar Contexto
-- `addons-panel.tsx`: Al cambiar de proyecto, estado de addons anterior persiste.
-- `deploy-panel.tsx`: `selectedWs` se resetea pero `selectedInstance` no.
-- `workspaces-panel.tsx`: `browsePath` del file browser no se resetea al cambiar workspace.
-
-### 8.3 Missing Loading/Error States
-- `projects-panel.tsx`: Fetch de workspaces/instances sin spinner.
-- `workspaces-panel.tsx`: No muestra error state si la API falla.
-- `inbox-panel.tsx`: catch blocks tragan errores silenciosamente (líneas 59-64, 66-71).
+**Problema:** `ROUTE_REGISTRY` (líneas 63-73) define prefijos pero NO se usa para auto-discovery. Las rutas se registran manualmente debajo. Es código muerto.
 
 ---
 
-## Fase 9: Responsive Design
+## 7. `config.py` — Configuración
 
-### 9.1 Panels Sin Mobile Breakpoints
-- `.proj-layout` — no mobile stack
-- `.billing-overview-cards` — grid siempre 3 columnas
-- `instances-panel.tsx` línea 250 — form 2 columnas sin breakpoint
-- `workspaces-panel.tsx` línea 195 — sidebar fija 220px sin mobile
+Bien estructurada. Usa `os.environ.get()` con defaults. Helpers para `db_path()`, `project_dir()`, `workspace_path()`, `r2_config()`.
 
-### 9.2 Admin Dashboard — 0 Responsive
-- `globals.css` (admin) — 827 líneas sin un solo `@media` query
-- Cards, grids, tablas — todo fijo para desktop
+**Problema menor:** `workspace_dir(project_id, name)` ignora `project_id` — solo usa `name`. El parámetro es misleading.
 
 ---
 
-## Fase 10: Consistencia Admin ↔ Dashboard
+## 8. Problemas Transversales
 
-### 10.1 Código Duplicado Entre Dashboards
-| Elemento | Admin | Main | Solución |
-|----------|-------|------|----------|
-| Login form | `page.tsx` | `page.tsx` | Extraer `LoginForm` compartido |
-| Logo SVG | 2 definiciones | 1 definición | Compartir componente |
-| API client | 815 líneas | 1587 líneas | Crear `@nso/api-client` compartido |
-| CSS base | 827 líneas | 2155 líneas | Extraer tokens/base compartidos |
-| Format utils | inline en admin-panel | inline en panels | `@nso/format-utils` compartido |
+### 8.1 Archivos Muertos/Obsoletos
+- `ROUTE_REGISTRY` en main.py — no usado
+- `ADMIN_MODULES` en main.py — no usado
+- `workspace_dir()` parameter `project_id` — ignorado
 
-### 10.2 Z86 Tab Huérfano
-- `admin-panel.tsx` tiene `Z86Tab` implementado (línea 116).
-- `admin-dashboard.tsx` navItems **no incluye** entrada para Z86.
-- Código órfano — añadir a nav o eliminar.
+### 8.2 Inconsistencias en Error Handling
+- Backend usa `NsoError` hierarchy (30 líneas) — limpio
+- Algunos módulos usan `raise HTTPException()` directamente en service.py en vez de `NsoError`
+- Agent usa excepciones nativas sin hierarchy
 
----
+### 8.3 Logging
+- Backend usa `logging.getLogger("nso.xxx")` — consistente
+- Agent no sigue el mismo patrón — usa print() en algunos lugares
 
-## Fase 11: Seguridad
-
-### 11.1 XSS Potencial
-- `addons-panel.tsx` línea 379: `addon.description` renderizado directo.
-- `admin-panel.tsx` línea 574-576: datos de usuario sin sanitizar.
-- `deploy-panel.tsx` línea 301: log messages en `<span>` sin escape.
-- `workspaces-panel.tsx` línea 345: contenido de archivo en `<pre>`.
-
-### 11.2 Token Storage
-- Tokens en `localStorage` — vulnerable a XSS.
-- No hay refresh token mechanism.
-- Admin token `sonfazt_token` en plain localStorage sin expiración.
-
-### 11.3 Command Injection
-- `admin-panel.tsx` línea 2667: Z86 terminal ejecuta comandos sin sanitización.
-- `instances-panel.tsx` línea 677: `execOnInstance` envía comando raw.
-
-### 11.4 Missing Confirmations
-- `admin-panel.tsx` línea 2030: delete pool sin confirmación secundaria.
-- `admin-panel.tsx` línea 1514: delete storage object con confirm() básico.
+### 8.4 Validación
+- `db.py` valida SQL identifiers — bueno
+- No hay validación de input en varios endpoints (confía en Pydantic)
+- Agent exec.py no sanitiza comandos — intencional pero riesgoso
 
 ---
 
-## Fase 12: Accesibilidad
+## 9. Plan de Acción Recomendado
 
-### 12.1 ARIA Labels Faltantes
-- `dashboard-layout.tsx` línea 458: botón de menú sin `aria-label`.
-- `instances-panel.tsx` líneas 597-616: botones icon-only sin `title` ni `aria-label`.
-- `addons-panel.tsx` línea 706-716: tabs sin `role="tablist"`.
+### Prioridad ALTA (deuda técnica crítica)
 
-### 12.2 Navegación por Teclado
-- No hay focus trap en modales/viewers.
-- Tabs no navegables con flechas.
-- Terminal input no soporta Shift+Enter.
+1. **Partir `billing/service.py`** (1,798 líneas → 7 archivos)
+2. **Partir `admin/analytics.py`** (931 líneas → 4 archivos)
+3. **Mover AI apps a su propio módulo** `engine/ai/`
+4. **Eliminar ROUTE_REGISTRY y ADMIN_MODULES** de main.py (código muerto)
+5. **Crear tests** para compute, deploy, workspace, projects (cobertura 15% → 50%+)
 
-### 12.3 Contraste de Color
-- `addons-panel.tsx` línea 393: `muted-foreground` sobre fondo claro puede fallar WCAG AA.
-- Elementos con `opacity: 0.5` reducen contraste por debajo de AA.
+### Prioridad MEDIA (modularidad)
 
----
+6. Partir `compute/` en submódulos (instances, pool, hosts)
+7. Partir `billing/routes.py` en sub-routers
+8. Partir `vm/cli/main.py` en subcommands
+9. Unificar error handling: NsoError en vez de HTTPException en services
 
-## Orden de Ejecución
+### Prioridad BAJA (mejoras incrementales)
 
-| # | Fase | Impacto | Esfuerzo | Archivos |
-|---|------|---------|----------|----------|
-| 1 | Bugs CSS (`--sidebar-bg`, colores duplicados) | Alto | Bajo | globals.css |
-| 2 | Catch blocks silenciosos + 401 reload | Alto | Bajo | client.ts |
-| 3 | Extraer utilidades compartidas (format, timeAgo) | Medio | Bajo | Nuevo format.ts + 6 panels |
-| 4 | Active project restore | Medio | Bajo | dashboard-store.ts |
-| 5 | Inline styles → CSS classes | Medio | Medio | 5 panels + globals.css |
-| 6 | Terminal styles centralizados | Bajo | Bajo | 2 panels + globals.css |
-| 7 | Race conditions + state reset | Alto | Medio | 4 panels |
-| 8 | Partir admin-panel.tsx (2800 líneas) | Alto | Alto | admin/ |
-| 9 | Partir billing/instances/addons panels | Medio | Alto | dashboard/ |
-| 10 | Type safety (eliminar any) | Medio | Medio | types/ + panels |
-| 11 | API client robustez (timeout, retry, split) | Alto | Medio | client.ts |
-| 12 | Responsive breakpoints | Medio | Medio | globals.css × 2 |
-| 13 | Z86 tab huérfano | Bajo | Bajo | admin-dashboard.tsx |
-| 14 | Seguridad (XSS, sanitización) | Alto | Medio | Panels con render directo |
-| 15 | Accesibilidad | Medio | Medio | Todos los panels |
+10. Logging consistente en agent (logger vs print)
+11. Fix `workspace_dir()` parameter misleading
+12. Documentar event naming conventions
