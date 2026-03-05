@@ -446,6 +446,178 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
 
         return json.dumps(run.to_dict())
 
+    async def list_ai_apps() -> str:
+        """List available AI apps that can be used. Each app has a slug, description, input schema, and example usage."""
+        conn = await db.get_db()
+        cursor = await conn.execute(
+            "SELECT slug, name, description, category, input_schema, example_input, example_output, pricing "
+            "FROM ai_apps WHERE published = 1 ORDER BY total_runs DESC",
+        )
+        apps = []
+        for row in await cursor.fetchall():
+            app = dict(row)
+            for field in ("input_schema", "example_input", "example_output"):
+                if isinstance(app.get(field), str):
+                    try:
+                        app[field] = json.loads(app[field])
+                    except Exception:
+                        pass
+            apps.append(app)
+        return json.dumps({"apps": apps, "count": len(apps)})
+
+    async def run_ai_app(app_slug: str, inputs: str, output_folder: str = "assets", instance_id: str = "") -> str:
+        """Run an AI app by its slug. Pass inputs as a JSON string matching the app's input_schema. Output files are saved to the output_folder (default: assets/) on the user's instance.
+
+        Example: run_ai_app("logo-generator", '{"prompt": "coffee shop logo", "style": "minimal"}')
+        """
+        from nso.engine.addons.ai_apps_service import gather_memory, validate_input
+
+        # Parse inputs
+        try:
+            input_data = json.loads(inputs) if isinstance(inputs, str) else inputs
+        except json.JSONDecodeError:
+            return json.dumps({"error": "Invalid JSON for inputs parameter"})
+
+        # Find app
+        app = await db.fetch_one("ai_apps", slug=app_slug, published=True)
+        if not app:
+            return json.dumps({"error": f"AI app '{app_slug}' not found or not published"})
+
+        # Validate inputs
+        input_schema = app.get("input_schema", {})
+        if isinstance(input_schema, str):
+            try:
+                input_schema = json.loads(input_schema)
+            except Exception:
+                input_schema = {}
+
+        if input_schema:
+            errors = validate_input(input_data, input_schema)
+            if errors:
+                return json.dumps({"error": "Validation failed", "details": errors})
+
+        # Gather memory
+        memory = await gather_memory(ctx.project_id, app["id"], db)
+        memory.setdefault("preferences", {})["output_folder"] = output_folder
+
+        # Resolve instance for agent execution
+        target_instance = instance_id
+        if not target_instance:
+            instances = await db.fetch_all("instances", project_id=ctx.project_id)
+            ready = [i for i in instances if i.get("state") in ("ready", "running")]
+            if ready:
+                target_instance = ready[0]["id"]
+
+        import secrets as token_gen
+        run_id = f"run_{token_gen.token_hex(8)}"
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Record the run
+        await db.insert("ai_app_runs", {
+            "id": run_id,
+            "app_id": app["id"],
+            "project_id": ctx.project_id,
+            "user_id": ctx.user_id,
+            "input": input_data,
+            "status": "running",
+            "created_at": now,
+        })
+
+        system_prompt = app.get("system_prompt", "")
+        if isinstance(system_prompt, str) and not system_prompt:
+            system_prompt = ""
+        timeout = app.get("max_timeout_seconds", 60) or 60
+
+        # Execute via agent if instance available
+        if target_instance:
+            inst = await db.fetch_one("instances", id=target_instance)
+            if inst and inst.get("ip"):
+                import httpx
+                agent_url = f"http://{inst['ip']}:8081"
+                agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
+
+                try:
+                    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+                    async with httpx.AsyncClient(timeout=15, transport=transport) as client:
+                        resp = await client.post(f"{agent_url}/auth/login", json={
+                            "email": settings.ADMIN_EMAIL, "password": agent_password,
+                        })
+                    if resp.status_code != 200:
+                        return json.dumps({"error": "Agent auth failed"})
+                    token = resp.json()["token"]
+
+                    async with httpx.AsyncClient(timeout=float(timeout) + 10, transport=transport) as client:
+                        resp = await client.post(
+                            f"{agent_url}/ai/run",
+                            headers={"Authorization": f"Bearer {token}"},
+                            json={
+                                "app_slug": app_slug,
+                                "run_id": run_id,
+                                "api_url": app.get("baseten_api_url", ""),
+                                "api_key": app.get("baseten_api_key", ""),
+                                "model_id": app.get("baseten_model_id", ""),
+                                "payload": input_data,
+                                "system_prompt": system_prompt,
+                                "memory": memory,
+                                "timeout": float(timeout),
+                                "output_folder": output_folder,
+                                "save_output": True,
+                            },
+                        )
+
+                    if resp.status_code == 200:
+                        result = resp.json()
+                    else:
+                        result = {"ok": False, "error": f"Agent HTTP {resp.status_code}: {resp.text[:500]}"}
+                except Exception as exc:
+                    result = {"ok": False, "error": f"Agent error: {exc}"}
+            else:
+                result = {"ok": False, "error": "Instance has no IP"}
+        else:
+            # Fallback: direct call
+            from nso.engine.addons.ai_apps_service import call_baseten_model, build_baseten_payload
+            payload = build_baseten_payload(input_data, system_prompt, memory=memory)
+            result = await call_baseten_model(
+                api_url=app.get("baseten_api_url", ""),
+                api_key=app.get("baseten_api_key", ""),
+                model_id=app.get("baseten_model_id", ""),
+                payload=payload,
+                timeout=float(timeout),
+            )
+
+        # Update run record
+        finished_at = datetime.now(timezone.utc).isoformat()
+        if result.get("ok"):
+            await db.update("ai_app_runs", run_id, {
+                "output": result.get("result", {}),
+                "status": "success",
+                "latency_ms": result.get("latency_ms", 0),
+                "credits_charged": app.get("credits_per_run", 0),
+                "finished_at": finished_at,
+            })
+            conn = await db.get_db()
+            await conn.execute("UPDATE ai_apps SET total_runs = total_runs + 1 WHERE id = ?", [app["id"]])
+            await conn.commit()
+        else:
+            await db.update("ai_app_runs", run_id, {
+                "status": "error",
+                "error": result.get("error", "Unknown error"),
+                "latency_ms": result.get("latency_ms", 0),
+                "finished_at": finished_at,
+            })
+
+        return json.dumps({
+            "ok": result.get("ok", False),
+            "run_id": run_id,
+            "app": app_slug,
+            "result": result.get("result") if result.get("ok") else None,
+            "error": result.get("error") if not result.get("ok") else None,
+            "files": result.get("stored_files", {}),
+            "latency_ms": result.get("latency_ms", 0),
+            "executed_on": "agent" if target_instance else "central",
+        })
+
     return [
         (analyze_project, "analyze_project", "Analyze workspace to detect stack, files, dependencies, entry points"),
         (generate_deploy_config, "generate_deploy_config", "Generate deploy.toml from analysis"),
@@ -457,6 +629,8 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
         (read_workspace_file, "read_workspace_file", "Read a file from workspace"),
         (write_workspace_file, "write_workspace_file", "Write a file to workspace"),
         (run_validation, "run_validation", "Run validation checks on a workspace (from validate.toml or inline)"),
+        (list_ai_apps, "list_ai_apps", "List available AI apps that can be used from the deploy chat"),
+        (run_ai_app, "run_ai_app", "Run an AI app by slug with inputs — executes on the user's VPS agent"),
     ]
 
 
