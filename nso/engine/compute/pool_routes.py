@@ -11,6 +11,7 @@ from typing import Any, Optional
 
 from nso.shared.deps import require_admin, require_project
 from nso.engine.compute import pool
+from nso.engine.compute.types import get_cloud_init
 
 router = APIRouter()
 
@@ -19,19 +20,28 @@ router = APIRouter()
 
 class RegisterHostRequest(BaseModel):
     provider: str = "vultr"
-    provider_id: str
-    ip: str
+    provider_id: str = ""
+    ip: str = ""
     region: str = "ewr"
     plan: str = ""
-    vcpus: int
-    ram_mb: int
-    disk_gb: int
+    vcpus: int = 0
+    ram_mb: int = 0
+    disk_gb: int = 0
     bandwidth_gb: int = 0
     cost_cents: int = 0
     label: str = ""
     cpu_overcommit: float = 1.5
     ram_overcommit: float = 1.0
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProvisionPoolHostRequest(BaseModel):
+    """Provision a new pool host via Vultr — creates VPS with hardened cloud-init."""
+    region: str = "ewr"
+    plan: str = "vhp-4c-8gb-intel"
+    label: str = ""
+    cpu_overcommit: float = 1.5
+    ram_overcommit: float = 1.0
 
 
 class UpdateHostRequest(BaseModel):
@@ -126,7 +136,7 @@ async def list_hosts(status: str = ""):
 
 @router.post("/hosts", dependencies=[Depends(require_admin)])
 async def register_host(req: RegisterHostRequest):
-    """Register a new host machine in the pool."""
+    """Register an existing host machine in the pool (manual setup)."""
     host = await pool.register_host(
         provider=req.provider, provider_id=req.provider_id, ip=req.ip,
         region=req.region, plan=req.plan, vcpus=req.vcpus,
@@ -136,6 +146,103 @@ async def register_host(req: RegisterHostRequest):
         metadata=req.metadata,
     )
     return {"host": host}
+
+
+@router.post("/hosts/provision", dependencies=[Depends(require_admin)])
+async def provision_pool_host(req: ProvisionPoolHostRequest):
+    """
+    Provision a new pool host via Vultr with hardened cloud-init.
+
+    This:
+    1. Creates a Vultr VPS with the pool-host cloud-init
+    2. Registers it in the pool DB
+    3. The cloud-init installs Docker, hardens the kernel, sets up firewall,
+       and configures the agent with the pool token
+
+    The host will be ready to accept VMs once cloud-init completes (~3-5 min).
+    """
+    import asyncio
+    import secrets as _secrets
+    from nso.config import settings
+    from nso.engine.compute.providers.vultr import VultrProvider
+
+    # Pre-generate the agent token so we can bake it into cloud-init
+    agent_token = _secrets.token_hex(32)
+
+    # Get central server IP for firewall whitelist
+    central_ip = getattr(settings, "NSO_PUBLIC_IP", "") or "0.0.0.0"
+
+    user_data = get_cloud_init(
+        "pool_host",
+        pool_agent_token=agent_token,
+        central_server_ip=central_ip,
+    )
+
+    vultr = VultrProvider()
+    try:
+        vps = await vultr.create_instance(
+            region=req.region,
+            plan=req.plan,
+            os_id=settings.VULTR_DEFAULT_OS,
+            label=req.label or "nso-pool-host",
+            user_data=user_data,
+            tag="nso-pool",
+        )
+
+        provider_id = vps.get("id", "")
+
+        # Poll for IP
+        ip = ""
+        for _ in range(60):
+            await asyncio.sleep(5)
+            data = await vultr.get_instance(provider_id)
+            if not data:
+                continue
+            status = data.get("status", "")
+            power = data.get("power_status", "")
+            main_ip = data.get("main_ip", "")
+            if status == "active" and power == "running" and main_ip and main_ip != "0.0.0.0":
+                ip = main_ip
+                break
+
+        if not ip:
+            raise HTTPException(504, "Pool host did not get an IP within timeout")
+
+        # Get plan specs from Vultr response
+        vcpus = vps.get("vcpu_count", 4)
+        ram_mb = vps.get("ram", 8192)
+        disk_gb = vps.get("disk", 160)
+
+        # Register in pool DB
+        host = await pool.register_host(
+            provider="vultr",
+            provider_id=provider_id,
+            ip=ip,
+            region=req.region,
+            plan=req.plan,
+            vcpus=vcpus,
+            ram_mb=ram_mb,
+            disk_gb=disk_gb,
+            cost_cents=0,
+            label=req.label or f"pool-{ip}",
+            cpu_overcommit=req.cpu_overcommit,
+            ram_overcommit=req.ram_overcommit,
+        )
+
+        # Override the auto-generated token with the one baked into cloud-init
+        from nso.shared import db
+        await db.update("compute_hosts", host["id"], {"agent_token": agent_token})
+        host["agent_token"] = agent_token
+
+        return {
+            "host": host,
+            "vultr_id": provider_id,
+            "ip": ip,
+            "status": "provisioning",
+            "message": "Cloud-init is running. Host will be ready for VMs in ~3-5 minutes.",
+        }
+    finally:
+        await vultr.close()
 
 
 @router.get("/hosts/{host_id}", dependencies=[Depends(require_admin)])

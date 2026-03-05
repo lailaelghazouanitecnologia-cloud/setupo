@@ -25,6 +25,12 @@ INSTANCE_CONFIGS = {
         "cloud_init": None,
         "features": ["cuda", "python", "pytorch", "jupyter"],
     },
+    "pool_host": {
+        "description": "Pool host for running isolated user VMs/containers",
+        "default_plan": "vhp-4c-8gb-intel",
+        "cloud_init": "cloud-init-pool-host.yaml",
+        "features": ["docker", "cgroups", "iptables", "apparmor", "fail2ban"],
+    },
     "custom": {
         "description": "User-defined specifications",
         "default_plan": "vc2-1c-1gb",
@@ -40,6 +46,8 @@ def get_cloud_init(
     git_url: str | None = None,
     git_branch: str = "main",
     app_ready_key: str = "",
+    pool_agent_token: str = "",
+    central_server_ip: str = "",
 ) -> str:
     config = INSTANCE_CONFIGS.get(instance_type, INSTANCE_CONFIGS["custom"])
     template_name = config.get("cloud_init")
@@ -53,24 +61,37 @@ def get_cloud_init(
 
     content = template_path.read_text()
 
+    # Common replacements
     replacements = {
         "{{DOMAIN}}": domain or "localhost",
-        "{{VULTR_API_KEY}}": settings.VULTR_API_KEY,
-        "{{CF_API_TOKEN}}": settings.CF_API_TOKEN,
         "{{ADMIN_EMAIL}}": settings.ADMIN_EMAIL,
-        "{{GIT_BRANCH}}": git_branch or "master",
-        "{{CF_NSO_ZONE_ID}}": getattr(settings, 'CF_NSO_ZONE_ID', ''),
-        "{{R2_ENDPOINT}}": settings.R2_ENDPOINT,
-        "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,
-        "{{R2_SECRET_ACCESS_KEY}}": settings.R2_SECRET_ACCESS_KEY,
-        "{{R2_BUCKET}}": settings.R2_BUCKET,
-        "{{R2_READY_BUCKET}}": settings.R2_READY_BUCKET,
         "{{ADMIN_PASSWORD}}": settings.ADMIN_PASSWORD or settings.AGENT_ADMIN_PASSWORD,
         "{{JWT_SECRET}}": secrets.token_hex(32),
-        "{{APP_GIT_URL}}": git_url or "",
-        "{{APP_GIT_BRANCH}}": git_branch or "main",
-        "{{APP_READY_KEY}}": app_ready_key or "",
     }
+
+    if instance_type == "pool_host":
+        # Pool hosts only get what they need — no user-facing secrets
+        replacements.update({
+            "{{POOL_AGENT_TOKEN}}": pool_agent_token,
+            "{{CENTRAL_SERVER_IP}}": central_server_ip or getattr(settings, "NSO_HOST", "0.0.0.0"),
+        })
+    else:
+        # User instances get deploy-related config
+        replacements.update({
+            "{{VULTR_API_KEY}}": settings.VULTR_API_KEY,
+            "{{CF_API_TOKEN}}": settings.CF_API_TOKEN,
+            "{{GIT_BRANCH}}": git_branch or "master",
+            "{{CF_NSO_ZONE_ID}}": getattr(settings, "CF_NSO_ZONE_ID", ""),
+            "{{R2_ENDPOINT}}": settings.R2_ENDPOINT,
+            "{{R2_ACCESS_KEY_ID}}": settings.R2_ACCESS_KEY_ID,
+            "{{R2_SECRET_ACCESS_KEY}}": settings.R2_SECRET_ACCESS_KEY,
+            "{{R2_BUCKET}}": settings.R2_BUCKET,
+            "{{R2_READY_BUCKET}}": settings.R2_READY_BUCKET,
+            "{{APP_GIT_URL}}": git_url or "",
+            "{{APP_GIT_BRANCH}}": git_branch or "main",
+            "{{APP_READY_KEY}}": app_ready_key or "",
+        })
+
     for placeholder, value in replacements.items():
         content = content.replace(placeholder, value)
 

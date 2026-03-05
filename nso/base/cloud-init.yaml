@@ -1,0 +1,158 @@
+#cloud-config
+# NSO User Instance — cloud-init bootstrap
+# This runs on user VPS instances (not pool hosts).
+# Installs: nginx, Node.js, Python, certbot, UFW, nso-agent
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - certbot
+  - python3-certbot-nginx
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+  - ufw
+  - jq
+  - unzip
+  - fail2ban
+
+# ── System hardening ──
+runcmd:
+  # Firewall — only allow SSH, HTTP, HTTPS, and agent port
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp comment 'SSH'
+  - ufw allow 80/tcp comment 'HTTP'
+  - ufw allow 443/tcp comment 'HTTPS'
+  - ufw allow 8081/tcp comment 'NSO Agent'
+  - ufw --force enable
+
+  # Fail2ban — protect SSH
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Create nso system user (non-root, no login shell)
+  - useradd --system --shell /usr/sbin/nologin --home-dir /opt/nso --create-home nso
+
+  # Create directory structure
+  - mkdir -p /opt/nso/{data,config,workspaces,venv,vm}
+  - chown -R nso:nso /opt/nso
+
+  # Install Node.js 20 LTS
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+
+  # Create Python venv and install dependencies
+  - python3 -m venv /opt/nso/venv
+  - /opt/nso/venv/bin/pip install --upgrade pip
+  - /opt/nso/venv/bin/pip install fastapi uvicorn httpx aiosqlite pydantic
+
+  # Write agent environment (secrets passed securely via env vars)
+  - |
+    cat > /opt/nso/config/agent.env << 'AGENT_ENV'
+    NSO_ADMIN_EMAIL={{ADMIN_EMAIL}}
+    AGENT_ADMIN_PASSWORD={{ADMIN_PASSWORD}}
+    NSO_JWT_SECRET={{JWT_SECRET}}
+    NSO_AGENT_HOST=127.0.0.1
+    NSO_AGENT_PORT=8081
+    AGENT_ENV
+
+  - chmod 600 /opt/nso/config/agent.env
+  - chown nso:nso /opt/nso/config/agent.env
+
+  # Write nginx config — reverse proxy with security headers
+  - |
+    cat > /etc/nginx/sites-available/nso << 'NGINX_CONF'
+    server {
+        listen 80 default_server;
+        server_name {{DOMAIN}};
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+        # Hide server version
+        server_tokens off;
+
+        # Agent API — only accessible from localhost and central server
+        location /agent/ {
+            proxy_pass http://127.0.0.1:8081/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Rate limit agent endpoints
+            limit_req zone=agent burst=20 nodelay;
+        }
+
+        # Static files (deployed app)
+        location / {
+            root /opt/nso/workspaces/default/static;
+            try_files $uri $uri/ /index.html;
+        }
+    }
+
+    # Rate limiting zone
+    limit_req_zone $binary_remote_addr zone=agent:10m rate=10r/s;
+    NGINX_CONF
+
+  - ln -sf /etc/nginx/sites-available/nso /etc/nginx/sites-enabled/nso
+  - rm -f /etc/nginx/sites-enabled/default
+  - nginx -t && systemctl reload nginx
+
+  # Create systemd service for nso-agent (runs as nso user, not root)
+  - |
+    cat > /etc/systemd/system/nso-agent.service << 'SERVICE'
+    [Unit]
+    Description=NSO Agent
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=nso
+    Group=nso
+    WorkingDirectory=/opt/nso/vm/agent
+    EnvironmentFile=/opt/nso/config/agent.env
+    ExecStart=/opt/nso/venv/bin/uvicorn main:app --host 127.0.0.1 --port 8081
+    Restart=always
+    RestartSec=5
+
+    # Security hardening
+    NoNewPrivileges=yes
+    ProtectSystem=strict
+    ProtectHome=yes
+    ReadWritePaths=/opt/nso
+    PrivateTmp=yes
+    ProtectKernelTunables=yes
+    ProtectKernelModules=yes
+    ProtectControlGroups=yes
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICE
+
+  - systemctl daemon-reload
+  - systemctl enable nso-agent
+
+  # SSL with certbot (if domain is not localhost)
+  - |
+    if [ "{{DOMAIN}}" != "localhost" ]; then
+      certbot --nginx -d {{DOMAIN}} --non-interactive --agree-tos -m {{ADMIN_EMAIL}} || true
+    fi
+
+  # Disable root SSH password login
+  - sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+  - sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+  - systemctl reload sshd
+
+  # Clean up apt cache
+  - apt-get clean
+  - rm -rf /var/lib/apt/lists/*
+
+final_message: "NSO user instance ready in $UPTIME seconds"
