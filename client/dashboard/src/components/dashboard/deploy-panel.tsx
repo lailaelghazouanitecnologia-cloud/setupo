@@ -12,6 +12,7 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import { formatSize } from "@/lib/format";
 import {
   listWorkspaces, listInstances,
   zarPack, zarPush, zarDeploy, zarShip, zarRollback,
@@ -127,8 +128,8 @@ function findSecretRefs(text: string): string[] {
 export function DeployPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || "";
-  const [workspaces, setWorkspaces] = useState<any[]>([]);
-  const [instances, setInstances] = useState<any[]>([]);
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
+  const [instances, setInstances] = useState<{ id: string; label: string; main_ip: string; status: string }[]>([]);
   const [selectedWs, setSelectedWs] = useState("");
   const [selectedInstance, setSelectedInstance] = useState("");
   const [branch, setBranch] = useState("main");
@@ -150,6 +151,17 @@ export function DeployPanel() {
   useEffect(() => {
     logRef.current?.scrollTo(0, logRef.current.scrollHeight);
   }, [logs]);
+
+  // Reset selections when project changes
+  useEffect(() => {
+    setSelectedWs("");
+    setSelectedInstance("");
+    setBranch("main");
+    setLogs([]);
+    setPipelinePhases([]);
+    setDeployInfo(null);
+    setSnapshots([]);
+  }, [projectId]);
 
   useEffect(() => {
     if (selectedInstance) loadDeployStatus();
@@ -444,7 +456,7 @@ export function DeployPanel() {
             <tab.icon className="h-3.5 w-3.5" />
             {tab.label}
             {tab.id === "log" && logs.length > 0 && (
-              <span style={{ fontSize: 10, background: "var(--sidebar-bg)", padding: "1px 5px", borderRadius: 8 }}>{logs.length}</span>
+              <span style={{ fontSize: 10, background: "var(--sidebar-background)", padding: "1px 5px", borderRadius: 8 }}>{logs.length}</span>
             )}
           </button>
         ))}
@@ -692,7 +704,7 @@ export function DeployPanel() {
       {/* Tab: Deploy Log */}
       {activeTab === "log" && (
         <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-          <div style={{ padding: "6px 12px", background: "var(--sidebar-bg)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
+          <div style={{ padding: "6px 12px", background: "var(--sidebar-background)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
             <Terminal className="h-3 w-3" style={{ color: "var(--color-teal)" }} />
             <span style={{ fontSize: "var(--font-xs)", fontWeight: 600 }}>Deploy Log</span>
             <span style={{ marginLeft: "auto", fontSize: "var(--font-xxs)", color: "var(--muted-foreground)" }}>{logs.length} entries</span>
@@ -702,22 +714,23 @@ export function DeployPanel() {
           </div>
           <div
             ref={logRef}
-            style={{ height: 400, overflowY: "auto", padding: 12, fontFamily: "monospace", fontSize: 11, background: "#0d1117", color: "#c9d1d9" }}
+            className="terminal-output"
+            style={{ height: 400, fontSize: 11 }}
           >
             {logs.length === 0 ? (
-              <div style={{ color: "#484f58", textAlign: "center", paddingTop: 80 }}>Run an action to see deploy logs here</div>
+              <div className="terminal-muted" style={{ textAlign: "center", paddingTop: 80 }}>Run an action to see deploy logs here</div>
             ) : (
               logs.map((entry, i) => (
                 <div key={i} style={{ marginBottom: 4, display: "flex", gap: 8 }}>
-                  <span style={{ color: "#484f58", flexShrink: 0 }}>{entry.time}</span>
+                  <span className="terminal-muted" style={{ flexShrink: 0 }}>{entry.time}</span>
                   <span style={{ color: actionColor(entry.action), flexShrink: 0 }}>[{entry.action}]</span>
-                  <span style={{ color: entry.ok ? "#c9d1d9" : "#f85149" }}>{entry.message}</span>
+                  <span className={entry.ok ? "" : "terminal-error"}>{entry.message}</span>
                 </div>
               ))
             )}
             {running && (
-              <div style={{ display: "flex", gap: 8, color: "#58a6ff" }}>
-                <span style={{ color: "#484f58" }}>{new Date().toLocaleTimeString("en-GB", { hour12: false })}</span>
+              <div style={{ display: "flex", gap: 8, color: "var(--blue-accent)" }}>
+                <span className="terminal-muted">{new Date().toLocaleTimeString("en-GB", { hour12: false })}</span>
                 <span>Running {running}...</span>
               </div>
             )}
@@ -757,20 +770,14 @@ function CfgEmpty({ text }: { text: string }) {
 
 function actionColor(action: string): string {
   switch (action) {
-    case "pack": return "#a78bfa";
-    case "push": return "#3b82f6";
-    case "deploy": return "#4cb782";
-    case "ship": return "#02b8cc";
-    case "rollback": return "#f2c94c";
+    case "pack": return "var(--color-purple)";
+    case "push": return "var(--color-blue)";
+    case "deploy": return "var(--color-green)";
+    case "ship": return "var(--color-teal)";
+    case "rollback": return "var(--color-yellow)";
     case "phase": return "#e879f9";
-    case "error": return "#f85149";
-    default: return "#484f58";
+    case "error": return "var(--terminal-error)";
+    default: return "var(--terminal-muted)";
   }
 }
 
-function formatSize(bytes: number): string {
-  if (!bytes) return "0 B";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}

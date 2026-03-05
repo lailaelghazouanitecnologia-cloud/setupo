@@ -98,6 +98,7 @@ import {
   type Z86FileItem,
   type Z86ExecResult,
 } from "@/lib/api/client";
+import { fmtCents, timeAgo, formatNum } from "@/lib/format";
 
 type AdminTab = "overview" | "users" | "infra" | "cashflow" | "analytics" | "fraud" | "ledger" | "orchestrator" | "loadbalancer" | "z86";
 
@@ -132,7 +133,7 @@ function OverviewTab() {
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading...</div>;
   if (!data) return <div className="admin-empty">Could not load overview</div>;
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const fmt = fmtCents;
 
   return (
     <div className="admin-overview">
@@ -206,10 +207,7 @@ function CashflowTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const fmt = (cents: number) => {
-    const sign = cents < 0 ? "-" : "";
-    return `${sign}$${(Math.abs(cents) / 100).toFixed(2)}`;
-  };
+  const fmt = fmtCents;
 
   const granOpts: { id: string; label: string; defaultPeriods: number }[] = [
     { id: "day", label: "Daily", defaultPeriods: 30 },
@@ -573,7 +571,7 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
     } catch (e: any) { setErr(e.message); }
   };
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const fmt = fmtCents;
 
   return (
     <div>
@@ -778,7 +776,7 @@ function AnalyticsTab() {
 
   useEffect(() => { load(); }, [load]);
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const fmt = fmtCents;
 
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading analytics...</div>;
 
@@ -1027,7 +1025,7 @@ function LedgerTab() {
     getBalanceProof(userId.trim()).then(setProof).catch(() => {});
   };
 
-  const fmt = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+  const fmt = fmtCents;
 
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading...</div>;
 
@@ -1924,7 +1922,7 @@ function LBOverviewView() {
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading load balancer...</div>;
   if (!data) return <div className="admin-empty">Failed to load LB data</div>;
 
-  const fmtNum = (n: number) => n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}K` : String(n);
+  const fmtNum = formatNum;
 
   return (
     <div>

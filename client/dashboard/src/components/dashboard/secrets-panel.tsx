@@ -357,7 +357,7 @@ export function SecretsPanel() {
                   onClick={() => toggleCollapse(bucketName)}
                   style={{
                     width: "100%", display: "flex", alignItems: "center", gap: 8,
-                    padding: "8px 14px", background: "var(--sidebar-bg)",
+                    padding: "8px 14px", background: "var(--sidebar-background)",
                     border: "none", borderBottom: isCollapsed ? "none" : "1px solid var(--border)",
                     cursor: "pointer", color: "var(--foreground)",
                   }}

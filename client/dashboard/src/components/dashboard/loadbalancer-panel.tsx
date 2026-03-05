@@ -6,6 +6,7 @@ import {
   Trash2, CheckCircle, XCircle, AlertTriangle,
   Activity, BarChart3, Settings, Copy, ArrowDownUp,
 } from "lucide-react";
+import { timeAgo, formatNum } from "@/lib/format";
 import {
   getLBOverview,
   listLBPools,
@@ -539,7 +540,7 @@ function NginxTab() {
       </div>
 
       <pre style={{
-        background: "var(--sidebar-bg, #1a1a1a)",
+        background: "var(--sidebar-background)",
         border: "1px solid var(--border)",
         borderRadius: 6,
         padding: 16,
@@ -571,19 +572,3 @@ function MetricCard({ label, value, icon: Icon, color }: { label: string; value:
   );
 }
 
-function formatNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function timeAgo(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Mail, Bell, AlertCircle, CheckCircle, Info, Clock, Loader2, Trash2 } from "lucide-react";
+import { timeAgo } from "@/lib/format";
 import {
   listNotifications,
   markNotificationRead,
@@ -24,18 +25,7 @@ const TYPE_COLORS = {
   alert: "var(--color-red)",
 };
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diff = Math.max(0, now - then);
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+
 
 export function InboxPanel() {
   const [items, setItems] = useState<Notification[]>([]);
@@ -57,25 +47,34 @@ export function InboxPanel() {
   useEffect(() => { load(); }, [load]);
 
   const handleMarkRead = async (id: string) => {
-    setItems((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    const prev = items;
+    setItems((cur) => cur.map((n) => (n.id === id ? { ...n, read: true } : n)));
     try {
       await markNotificationRead(id);
-    } catch {}
+    } catch {
+      setItems(prev);
+    }
   };
 
   const handleMarkAllRead = async () => {
-    setItems((prev) => prev.map((n) => ({ ...n, read: true })));
+    const prev = items;
+    setItems((cur) => cur.map((n) => ({ ...n, read: true })));
     try {
       await markAllNotificationsRead();
-    } catch {}
+    } catch {
+      setItems(prev);
+    }
   };
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setItems((prev) => prev.filter((n) => n.id !== id));
+    const prev = items;
+    setItems((cur) => cur.filter((n) => n.id !== id));
     try {
       await deleteNotification(id);
-    } catch {}
+    } catch {
+      setItems(prev);
+    }
   };
 
   const filtered = filter === "unread" ? items.filter((i) => !i.read) : items;

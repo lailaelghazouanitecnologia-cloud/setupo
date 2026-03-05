@@ -60,26 +60,13 @@ class PanelErrorBoundary extends Component<
   render() {
     if (this.state.error) {
       return (
-        <div style={{ padding: 32, color: "var(--foreground)", textAlign: "center" }}>
-          <div style={{ fontSize: 32, marginBottom: 12, opacity: 0.5 }}>&#9888;</div>
-          <div style={{ fontWeight: 600, marginBottom: 6, fontSize: 15 }}>
-            Something went wrong
-          </div>
-          <div style={{ color: "var(--muted)", fontSize: 13, marginBottom: 16 }}>
+        <div className="error-boundary">
+          <div className="error-boundary-icon">&#9888;</div>
+          <div className="error-boundary-title">Something went wrong</div>
+          <div className="error-boundary-msg">
             There was a problem loading this section. Try again or reload the page.
           </div>
-          <button
-            onClick={() => this.setState({ error: null })}
-            style={{
-              padding: "8px 20px",
-              background: "var(--sidebar-bg)",
-              border: "1px solid var(--border)",
-              borderRadius: 6,
-              color: "var(--foreground)",
-              cursor: "pointer",
-              fontSize: 13,
-            }}
-          >
+          <button className="error-boundary-retry" onClick={() => this.setState({ error: null })}>
             Retry
           </button>
         </div>
@@ -407,7 +394,7 @@ export function DashboardLayout() {
       if (projs.length > 0) {
         // Restore last active project or pick first
         const savedProjId = localStorage.getItem("nso_active_project");
-        const restored = projs.find((p: any) => p.id === savedProjId);
+        const restored = projs.find((p: ProjectInfo) => p.id === savedProjId);
         const active = restored || projs[0];
         setActiveProject(active);
 
@@ -418,7 +405,7 @@ export function DashboardLayout() {
           setWorkspaces(wsList);
 
           const savedWsId = localStorage.getItem("nso_active_workspace");
-          const restoredWs = wsList.find((w: any) => w.id === savedWsId);
+          const restoredWs = wsList.find((w: WorkspaceInfo) => w.id === savedWsId);
           setActiveWorkspace(restoredWs || wsList[0] || null);
         } catch {
           setWorkspaces([]);

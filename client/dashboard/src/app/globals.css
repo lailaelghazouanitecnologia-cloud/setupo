@@ -98,6 +98,10 @@
   --color-purple: #a78bfa;
   --color-code-bg: #f0f0f0;
   --color-code-text: #7c3aed;
+  --terminal-bg: #0d1117;
+  --terminal-fg: #c9d1d9;
+  --terminal-muted: #484f58;
+  --terminal-error: #f85149;
 }
 
 /* ── Dark theme ── */
@@ -133,12 +137,6 @@
   --color-header-bg: oklch(0.175 0.005 286);
   --color-header-border: oklch(0.99 0 0 / 8%);
   --color-header-hover: oklch(0.99 0 0 / 8%);
-  --color-yellow: #f2c94c;
-  --color-green: #4cb782;
-  --color-teal: #02b8cc;
-  --color-red: #e5484d;
-  --color-blue: #3b82f6;
-  --color-purple: #a78bfa;
   --color-code-bg: oklch(0.16 0.005 286);
   --color-code-text: #c4a1ff;
 }
@@ -278,7 +276,7 @@
     display: flex; align-items: center; gap: 8px;
     width: 100%; padding: 6px 8px;
     border-radius: 6px; border: 1px solid var(--border);
-    background: var(--sidebar-bg); cursor: pointer;
+    background: var(--sidebar-background); cursor: pointer;
     font-size: var(--font-xs); color: var(--sidebar-foreground);
     transition: all 0.12s ease;
   }
@@ -1398,7 +1396,7 @@
   .settings-panel { display: flex; flex-direction: column; gap: 24px; }
   .settings-section {
     border: 1px solid var(--border); border-radius: 10px;
-    padding: 20px; background: var(--sidebar-bg);
+    padding: 20px; background: var(--sidebar-background);
   }
   .settings-section-header {
     display: flex; align-items: center; gap: 8px;
@@ -1458,7 +1456,7 @@
   .settings-subdomain-suffix {
     padding: 0 10px; font-size: var(--font-xs);
     color: var(--muted-foreground); white-space: nowrap;
-    border-left: 1px solid var(--border); background: var(--sidebar-bg);
+    border-left: 1px solid var(--border); background: var(--sidebar-background);
     height: 100%; display: flex; align-items: center;
     padding-top: 8px; padding-bottom: 8px;
   }
@@ -2153,3 +2151,37 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* ── Terminal ── */
+.terminal-output {
+  overflow-y: auto; padding: 12px;
+  font-family: monospace; font-size: 12px;
+  background: var(--terminal-bg); color: var(--terminal-fg);
+}
+.terminal-muted { color: var(--terminal-muted); }
+.terminal-error { color: var(--terminal-error); }
+.terminal-input-bar {
+  display: flex; border-top: 1px solid var(--border);
+  background: var(--terminal-bg);
+}
+.terminal-input-bar input {
+  flex: 1; border: none; outline: none;
+  padding: 8px 12px; font-family: monospace; font-size: 12px;
+  background: transparent; color: var(--terminal-fg);
+}
+
+/* ── Error Boundary ── */
+.error-boundary {
+  padding: 32px; color: var(--foreground); text-align: center;
+}
+.error-boundary-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+.error-boundary-title { font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+.error-boundary-msg {
+  color: var(--muted-foreground); font-size: 13px; margin-bottom: 16px;
+}
+.error-boundary-retry {
+  padding: 8px 20px; background: var(--sidebar-background);
+  border: 1px solid var(--border); border-radius: 6px;
+  color: var(--foreground); cursor: pointer; font-size: 13px;
+}
+.error-boundary-retry:hover { background: var(--accent); }

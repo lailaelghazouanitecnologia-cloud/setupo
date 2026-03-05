@@ -72,7 +72,7 @@ function applyTheme(theme: Theme) {
   }
 }
 
-export const useDashboardStore = create<DashboardState>((set) => ({
+export const useDashboardStore = create<DashboardState>((set, get) => ({
   activeView: "inbox",
   sidebarOpen: true,
   token: getInitialToken(),
@@ -129,3 +129,27 @@ export const useDashboardStore = create<DashboardState>((set) => ({
   },
   setProjectLoading: (loading) => set({ projectLoading: loading }),
 }));
+
+// Listen for session expiry from API client — triggers clean logout without page reload
+if (typeof window !== "undefined") {
+  window.addEventListener("nso:session-expired", () => {
+    useDashboardStore.getState().logout();
+  });
+}
+
+/** Restore active project/workspace from localStorage after projects are loaded */
+export function restoreActiveSelections(projects: ProjectInfo[], workspaces: WorkspaceInfo[]) {
+  const store = useDashboardStore.getState();
+  const savedProjectId = localStorage.getItem("nso_active_project");
+  if (savedProjectId && !store.activeProject) {
+    const match = projects.find((p) => p.id === savedProjectId);
+    if (match) store.setActiveProject(match);
+    else localStorage.removeItem("nso_active_project");
+  }
+  const savedWorkspaceId = localStorage.getItem("nso_active_workspace");
+  if (savedWorkspaceId && !store.activeWorkspace) {
+    const match = workspaces.find((w) => w.id === savedWorkspaceId);
+    if (match) store.setActiveWorkspace(match);
+    else localStorage.removeItem("nso_active_workspace");
+  }
+}

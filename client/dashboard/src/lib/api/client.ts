@@ -21,8 +21,9 @@ export async function apiCall<T>(
   let resp: Response;
   try {
     resp = await fetch(`${API_BASE}${path}`, { ...options, headers });
-  } catch (err: any) {
-    throw new Error(`Network error: ${err.message || "Could not reach the server"}`);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : "Could not reach the server";
+    throw new Error(`Network error: ${msg}`);
   }
 
   if (!resp.ok) {
@@ -40,7 +41,7 @@ export async function apiCall<T>(
       localStorage.removeItem("nso_api_token");
       localStorage.removeItem("nso_email");
       localStorage.removeItem("nso_role");
-      window.location.reload();
+      window.dispatchEvent(new CustomEvent("nso:session-expired"));
     }
     throw new Error(`${resp.status}: ${parseErrorText(resp.status, text)}`);
   }
@@ -53,7 +54,9 @@ function parseErrorText(status: number, text: string): string {
     if (json.detail) return json.detail;
     if (json.error) return json.error;
     if (json.message) return json.message;
-  } catch {}
+  } catch {
+    // text is not JSON — fall through to plaintext handling
+  }
 
   if (text.includes("<html") || text.includes("<!DOCTYPE")) {
     if (status === 502) return "Bad Gateway — the server is unreachable or restarting";
@@ -88,7 +91,9 @@ export async function login(email: string, password: string) {
       if (typeof window !== "undefined") {
         localStorage.setItem("nso_token", agentRes.token);
       }
-    } catch {}
+    } catch {
+      console.warn("Agent auth failed — deploy/file features may be unavailable");
+    }
   }
 
   return apiRes;

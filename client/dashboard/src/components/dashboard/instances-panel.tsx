@@ -7,6 +7,7 @@ import {
   Send, RotateCcw, Power, FileText, Loader, Globe,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
 import {
   listProjects, createProject as apiCreateProject,
   listInstances, createInstance, deleteInstance,
@@ -188,7 +189,7 @@ function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps)
       borderRadius: 8,
       padding: 16,
       marginBottom: 16,
-      background: "var(--sidebar-bg)",
+      background: "var(--sidebar-background)",
     }}>
       <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", marginBottom: 12 }}>
         New Instance
@@ -594,6 +595,7 @@ function InstancesTab() {
               <button
                 className={`svc-btn ${panel === "terminal" ? "green" : ""}`}
                 title="Terminal"
+                aria-label="Toggle terminal"
                 onClick={() => setPanel(panel === "terminal" ? null : "terminal")}
               >
                 <Terminal className="h-3.5 w-3.5" />
@@ -601,20 +603,21 @@ function InstancesTab() {
               <button
                 className={`svc-btn ${panel === "files" ? "green" : ""}`}
                 title="Files"
+                aria-label="Toggle file browser"
                 onClick={() => setPanel(panel === "files" ? null : "files")}
               >
                 <FolderOpen className="h-3.5 w-3.5" />
               </button>
               {selected.state === "ready" || selected.state === "active" ? (
-                <button className="svc-btn yellow" title="Stop" onClick={() => handleStop(selected)}>
+                <button className="svc-btn yellow" title="Stop" aria-label="Stop instance" onClick={() => handleStop(selected)}>
                   <Power className="h-3.5 w-3.5" />
                 </button>
               ) : selected.state === "stopped" ? (
-                <button className="svc-btn green" title="Start" onClick={() => handleStart(selected)}>
+                <button className="svc-btn green" title="Start" aria-label="Start instance" onClick={() => handleStart(selected)}>
                   <Play className="h-3.5 w-3.5" />
                 </button>
               ) : null}
-              <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
+              <button className="svc-btn red" title="Destroy" aria-label="Destroy instance" onClick={() => handleDelete(selected)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -684,7 +687,7 @@ function TerminalPanel({ projectId, instance }: { projectId: string; instance: I
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-      <div style={{ padding: "6px 12px", background: "var(--sidebar-bg)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
+      <div style={{ padding: "6px 12px", background: "var(--sidebar-background)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
         <Terminal className="h-3 w-3" style={{ color: "var(--color-green)" }} />
         <span style={{ fontSize: "var(--font-xs)", fontWeight: 600 }}>
           {instance.label || instance.ip || instance.id}
@@ -697,25 +700,26 @@ function TerminalPanel({ projectId, instance }: { projectId: string; instance: I
       </div>
       <div
         ref={scrollRef}
-        style={{ height: 280, overflowY: "auto", padding: 12, fontFamily: "monospace", fontSize: 12, background: "#0d1117", color: "#c9d1d9" }}
+        className="terminal-output"
+        style={{ height: 280 }}
       >
         {history.length === 0 && (
-          <div style={{ color: "#484f58" }}>Type a command and press Enter...</div>
+          <div className="terminal-muted">Type a command and press Enter...</div>
         )}
         {history.map((h, i) => (
           <div key={i} style={{ marginBottom: 8 }}>
-            <div style={{ color: "#58a6ff" }}>$ {h.cmd}</div>
-            <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all", color: h.code === 0 ? "#c9d1d9" : "#f85149" }}>
+            <div style={{ color: "var(--blue-accent)" }}>$ {h.cmd}</div>
+            <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-all" }} className={h.code === 0 ? "" : "terminal-error"}>
               {h.output || "(no output)"}
             </pre>
           </div>
         ))}
         {running && (
-          <div style={{ color: "#484f58" }}>Running...</div>
+          <div className="terminal-muted">Running...</div>
         )}
       </div>
-      <div style={{ display: "flex", borderTop: "1px solid var(--border)", background: "#0d1117" }}>
-        <span style={{ padding: "8px 0 8px 12px", color: "#58a6ff", fontFamily: "monospace", fontSize: 12 }}>$</span>
+      <div className="terminal-input-bar">
+        <span style={{ padding: "8px 0 8px 12px", color: "var(--blue-accent)", fontFamily: "monospace", fontSize: 12 }}>$</span>
         <input
           type="text"
           value={cmd}
@@ -724,16 +728,11 @@ function TerminalPanel({ projectId, instance }: { projectId: string; instance: I
           placeholder="Enter command..."
           disabled={running}
           autoFocus
-          style={{
-            flex: 1, padding: "8px", border: "none", outline: "none",
-            fontFamily: "monospace", fontSize: 12,
-            background: "transparent", color: "#c9d1d9",
-          }}
         />
         <button
           onClick={run}
           disabled={running || !cmd.trim()}
-          style={{ padding: "8px 12px", border: "none", background: "transparent", color: "#58a6ff", cursor: "pointer" }}
+          style={{ padding: "8px 12px", border: "none", background: "transparent", color: "var(--blue-accent)", cursor: "pointer" }}
         >
           <Send className="h-3.5 w-3.5" />
         </button>
@@ -773,7 +772,7 @@ function FilesPanel({ instance }: { instance: Instance }) {
 
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-      <div style={{ padding: "6px 12px", background: "var(--sidebar-bg)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
+      <div style={{ padding: "6px 12px", background: "var(--sidebar-background)", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid var(--border)" }}>
         <FolderOpen className="h-3 w-3" style={{ color: "var(--color-blue)" }} />
         <span style={{ fontSize: "var(--font-xs)", fontFamily: "monospace", flex: 1 }}>
           {currentPath}
@@ -825,24 +824,6 @@ function FilesPanel({ instance }: { instance: Instance }) {
    HELPERS
    ═══════════════════════════════════════════ */
 
-function stateColor(state: string): string {
-  if (state === "ready" || state === "active" || state === "running") return "var(--color-green)";
-  if (state === "creating" || state === "installing" || state === "deploying") return "var(--color-yellow)";
-  if (state === "stopped") return "var(--muted-foreground)";
-  return "var(--color-red)";
-}
-
-function stateBadgeClass(state: string): string {
-  if (state === "ready" || state === "active" || state === "running") return "green";
-  if (state === "creating" || state === "installing" || state === "deploying") return "yellow";
-  return "red";
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /* ═══════════════════════════════════════════
    SERVICES TAB
