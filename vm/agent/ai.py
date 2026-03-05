@@ -149,31 +149,25 @@ async def list_assets(
 
 
 def _build_payload(inputs: dict, system_prompt: str, memory: dict) -> dict:
-    """Build the AI model payload with context injection."""
+    """Build the AI model payload with structured context injection.
+
+    Memory is a rich dict with: project, workspaces, instances, domains,
+    recent_runs, active_session, preferences. We format it into a readable
+    context block for the model.
+    """
     payload = {}
 
     if system_prompt:
         enriched = system_prompt
         if memory:
-            context_parts = []
-            if memory.get("project_name"):
-                context_parts.append(f"Project: {memory['project_name']}")
-            prefs = memory.get("preferences", {})
-            if prefs:
-                for k, v in prefs.items():
-                    context_parts.append(f"{k}: {v}")
-            runs = memory.get("recent_runs", [])
-            if runs:
-                summaries = []
-                for r in runs[:5]:
-                    inp = json.dumps(r.get("input", {}))[:200]
-                    out = json.dumps(r.get("output", {}))[:200]
-                    summaries.append(f"  - {inp} → {out}")
-                context_parts.append("Recent history:\n" + "\n".join(summaries))
-
-            if context_parts:
-                enriched = f"{system_prompt}\n\n--- Context ---\n" + "\n".join(context_parts)
-
+            context_block = _format_context(memory)
+            if context_block:
+                enriched = (
+                    f"{system_prompt}\n\n"
+                    f"--- Project Context ---\n"
+                    f"{context_block}\n"
+                    f"--- End Context ---"
+                )
         payload["prompt"] = enriched
         payload["inputs"] = inputs
     else:
@@ -182,6 +176,100 @@ def _build_payload(inputs: dict, system_prompt: str, memory: dict) -> dict:
             payload["_context"] = memory
 
     return payload
+
+
+def _truncate(text: str, max_len: int = 300) -> str:
+    if len(text) <= max_len:
+        return text
+    return text[:max_len] + "..."
+
+
+def _format_context(memory: dict) -> str:
+    """Format memory dict into a structured text block for prompt injection."""
+    sections = []
+
+    # Project
+    proj = memory.get("project", {})
+    if proj.get("name"):
+        sections.append(f"## Project: {proj['name']}")
+        if proj.get("owner"):
+            sections.append(f"Owner: {proj['owner']}")
+
+    # Workspaces
+    workspaces = memory.get("workspaces", [])
+    if workspaces:
+        ws_lines = []
+        for ws in workspaces:
+            parts = [ws.get("name", "?")]
+            if ws.get("stack"):
+                parts.append(f"stack={ws['stack']}")
+            if ws.get("type") and ws["type"] != "custom":
+                parts.append(f"type={ws['type']}")
+            if ws.get("git_url"):
+                parts.append(f"git={ws['git_url']}")
+            ws_lines.append("- " + " | ".join(parts))
+        sections.append("## Workspaces\n" + "\n".join(ws_lines))
+
+    # Instances
+    instances = memory.get("instances", [])
+    if instances:
+        inst_lines = []
+        for inst in instances:
+            parts = [inst.get("label") or inst.get("id", "?")]
+            if inst.get("state"):
+                parts.append(f"state={inst['state']}")
+            if inst.get("ip"):
+                parts.append(f"ip={inst['ip']}")
+            if inst.get("domain"):
+                parts.append(f"domain={inst['domain']}")
+            if inst.get("workspace"):
+                parts.append(f"workspace={inst['workspace']}")
+            inst_lines.append("- " + " | ".join(parts))
+        sections.append("## Instances\n" + "\n".join(inst_lines))
+
+    # Domains
+    domains = memory.get("domains", [])
+    if domains:
+        dom_lines = [f"- {d.get('domain', '?')} ({d.get('type', 'A')})" for d in domains]
+        sections.append("## Domains\n" + "\n".join(dom_lines))
+
+    # Preferences
+    prefs = memory.get("preferences", {})
+    if prefs:
+        pref_lines = [f"- {k}: {v}" for k, v in prefs.items()]
+        sections.append("## User Preferences\n" + "\n".join(pref_lines))
+
+    # Active session
+    session = memory.get("active_session")
+    if session:
+        sections.append(
+            f"## Active Session\n"
+            f"- Stage: {session.get('current_stage', '?')} "
+            f"(index {session.get('stage_index', 0)})\n"
+            f"- Collected: {_truncate(json.dumps(session.get('collected_data', {})))}\n"
+            f"- Steps completed: {len(session.get('stage_history', []))}"
+        )
+
+    # Recent runs
+    runs = memory.get("recent_runs", [])
+    if runs:
+        run_lines = []
+        for run in runs[:5]:
+            inp = _truncate(json.dumps(run.get("input", {})), 150)
+            out = _truncate(json.dumps(run.get("output", {})), 150)
+            status = run.get("status", "?")
+            run_lines.append(f"- [{status}] {inp} → {out}")
+        sections.append("## Recent Runs\n" + "\n".join(run_lines))
+
+    # Backward compat: old flat memory format (project_name, preferences at top level)
+    if not proj and memory.get("project_name"):
+        sections.insert(0, f"## Project: {memory['project_name']}")
+    if not prefs and memory.get("preferences") and isinstance(memory["preferences"], dict):
+        pref_lines = [f"- {k}: {v}" for k, v in memory["preferences"].items()]
+        if pref_lines:
+            sections.append("## Preferences\n" + "\n".join(pref_lines))
+
+    return "\n\n".join(sections)
 
 
 def _store_output_files(app_slug: str, run_id: str, output: dict, folder: str) -> dict:
