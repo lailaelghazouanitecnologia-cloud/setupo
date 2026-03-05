@@ -10,10 +10,10 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel, Field
 
 from server.deps import require_admin, AuthContext
-from core import analytics, blockchain
-from core.errors import SetupoError
+from server.core import analytics, blockchain
+from server.core.errors import NsoError
 
-logger = logging.getLogger("setupo.admin")
+logger = logging.getLogger("nso.admin")
 router = APIRouter()
 
 _USER_ID_RE = re.compile(r"^user_[a-f0-9]{24}$")
@@ -33,6 +33,13 @@ def _admin_id(auth: AuthContext) -> str:
 
 class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class CreateUserRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=254)
+    password: str = Field(..., min_length=6, max_length=128)
+    name: str = Field("", max_length=64)
+    role: Literal["user", "admin"] = "user"
 
 
 class UpdateUserRequest(BaseModel):
@@ -68,7 +75,7 @@ async def list_users(
             search=search, role=role, sort=sort, order=order,
             limit=limit, offset=offset,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -78,7 +85,7 @@ async def get_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     _check_user_id(user_id)
     try:
         return {"user": await analytics.admin_get_user(user_id)}
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -94,7 +101,7 @@ async def update_user(
         user = await analytics.admin_update_user(
             user_id, updates, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True, "user": user}
 
@@ -110,7 +117,7 @@ async def reset_password(
         await analytics.admin_reset_password(
             user_id, req.new_password, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
 
@@ -123,9 +130,52 @@ async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin))
         await analytics.admin_disable_user(
             user_id, admin_id=_admin_id(auth),
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
+
+
+@router.post("/users")
+async def create_user(req: CreateUserRequest, auth: AuthContext = Depends(require_admin)):
+    """Admin create a new user account."""
+    from server.core import users
+    try:
+        user = await users.create_user(req.email, req.password, req.name)
+        if req.role != "user":
+            from server.core import db
+            await db.update("users", user["id"], role=req.role)
+            user["role"] = req.role
+        logger.info("Admin %s created user %s (%s)", _admin_id(auth), user["id"], req.email)
+        return {"ok": True, "user": user}
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
+@router.get("/users/{user_id}/projects")
+async def user_projects(user_id: str, auth: AuthContext = Depends(require_admin)):
+    """Get all projects owned by a specific user."""
+    _check_user_id(user_id)
+    from server.core import db
+    d = await db.get_db()
+    cursor = await d.execute(
+        "SELECT * FROM projects WHERE owner = ? ORDER BY created_at DESC",
+        (user_id,),
+    )
+    rows = await cursor.fetchall()
+    projects = []
+    for row in rows:
+        p = db._row_to_dict(row)
+        ws_cursor = await d.execute(
+            "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
+        )
+        p["workspace_count"] = (await ws_cursor.fetchone())[0]
+        inst_cursor = await d.execute(
+            "SELECT COUNT(*) FROM instances WHERE project_id = ?", (p["id"],),
+        )
+        p["instance_count"] = (await inst_cursor.fetchone())[0]
+        p.pop("api_key_hash", None)
+        projects.append(p)
+    return {"projects": projects}
 
 
 @router.get("/users/{user_id}/activity")
@@ -183,7 +233,7 @@ async def cashflow(
         return await analytics.cashflow_analysis(
             granularity=granularity, periods=periods,
         )
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
 
@@ -233,7 +283,7 @@ async def user_ledger(
     try:
         chain = await blockchain.get_chain(user_id, limit=limit, offset=offset)
         length = await blockchain.get_chain_length(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"blocks": chain, "total": length}
 
@@ -244,7 +294,7 @@ async def verify_user_chain(user_id: str, auth: AuthContext = Depends(require_ad
     _check_user_id(user_id)
     try:
         result = await blockchain.verify_chain(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
 
@@ -262,7 +312,7 @@ async def balance_proof(user_id: str, auth: AuthContext = Depends(require_admin)
     _check_user_id(user_id)
     try:
         proof = await blockchain.get_balance_proof(user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return proof
 
@@ -272,3 +322,375 @@ async def find_discrepancies(auth: AuthContext = Depends(require_admin)):
     """Find all balance discrepancies across all users."""
     discrepancies = await blockchain.find_discrepancies()
     return {"discrepancies": discrepancies, "count": len(discrepancies)}
+
+
+# ── Projects & Workspaces (admin view) ──
+
+@router.get("/projects")
+async def admin_list_projects(
+    search: str = "",
+    sort: str = "created_at",
+    order: str = "desc",
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all projects across all users with workspace count."""
+    from server.core import db
+    d = await db.get_db()
+
+    direction = "DESC" if order == "desc" else "ASC"
+    sort_col = sort if sort in ("created_at", "name") else "created_at"
+    db._validate_identifier(sort_col, "column")
+
+    if search:
+        cursor = await d.execute(
+            f"SELECT * FROM projects WHERE name LIKE ? OR id LIKE ? ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            (f"%{search}%", f"%{search}%", limit, offset),
+        )
+        count_cursor = await d.execute(
+            "SELECT COUNT(*) FROM projects WHERE name LIKE ? OR id LIKE ?",
+            (f"%{search}%", f"%{search}%"),
+        )
+    else:
+        cursor = await d.execute(
+            f"SELECT * FROM projects ORDER BY {sort_col} {direction} LIMIT ? OFFSET ?",
+            (limit, offset),
+        )
+        count_cursor = await d.execute("SELECT COUNT(*) FROM projects")
+
+    rows = await cursor.fetchall()
+    total = (await count_cursor.fetchone())[0]
+
+    projects = []
+    for row in rows:
+        p = db._row_to_dict(row)
+        # Count workspaces
+        ws_cursor = await d.execute(
+            "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
+        )
+        ws_count = (await ws_cursor.fetchone())[0]
+        # Count instances
+        inst_cursor = await d.execute(
+            "SELECT COUNT(*) FROM instances WHERE project_id = ?", (p["id"],),
+        )
+        inst_count = (await inst_cursor.fetchone())[0]
+        # Get owner info
+        owner_email = ""
+        if p.get("owner"):
+            owner_row = await db.fetch_one("users", id=p["owner"])
+            owner_email = owner_row.get("email", "") if owner_row else ""
+
+        p["workspace_count"] = ws_count
+        p["instance_count"] = inst_count
+        p["owner_email"] = owner_email
+        # Don't expose API key hash
+        p.pop("api_key_hash", None)
+        projects.append(p)
+
+    return {"projects": projects, "total": total}
+
+
+@router.get("/projects/{project_id}/workspaces")
+async def admin_list_workspaces(
+    project_id: str,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all workspaces for a specific project."""
+    from server.core import db
+    d = await db.get_db()
+
+    # Verify project exists
+    project = await db.fetch_one("projects", id=project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    cursor = await d.execute(
+        "SELECT * FROM workspaces WHERE project_id = ? ORDER BY created_at DESC",
+        (project_id,),
+    )
+    rows = await cursor.fetchall()
+    workspaces = [db._row_to_dict(r) for r in rows]
+
+    return {"workspaces": workspaces, "project": {
+        "id": project["id"],
+        "name": project["name"],
+        "owner": project.get("owner", ""),
+    }}
+
+
+@router.get("/workspaces")
+async def admin_list_all_workspaces(
+    search: str = "",
+    ws_type: str = "",
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all workspaces across all projects."""
+    from server.core import db
+    d = await db.get_db()
+
+    conditions = []
+    params: list = []
+
+    if search:
+        conditions.append("(w.name LIKE ? OR w.id LIKE ?)")
+        params.extend([f"%{search}%", f"%{search}%"])
+    if ws_type:
+        conditions.append("w.ws_type = ?")
+        params.append(ws_type)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    cursor = await d.execute(
+        f"""SELECT w.*, p.name as project_name, p.owner as owner_id
+            FROM workspaces w
+            LEFT JOIN projects p ON w.project_id = p.id
+            {where}
+            ORDER BY w.updated_at DESC
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    )
+    rows = await cursor.fetchall()
+
+    count_cursor = await d.execute(
+        f"SELECT COUNT(*) FROM workspaces w {where}", params,
+    )
+    total = (await count_cursor.fetchone())[0]
+
+    workspaces = []
+    for row in rows:
+        w = db._row_to_dict(row)
+        # Get owner email
+        owner_id = w.pop("owner_id", "")
+        if owner_id:
+            owner_row = await db.fetch_one("users", id=owner_id)
+            w["owner_email"] = owner_row.get("email", "") if owner_row else ""
+        else:
+            w["owner_email"] = ""
+        workspaces.append(w)
+
+    return {"workspaces": workspaces, "total": total}
+
+
+@router.get("/instances")
+async def admin_list_all_instances(
+    state: str = "",
+    limit: int = Query(100, le=500),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """List all instances across all projects."""
+    from server.core import db
+    d = await db.get_db()
+
+    conditions = []
+    params: list = []
+
+    if state:
+        conditions.append("i.state = ?")
+        params.append(state)
+
+    where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+
+    cursor = await d.execute(
+        f"""SELECT i.*, p.name as project_name
+            FROM instances i
+            LEFT JOIN projects p ON i.project_id = p.id
+            {where}
+            ORDER BY i.created_at DESC
+            LIMIT ? OFFSET ?""",
+        params + [limit, offset],
+    )
+    rows = await cursor.fetchall()
+
+    count_cursor = await d.execute(
+        f"SELECT COUNT(*) FROM instances i {where}", params,
+    )
+    total = (await count_cursor.fetchone())[0]
+
+    instances = [db._row_to_dict(r) for r in rows]
+    return {"instances": instances, "total": total}
+
+
+# ── Infrastructure: Database ──
+
+@router.get("/infra/database")
+async def database_info(auth: AuthContext = Depends(require_admin)):
+    """Get database tables, row counts, and size."""
+    from server.core import db
+    import os
+    d = await db.get_db()
+
+    # Get all tables
+    cursor = await d.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+    )
+    tables = []
+    for row in await cursor.fetchall():
+        name = row[0]
+        count_cursor = await d.execute(f'SELECT COUNT(*) FROM "{name}"')
+        count = (await count_cursor.fetchone())[0]
+        tables.append({"name": name, "row_count": count})
+
+    # DB file size
+    db_path = str(db.settings.db_path())
+    db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+
+    return {
+        "path": db_path,
+        "size_bytes": db_size,
+        "size_mb": round(db_size / (1024 * 1024), 2),
+        "tables": sorted(tables, key=lambda t: t["row_count"], reverse=True),
+        "table_count": len(tables),
+    }
+
+
+@router.get("/infra/database/{table_name}")
+async def database_table_detail(
+    table_name: str,
+    limit: int = Query(50, le=200),
+    offset: int = 0,
+    auth: AuthContext = Depends(require_admin),
+):
+    """Get columns and sample rows from a table."""
+    from server.core import db
+    d = await db.get_db()
+
+    # Validate table exists
+    cursor = await d.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+    )
+    if not await cursor.fetchone():
+        raise HTTPException(404, "Table not found")
+
+    # Get columns
+    col_cursor = await d.execute(f'PRAGMA table_info("{table_name}")')
+    columns = [{"name": r[1], "type": r[2], "notnull": bool(r[3]), "pk": bool(r[5])} for r in await col_cursor.fetchall()]
+
+    # Get rows
+    row_cursor = await d.execute(f'SELECT * FROM "{table_name}" LIMIT ? OFFSET ?', (limit, offset))
+    rows = [db._row_to_dict(r) for r in await row_cursor.fetchall()]
+
+    # Total count
+    count_cursor = await d.execute(f'SELECT COUNT(*) FROM "{table_name}"')
+    total = (await count_cursor.fetchone())[0]
+
+    return {"table": table_name, "columns": columns, "rows": rows, "total": total}
+
+
+# ── Infrastructure: R2 Storage ──
+
+@router.get("/infra/storage")
+async def storage_overview(
+    prefix: str = "",
+    auth: AuthContext = Depends(require_admin),
+):
+    """List R2 storage objects and bucket stats."""
+    from server.config import settings
+    from server.core.zar.storage import R2Client
+
+    if not settings.R2_ENDPOINT:
+        return {"configured": False, "error": "R2 not configured"}
+
+    r2 = R2Client(settings.r2_config())
+    try:
+        keys = await r2.list_keys(prefix)
+    except Exception as e:
+        return {"configured": True, "error": str(e), "objects": []}
+    finally:
+        await r2.close()
+
+    # Parse objects into structured data
+    objects = []
+    total_size = 0
+    projects_set = set()
+    for key in keys:
+        parts = key.split("/")
+        obj = {"key": key, "parts": parts}
+        if len(parts) >= 1:
+            projects_set.add(parts[0])
+        if key.endswith(".zar"):
+            obj["type"] = "zar"
+        elif key.endswith(".json"):
+            obj["type"] = "json"
+        else:
+            obj["type"] = "other"
+        objects.append(obj)
+
+    return {
+        "configured": True,
+        "bucket": settings.R2_BUCKET,
+        "endpoint": settings.R2_ENDPOINT,
+        "object_count": len(objects),
+        "projects_count": len(projects_set),
+        "objects": objects[:500],  # Limit to 500
+        "prefix": prefix,
+    }
+
+
+@router.delete("/infra/storage")
+async def storage_delete_object(
+    key: str = Query(...),
+    auth: AuthContext = Depends(require_admin),
+):
+    """Delete an object from R2."""
+    from server.config import settings
+    from server.core.zar.storage import R2Client
+
+    r2 = R2Client(settings.r2_config())
+    try:
+        ok = await r2.delete(key)
+    finally:
+        await r2.close()
+
+    if not ok:
+        raise HTTPException(500, "Failed to delete object")
+    logger.info("Admin %s deleted R2 object: %s", _admin_id(auth), key)
+    return {"ok": True, "key": key}
+
+
+# ── Infrastructure: Instances ──
+
+@router.post("/infra/instances")
+async def create_instance(
+    auth: AuthContext = Depends(require_admin),
+):
+    """Create a new VPS instance (requires project_id in body)."""
+    # Placeholder — instance creation is done via /api/projects/{pid}/instances
+    raise HTTPException(501, "Use POST /api/projects/{pid}/instances instead")
+
+
+@router.post("/infra/instances/{instance_id}/action")
+async def instance_action(
+    instance_id: str,
+    action: str = Query(..., regex="^(start|stop|reboot)$"),
+    auth: AuthContext = Depends(require_admin),
+):
+    """Start/stop/reboot an instance."""
+    from server.core import db
+    from server.core.instances import manager
+
+    d = await db.get_db()
+    cursor = await d.execute("SELECT * FROM instances WHERE id = ?", (instance_id,))
+    row = await cursor.fetchone()
+    if not row:
+        raise HTTPException(404, "Instance not found")
+
+    inst = db._row_to_dict(row)
+    project_id = inst["project_id"]
+
+    try:
+        if action == "start":
+            await manager.start_instance(project_id, instance_id)
+        elif action == "stop":
+            await manager.stop_instance(project_id, instance_id)
+        elif action == "reboot":
+            await manager.stop_instance(project_id, instance_id)
+            await manager.start_instance(project_id, instance_id)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+    logger.info("Admin %s %s instance %s", _admin_id(auth), action, instance_id)
+    return {"ok": True, "action": action, "instance_id": instance_id}

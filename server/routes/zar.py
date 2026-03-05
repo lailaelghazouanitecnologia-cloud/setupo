@@ -5,20 +5,27 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from core import db
-from core.models import ZarUploadResult
-from core.zar.packer import pack, read_manifest
-from core.zar.storage import R2Client
-from core.workspace_config import read_config, read_package_config
+from server.core import db
+from server.core.models import ZarUploadResult
+from server.core.zar.packer import pack, read_manifest
+from server.core.zar.storage import R2Client
+from server.core.workspace_config import read_config, read_package_config
 from server.config import settings
 from server.deps import require_project
 
-logger = logging.getLogger("setupo.routes.zar")
+logger = logging.getLogger("nso.routes.zar")
 router = APIRouter()
 
 DEPLOY_TIMEOUT = 300.0
 AGENT_AUTH_TIMEOUT = 15.0
 ROLLBACK_TIMEOUT = 60.0
+
+# Force IPv4 for all agent connections (IPv6 may not be routable between VPSes)
+_ipv4_transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+
+
+def _agent_client(timeout: float) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=timeout, transport=_ipv4_transport)
 
 
 def _get_r2() -> R2Client:
@@ -36,7 +43,7 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
         raise HTTPException(403, "Instance does not belong to this project")
 
     state = inst.get("state", "")
-    if state in ("creating", "provisioning"):
+    if state in ("creating", "installing"):
         raise HTTPException(409, f"Instance is still {state} — wait until it's ready")
     if state == "destroying":
         raise HTTPException(409, "Instance is being destroyed")
@@ -54,7 +61,7 @@ async def _get_agent_token(agent_url: str) -> str:
     if not agent_password:
         raise HTTPException(503, "AGENT_ADMIN_PASSWORD not configured")
     try:
-        async with httpx.AsyncClient(timeout=AGENT_AUTH_TIMEOUT) as client:
+        async with _agent_client(AGENT_AUTH_TIMEOUT) as client:
             resp = await client.post(f"{agent_url}/auth/login", json={
                 "email": settings.ADMIN_EMAIL,
                 "password": agent_password,
@@ -87,10 +94,12 @@ async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -
     raise HTTPException(400, "No instance_id specified and none in config.toml")
 
 
-async def _deploy_via_agent(agent_url: str, token: str, r2_key: str) -> dict:
+async def _deploy_via_agent(agent_url: str, token: str, r2_key: str,
+                            target_dir: str = "/opt/app", restart_service: str = "",
+                            secrets: dict[str, str] | None = None) -> dict:
     r2_cfg = settings.r2_config()
     try:
-        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
+        async with _agent_client(DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/pull",
                 headers={"Authorization": f"Bearer {token}"},
@@ -100,9 +109,11 @@ async def _deploy_via_agent(agent_url: str, token: str, r2_key: str) -> dict:
                     "r2_bucket": r2_cfg.bucket,
                     "r2_access_key_id": r2_cfg.access_key_id,
                     "r2_secret_access_key": r2_cfg.secret_access_key,
-                    "target_dir": "/opt/app",
-                    "restart_service": "setupo-app",
+                    "target_dir": target_dir,
+                    "restart_service": restart_service,
                     "install_deps": True,
+                    "secrets": secrets or {},
+                    "use_pipeline": True,
                 },
             )
     except httpx.ConnectError:
@@ -135,11 +146,13 @@ class DeployZarRequest(BaseModel):
 class ShipRequest(BaseModel):
     branch: str = "main"
     instance_id: str = ""
+    domain: str = ""  # optional custom domain; auto-generated if empty
 
 
 class RollbackRequest(BaseModel):
     instance_id: str
     snapshot: str = ""
+    target_dir: str = ""
 
 
 class BranchRequest(BaseModel):
@@ -236,9 +249,21 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    # Resolve project secrets
+    resolved_secrets: dict[str, str] = {}
+    try:
+        rows = await db.fetch_all("project_secrets", project_id=project_id)
+        for row in rows:
+            k = row.get("key", "")
+            v = row.get("value", "")
+            if k:
+                resolved_secrets[k] = v
+    except Exception:
+        pass
+
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
-        result = await _deploy_via_agent(agent_url, token, r2_key)
+        result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
     except HTTPException:
         await db.update("instances", instance_id, {"state": "error", "error": "deploy failed"})
         raise
@@ -248,6 +273,8 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
         "ok": True, "workspace": name, "branch": req.branch,
         "version": result.get("version", ""), "snapshot": result.get("snapshot", ""),
         "instance_id": instance_id,
+        "pipeline": result.get("pipeline", False),
+        "phases": result.get("phases", []),
     }
 
 
@@ -284,19 +311,103 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     agent_url = await _get_agent_url(instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    # Resolve project secrets for deploy.toml ${secret:KEY} references
+    resolved_secrets: dict[str, str] = {}
+    try:
+        rows = await db.fetch_all("project_secrets", project_id=project_id)
+        for row in rows:
+            k = row.get("key", "")
+            v = row.get("value", "")
+            if k:
+                resolved_secrets[k] = v
+    except Exception as exc:
+        logger.warning("Could not load project secrets: %s", exc)
+
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
-        result = await _deploy_via_agent(agent_url, token, r2_key)
+        result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
     except HTTPException:
         await db.update("instances", instance_id, {"state": "error", "error": "ship deploy failed"})
         raise
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
+
+    # ── Auto-assign deploy domain ──
+    deploy_domain = ""
+    inst = await db.fetch_one("instances", id=instance_id)
+    inst_ip = inst.get("ip", "") if inst else ""
+
+    if inst_ip and settings.CF_API_TOKEN and settings.CF_NSO_ZONE_ID:
+        # Determine the deploy subdomain
+        if req.domain:
+            deploy_domain = req.domain
+        else:
+            # Get project owner's subdomain for namespacing
+            project = await db.fetch_one("projects", id=project_id)
+            owner_id = project.get("owner", "") if project else ""
+            owner_sub = ""
+            if owner_id:
+                owner = await db.fetch_one("users", id=owner_id)
+                owner_sub = (owner.get("subdomain", "") if owner else "").strip()
+            if owner_sub:
+                deploy_domain = f"{name}.{owner_sub}.{settings.NSO_BASE_DOMAIN}"
+            else:
+                # Fallback: workspace-projectshort.nso.dev
+                short = project_id.replace("proj_", "")[:8]
+                deploy_domain = f"{name}-{short}.{settings.NSO_BASE_DOMAIN}"
+
+        # Create or update DNS A record (proxied via Cloudflare)
+        try:
+            from server.core.providers.cloudflare import CloudflareProvider
+            cf = CloudflareProvider(settings.CF_API_TOKEN)
+            existing = await cf.find_record(settings.CF_NSO_ZONE_ID, deploy_domain, "A")
+            if existing:
+                await cf.update_dns_record(
+                    settings.CF_NSO_ZONE_ID, existing["id"],
+                    "A", deploy_domain, inst_ip, proxied=True,
+                )
+                cf_record_id = existing["id"]
+            else:
+                record = await cf.create_dns_record(
+                    settings.CF_NSO_ZONE_ID, "A", deploy_domain, inst_ip, proxied=True,
+                )
+                cf_record_id = record.get("id", "")
+            await cf.close()
+
+            # Store in domains table
+            import uuid
+            dom_existing = await db.fetch_one("domains", project_id=project_id, domain=deploy_domain)
+            if dom_existing:
+                await db.update("domains", dom_existing["id"], {
+                    "value": inst_ip, "cf_record_id": cf_record_id,
+                    "instance_id": instance_id, "managed": 1,
+                })
+            else:
+                await db.insert("domains", {
+                    "id": f"dom_{uuid.uuid4().hex[:16]}",
+                    "project_id": project_id,
+                    "instance_id": instance_id,
+                    "domain": deploy_domain,
+                    "record_type": "A",
+                    "value": inst_ip,
+                    "cf_zone_id": settings.CF_NSO_ZONE_ID,
+                    "cf_record_id": cf_record_id,
+                    "proxied": 1,
+                    "managed": 1,
+                })
+            logger.info("Deploy domain %s → %s", deploy_domain, inst_ip)
+        except Exception as exc:
+            logger.warning("Failed to create deploy domain %s: %s", deploy_domain, exc)
+            deploy_domain = f"{deploy_domain} (DNS failed)"
+
     return {
         "ok": True, "action": "ship", "workspace": name,
         "version": manifest.version, "branch": req.branch,
         "hash": manifest.hash, "r2_key": r2_key, "size": len(zar_bytes),
         "instance_id": instance_id, "snapshot": result.get("snapshot", ""),
+        "domain": deploy_domain,
+        "pipeline": result.get("pipeline", False),
+        "phases": result.get("phases", []),
     }
 
 
@@ -305,12 +416,14 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
+    target_dir = req.target_dir or "/opt/app"
+
     try:
-        async with httpx.AsyncClient(timeout=ROLLBACK_TIMEOUT) as client:
+        async with _agent_client(ROLLBACK_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/rollback",
                 headers={"Authorization": f"Bearer {token}"},
-                params={"target_dir": "/opt/app", "restart_service": "setupo-app"},
+                params={"target_dir": target_dir, "restart_service": ""},
                 json={"snapshot": req.snapshot},
             )
     except httpx.ConnectError:
@@ -381,7 +494,7 @@ async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends
     token = await _get_agent_token(agent_url)
 
     try:
-        async with httpx.AsyncClient(timeout=DEPLOY_TIMEOUT) as client:
+        async with _agent_client(DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/self-update",
                 headers={"Authorization": f"Bearer {token}"},

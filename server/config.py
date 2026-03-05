@@ -5,15 +5,15 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class Settings:
-    DATA_DIR = Path(os.environ.get("SETUPO_DATA_DIR", "/opt/setupo/data"))
-    DB_PATH = DATA_DIR / "setupo.db"
+    DATA_DIR = Path(os.environ.get("NSO_DATA_DIR", "/opt/nso/data"))
+    DB_PATH = DATA_DIR / "nso.db"
     KEYS_DIR = DATA_DIR / "keys"
-    CONFIG_DIR = Path(os.environ.get("SETUPO_CONFIG_DIR", "/opt/setupo/config"))
+    CONFIG_DIR = Path(os.environ.get("NSO_CONFIG_DIR", "/opt/nso/config"))
     TOKEN_PATH = CONFIG_DIR / "token"
-    WORKSPACES_DIR = Path(os.environ.get("SETUPO_WORKSPACES_DIR", "/opt/setupo/workspaces"))
+    WORKSPACES_DIR = Path(os.environ.get("NSO_WORKSPACES_DIR", "/opt/nso/workspaces"))
 
-    DEV_DATA_DIR = Path("/tmp/setupo/data")
-    DEV_DB_PATH = DEV_DATA_DIR / "setupo.db"
+    DEV_DATA_DIR = Path("/tmp/nso/data")
+    DEV_DB_PATH = DEV_DATA_DIR / "nso.db"
 
     VULTR_API_KEY = os.environ.get("VULTR_API_KEY", "")
     VULTR_BASE_URL = "https://api.vultr.com/v2"
@@ -29,22 +29,33 @@ class Settings:
     R2_ACCESS_KEY_ID = os.environ.get("R2_ACCESS_KEY_ID", "")
     R2_SECRET_ACCESS_KEY = os.environ.get("R2_SECRET_ACCESS_KEY", "")
     R2_BUCKET = os.environ.get("R2_BUCKET", "nso")
+    R2_READY_BUCKET = os.environ.get("R2_READY_BUCKET", "nso-ready")
     R2_PUBLIC_URL = os.environ.get("R2_PUBLIC_URL", "")
 
-    HOST = os.environ.get("SETUPO_HOST", "0.0.0.0")
-    PORT = int(os.environ.get("SETUPO_PORT", "8000"))
+    HOST = os.environ.get("NSO_HOST", "0.0.0.0")
+    PORT = int(os.environ.get("NSO_PORT", "8000"))
+    SERVER_MODE = os.environ.get("NSO_SERVER_MODE", "full")  # "admin", "user", "full"
+    ADMIN_ALLOWED_IPS = os.environ.get("NSO_ADMIN_ALLOWED_IPS", "").split(",")  # IP whitelist for admin mode
+    ADMIN_SECRET = os.environ.get("NSO_ADMIN_SECRET", "")  # 256-char secret required for admin access via X-Admin-Secret header
     CORS_ORIGINS = os.environ.get(
-        "SETUPO_CORS_ORIGINS",
+        "NSO_CORS_ORIGINS",
         "https://nso.dev,https://sonfazt.nso.dev,http://localhost:3000,http://localhost:3001,http://localhost:8000"
     ).split(",")
 
-    ADMIN_EMAIL = os.environ.get("SETUPO_ADMIN_EMAIL", "admin@setupo.dev")
-    ADMIN_PASSWORD = os.environ.get("SETUPO_ADMIN_PASSWORD", "")
+    ADMIN_EMAIL = os.environ.get("NSO_ADMIN_EMAIL", "admin@nso.dev")
+    ADMIN_PASSWORD = os.environ.get("NSO_ADMIN_PASSWORD", "")
     AGENT_ADMIN_PASSWORD = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
     STRIPE_SECRET_KEY = os.environ.get("STRIPE_SECRET_KEY", "")
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+
+    # z86 — self-hosted object storage
+    Z86_ENDPOINT = os.environ.get("Z86_ENDPOINT", "")  # e.g. http://104.156.227.216
+    Z86_ADMIN_TOKEN = os.environ.get("Z86_ADMIN_TOKEN", "")
+    Z86_BUCKET = os.environ.get("Z86_BUCKET", "nso")
+    Z86_AGENT_ENDPOINT = os.environ.get("Z86_AGENT_ENDPOINT", "")  # e.g. http://104.156.227.216/agent
+    Z86_AGENT_PASSWORD = os.environ.get("Z86_AGENT_PASSWORD", "")
 
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
@@ -84,9 +95,20 @@ class Settings:
 
     @classmethod
     def r2_config(cls):
-        from core.models import R2Config
+        from server.core.models import R2Config
         return R2Config(
             bucket=cls.R2_BUCKET,
+            endpoint=cls.R2_ENDPOINT,
+            access_key_id=cls.R2_ACCESS_KEY_ID,
+            secret_access_key=cls.R2_SECRET_ACCESS_KEY,
+            public_url=cls.R2_PUBLIC_URL,
+        )
+
+    @classmethod
+    def r2_ready_config(cls):
+        from server.core.models import R2Config
+        return R2Config(
+            bucket=cls.R2_READY_BUCKET,
             endpoint=cls.R2_ENDPOINT,
             access_key_id=cls.R2_ACCESS_KEY_ID,
             secret_access_key=cls.R2_SECRET_ACCESS_KEY,

@@ -1,4 +1,5 @@
 import os
+import hmac
 import logging
 from contextlib import asynccontextmanager
 
@@ -7,10 +8,16 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from core import db
-from core.errors import SetupoError
+from server.core import db
+from server.core.errors import NsoError
 from server.config import settings
 from server.ratelimit import RateLimitMiddleware
+
+
+SERVER_MODE = settings.SERVER_MODE  # "admin", "user", "full"
+
+# Paths that don't require the admin secret (health checks, public endpoints)
+_ADMIN_SECRET_EXEMPT = {"/api/health", "/api/billing/stripe/webhook"}
 
 
 class AdminHostMiddleware(BaseHTTPMiddleware):
@@ -30,21 +37,93 @@ class AdminHostMiddleware(BaseHTTPMiddleware):
                     content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
                 )
         return await call_next(request)
-from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, admin
+
+
+class ServerModeMiddleware(BaseHTTPMiddleware):
+    """
+    Block routes based on NSO_SERVER_MODE.
+    - admin mode: requires X-Admin-Secret header + optional IP whitelist
+    - user mode: block /api/admin/*
+    - full: everything enabled (default, dev)
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        if SERVER_MODE == "user" and path.startswith("/api/admin"):
+            return JSONResponse(
+                status_code=404,
+                content={"error": "Not found"},
+            )
+
+        if SERVER_MODE == "admin":
+            # Exempt health and webhook endpoints
+            if path not in _ADMIN_SECRET_EXEMPT:
+                # Require X-Admin-Secret on every request
+                admin_secret = settings.ADMIN_SECRET
+                if admin_secret:
+                    provided = request.headers.get("x-admin-secret", "")
+                    if not provided or not hmac.compare_digest(provided, admin_secret):
+                        return JSONResponse(
+                            status_code=403,
+                            content={"error": "Access denied"},
+                        )
+
+                # Optional IP whitelist (additional layer)
+                allowed = [ip.strip() for ip in settings.ADMIN_ALLOWED_IPS if ip.strip()]
+                if allowed:
+                    client_ip = request.client.host if request.client else ""
+                    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    real_ip = forwarded or client_ip
+                    if real_ip not in allowed and real_ip != "127.0.0.1":
+                        return JSONResponse(
+                            status_code=403,
+                            content={"error": "Access denied"},
+                        )
+
+        return await call_next(request)
+
+
+# ── Imports ────────────────────────────────────────────────
+
+from server.routes import auth, health, projects, instances, workspaces, domains, deploy, zar, plugins, billing, modules, notifications, subdomain, plugin_api, ready, secrets
+from server.routes import z86_storage
+from server.routes.addons import catalog as addons_catalog, connectors as addons_connectors, marketplace as addons_marketplace
+
+# Admin-only imports (skip in user mode to avoid loading unnecessary code)
+if SERVER_MODE in ("admin", "full"):
+    from server.routes import admin, orchestrator, loadbalancer
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("setupo")
+logger = logging.getLogger("nso")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Setupo starting...")
+    logger.info("NSO starting in '%s' mode...", SERVER_MODE)
     await db.init_db()
+
+    # Only start orchestrator monitor + LB health checker on admin/full instances
+    stop_monitor = None
+    stop_health = None
+    if SERVER_MODE in ("admin", "full"):
+        from server.core.orchestrator.monitor import start_monitor, stop_monitor as _stop
+        from server.core.loadbalancer.health import start_health_checker, stop_health_checker as _stop_hc
+        await start_monitor()
+        await start_health_checker()
+        stop_monitor = _stop
+        stop_health = _stop_hc
+
     yield
-    logger.info("Setupo shutting down...")
+
+    logger.info("NSO shutting down...")
+    if stop_health:
+        await stop_health()
+    if stop_monitor:
+        await stop_monitor()
     await db.close_db()
 
 
@@ -54,24 +133,33 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# ── Middleware ─────────────────────────────────────────────
+
 app.add_middleware(RateLimitMiddleware)
-app.add_middleware(AdminHostMiddleware)
+if SERVER_MODE == "admin":
+    from server.core.loadbalancer.proxy import LBProxyMiddleware
+    app.add_middleware(LBProxyMiddleware)
+app.add_middleware(ServerModeMiddleware)
+if SERVER_MODE in ("admin", "full"):
+    app.add_middleware(AdminHostMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Secret"],
 )
 
 
-@app.exception_handler(SetupoError)
-async def setupo_error_handler(request: Request, exc: SetupoError):
+@app.exception_handler(NsoError)
+async def nso_error_handler(request: Request, exc: NsoError):
     return JSONResponse(
         status_code=exc.status_code,
         content={"error": exc.message},
     )
 
+
+# ── Shared routes (available in all modes) ─────────────────
 
 app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(health.router, prefix="/api", tags=["health"])
@@ -87,10 +175,25 @@ app.include_router(modules.router, prefix="/api/modules", tags=["modules"])
 app.include_router(notifications.router, prefix="/api/notifications", tags=["notifications"])
 app.include_router(subdomain.router, prefix="/api/subdomain", tags=["subdomain"])
 app.include_router(plugin_api.router, prefix="/api/projects/{project_id}/p", tags=["plugin-api"])
-app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+app.include_router(addons_catalog.router, prefix="/api/projects/{project_id}/addons", tags=["addons"])
+app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/addons/connectors", tags=["addons-connectors"])
+app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
+app.include_router(secrets.router, prefix="/api/projects/{project_id}/secrets", tags=["secrets"])
+app.include_router(ready.admin_router, prefix="/api/ready", tags=["ready"])
+app.include_router(ready.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
+app.include_router(z86_storage.project_router, prefix="/api/projects/{project_id}/z86", tags=["z86"])
 
+# ── Admin-only routes ──────────────────────────────────────
 
-if os.environ.get("SETUPO_SERVE_STATIC"):
+if SERVER_MODE in ("admin", "full"):
+    app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+    app.include_router(orchestrator.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
+    app.include_router(loadbalancer.router, prefix="/api/admin/lb", tags=["load-balancer"])
+    app.include_router(z86_storage.admin_router, prefix="/api/admin/z86", tags=["z86-admin"])
+
+# ── Static files ───────────────────────────────────────────
+
+if os.environ.get("NSO_SERVE_STATIC"):
     from fastapi.staticfiles import StaticFiles
     dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "dashboard", "static")
     if os.path.isdir(dashboard_dir):

@@ -9,8 +9,8 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
 
-from core import db
-from core.models import (
+from server.core import db
+from server.core.models import (
     CreateWorkspaceRequest,
     WorkspaceConfig,
     WorkspaceGitConfig,
@@ -18,11 +18,12 @@ from core.models import (
     WorkspaceServiceConfig,
     WorkspaceType,
 )
-from core.workspace_config import read_config, write_config, generate_config_toml
-from server.deps import require_project
+from server.core.workspace_config import read_config, write_config, generate_config_toml
+from server.core.platform_workspaces import PLATFORM_WORKSPACES
+from server.deps import require_project, require_admin
 from server.config import settings
 
-logger = logging.getLogger("setupo.workspaces")
+logger = logging.getLogger("nso.workspaces")
 router = APIRouter()
 
 MAX_FILE_SIZE = 5 * 1024 * 1024
@@ -342,10 +343,89 @@ async def deploy_workspace(name: str, project_id: str = Depends(require_project)
     if not instance_id:
         raise HTTPException(400, "No instance_id in config.toml — link a workspace to an instance first")
 
-    from core.deploy.pipeline import deploy_to_instance
+    from server.core.deploy.pipeline import deploy_to_instance
     return await deploy_to_instance(
         project_id=project_id,
         instance_id=instance_id,
         workspace_name=name,
         command=config.deploy.command,
     )
+
+
+@router.post("/seed/platform")
+async def seed_platform_workspaces(
+    instance_id: str = Query("", description="Instance to link workspaces to"),
+    _=Depends(require_admin),
+    project_id: str = Depends(require_project),
+):
+    """Seed all NSO platform component workspaces for a project.
+
+    Creates workspaces for: server, agent, dashboard, admin, cli.
+    Each points to its source directory in the repo.
+    """
+    created = []
+    skipped = []
+
+    for pw in PLATFORM_WORKSPACES:
+        existing = await db.fetch_one("workspaces", project_id=project_id, name=pw["name"])
+        if existing:
+            skipped.append(pw["name"])
+            continue
+
+        ws_path = _ws_path(pw["name"])
+        ws_id = f"ws_{secrets.token_hex(8)}"
+
+        os.makedirs(ws_path, exist_ok=True)
+
+        deploy_cfg = pw.get("deploy", {})
+        services_cfg = pw.get("services", {})
+
+        config = WorkspaceConfig(
+            name=pw["name"],
+            type=pw["stack"],
+            description=pw["description"],
+            git=WorkspaceGitConfig(
+                url="https://github.com/lailaelghazouanitecnologia-cloud/setupo.git",
+                branch="main",
+            ),
+            deploy=WorkspaceDeployConfig(
+                instance_id=instance_id or None,
+                command=deploy_cfg.get("command", ""),
+                port=deploy_cfg.get("port", 3000),
+            ),
+            services={
+                name: WorkspaceServiceConfig(
+                    enabled=svc.get("enabled", True),
+                    domain=svc.get("domain"),
+                    ssl=svc.get("ssl", True),
+                )
+                for name, svc in services_cfg.items()
+            },
+        )
+        write_config(ws_path, config)
+
+        now = datetime.now(timezone.utc).isoformat()
+        await db.insert("workspaces", {
+            "id": ws_id,
+            "project_id": project_id,
+            "name": pw["name"],
+            "path": ws_path,
+            "ws_type": "git",
+            "stack": pw["stack"],
+            "description": pw["description"],
+            "instance_id": instance_id or None,
+            "git_url": "https://github.com/lailaelghazouanitecnologia-cloud/setupo.git",
+            "branch": "main",
+            "created_at": now,
+            "updated_at": now,
+        })
+
+        created.append(pw["name"])
+        logger.info("Seeded workspace '%s' for project %s", pw["name"], project_id)
+
+    return {
+        "ok": True,
+        "created": created,
+        "skipped": skipped,
+        "total": len(created),
+    }

@@ -8,13 +8,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from pydantic import BaseModel
 
-from core import db
-from core.zar.storage import R2Client
-from core.providers.cloudflare import CloudflareProvider
+from server.core import db
+from server.core.zar.storage import R2Client
+from server.core.providers.cloudflare import CloudflareProvider
 from server.config import settings
 from server.deps import require_project
 
-logger = logging.getLogger("setupo.plugin_api")
+logger = logging.getLogger("nso.plugin_api")
 router = APIRouter()
 
 MAX_FILE_SIZE = 50 * 1024 * 1024

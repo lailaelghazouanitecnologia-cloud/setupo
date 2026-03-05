@@ -6,11 +6,11 @@ from pydantic import BaseModel
 from server.deps import require_user, AuthContext
 from server.config import settings
 from server.routes.notifications import create_notification
-from core import users
-from core.errors import SetupoError
-from core.providers.cloudflare import CloudflareProvider
+from server.core import users
+from server.core.errors import NsoError
+from server.core.providers.cloudflare import CloudflareProvider
 
-logger = logging.getLogger("setupo.subdomain")
+logger = logging.getLogger("nso.subdomain")
 router = APIRouter()
 
 
@@ -22,7 +22,7 @@ class ClaimRequest(BaseModel):
 async def get_subdomain(auth: AuthContext = Depends(require_user)):
     try:
         user = await users.get_user(auth.user_id)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
     sub = user.get("subdomain")
@@ -35,7 +35,7 @@ async def get_subdomain(auth: AuthContext = Depends(require_user)):
 async def check_availability(name: str = Query(..., min_length=3, max_length=32)):
     try:
         available = await users.check_subdomain_available(name)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     sub = name.strip().lower()
     return {
@@ -49,7 +49,7 @@ async def check_availability(name: str = Query(..., min_length=3, max_length=32)
 async def claim_subdomain(req: ClaimRequest, auth: AuthContext = Depends(require_user)):
     try:
         sub = await users.claim_subdomain(auth.user_id, req.subdomain)
-    except SetupoError as e:
+    except NsoError as e:
         raise HTTPException(e.status_code, e.message)
 
     full_domain = f"{sub}.{settings.NSO_BASE_DOMAIN}"

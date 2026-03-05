@@ -4,11 +4,11 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from core import db
-from core.models import InstallPluginRequest, UpdatePluginRequest
+from server.core import db
+from server.core.models import InstallPluginRequest, UpdatePluginRequest
 from server.deps import require_project, require_admin
 
-logger = logging.getLogger("setupo.routes.plugins")
+logger = logging.getLogger("nso.routes.plugins")
 router = APIRouter()
 
 _DEFAULT_CATALOG = [
@@ -74,7 +74,7 @@ async def _ensure_catalog_seeded():
             "version": entry["version"],
             "category": entry["category"],
             "icon": "",
-            "author": "setupo",
+            "author": "nso",
             "published": True,
             "config_schema": {},
             "created_at": now,
@@ -109,7 +109,7 @@ async def publish_plugin(entry: dict, auth=Depends(require_admin)):
         "version": entry.get("version", "1.0.0"),
         "category": entry.get("category", ""),
         "icon": entry.get("icon", ""),
-        "author": entry.get("author", "setupo"),
+        "author": entry.get("author", "nso"),
         "published": entry.get("published", True),
         "config_schema": entry.get("config_schema", {}),
         "created_at": now,
@@ -152,7 +152,7 @@ async def list_plugins(project_id: str = Depends(require_project)):
     await _ensure_catalog_seeded()
 
     catalog = await db.fetch_all("plugin_catalog", order_by="created_at ASC", published=True)
-    installed = await db.fetch_all("plugins", project_id=project_id)
+    installed = await db.fetch_all("plugins", order_by="installed_at DESC", project_id=project_id)
     installed_map = {p["plugin_id"]: p for p in installed}
 
     plugins = []
@@ -165,7 +165,7 @@ async def list_plugins(project_id: str = Depends(require_project)):
             "version": entry["version"],
             "category": entry["category"],
             "icon": entry.get("icon", ""),
-            "author": entry.get("author", "setupo"),
+            "author": entry.get("author", "nso"),
             "installed": inst is not None,
             "enabled": inst["enabled"] if inst else False,
             "config": inst.get("config", {}) if inst else {},

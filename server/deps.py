@@ -8,14 +8,25 @@ async def get_auth(auth: AuthContext | None = Depends(resolve_auth)) -> AuthCont
 
 
 async def require_project(request: Request, auth: AuthContext = Depends(get_auth)) -> str:
+    if not auth:
+        raise HTTPException(401, "Authentication required")
+    # API key — project_id is embedded
     if auth.project_id:
         return auth.project_id
+    # Admin or authenticated user — take project_id from the URL
+    project_id = request.path_params.get("project_id")
+    if not project_id:
+        raise HTTPException(400, "Request must include project_id in URL")
     if auth.is_admin:
-        project_id = request.path_params.get("project_id")
-        if project_id:
+        return project_id
+    # Regular user — verify ownership
+    if auth.user_id:
+        from server.core import db
+        project = await db.fetch_one("projects", id=project_id)
+        if project and project.get("owner") == auth.user_id:
             return project_id
-        raise HTTPException(400, "Admin request must include project_id in URL")
-    raise HTTPException(403, "This endpoint requires a project API key or admin token")
+        raise HTTPException(403, "You don't own this project")
+    raise HTTPException(403, "This endpoint requires authentication")
 
 
 async def require_admin(auth: AuthContext = Depends(get_auth)) -> AuthContext:

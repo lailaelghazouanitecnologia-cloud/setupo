@@ -6,7 +6,7 @@ import secrets
 import time
 from base64 import urlsafe_b64decode, urlsafe_b64encode
 
-JWT_SECRET = os.environ.get("SETUPO_JWT_SECRET", secrets.token_hex(32))
+JWT_SECRET = os.environ.get("NSO_JWT_SECRET", secrets.token_hex(32))
 TOKEN_EXPIRY_SECONDS = 86400 * 7
 USER_TOKEN_PREFIX = "usr_"
 PBKDF2_ITERATIONS = 100_000
