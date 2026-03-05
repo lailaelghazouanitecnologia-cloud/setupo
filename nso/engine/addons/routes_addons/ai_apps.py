@@ -17,7 +17,7 @@ import re
 import secrets as token_gen
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from pydantic import BaseModel
 
 from nso.shared import db
@@ -201,6 +201,71 @@ async def admin_delete_ai_app(app_id: str, _admin=Depends(require_admin)):
     await d.commit()
     await db.delete("ai_apps", app["id"])
     return {"ok": True}
+
+
+@admin_router.post("/{app_id}/assets")
+async def admin_upload_asset(
+    app_id: str,
+    file: UploadFile = File(...),
+    asset_type: str = Form("cover"),  # cover, icon, preview
+    _admin=Depends(require_admin),
+):
+    """Upload an asset file (icon, cover image, preview) for an AI app.
+
+    Files are stored in R2 under: _ai_apps/{slug}/{asset_type}/{filename}
+    The app's cover_image/icon field is updated with the R2 public URL.
+    """
+    app = await db.fetch_one("ai_apps", id=app_id)
+    if not app:
+        app = await db.fetch_one("ai_apps", slug=app_id)
+    if not app:
+        raise HTTPException(404, "AI app not found")
+
+    if asset_type not in ("cover", "icon", "preview", "screenshot"):
+        raise HTTPException(400, "asset_type must be one of: cover, icon, preview, screenshot")
+
+    # Read file content
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:  # 10MB limit
+        raise HTTPException(413, "File too large (max 10MB)")
+
+    # Determine content type
+    content_type = file.content_type or "application/octet-stream"
+    filename = file.filename or f"{asset_type}.bin"
+
+    # Upload to R2
+    from nso.engine.storage.service import R2Client
+    from nso.config import settings
+
+    r2_cfg = settings.r2_config()
+    r2_key = f"_ai_apps/{app['slug']}/{asset_type}/{filename}"
+
+    async with R2Client(r2_cfg) as r2:
+        ok = await r2.upload(r2_key, content, content_type)
+
+    if not ok:
+        raise HTTPException(502, "Failed to upload asset to R2")
+
+    # Build public URL
+    public_url = f"{r2_cfg.public_url}/{r2_key}" if r2_cfg.public_url else r2_key
+
+    # Update the app field
+    updates = {"updated_at": datetime.now(timezone.utc).isoformat()}
+    if asset_type == "cover":
+        updates["cover_image"] = public_url
+    elif asset_type == "icon":
+        updates["icon"] = public_url
+
+    await db.update("ai_apps", app["id"], updates)
+
+    return {
+        "ok": True,
+        "asset_type": asset_type,
+        "filename": filename,
+        "r2_key": r2_key,
+        "url": public_url,
+        "size": len(content),
+    }
 
 
 @admin_router.get("/{app_id}/runs")
