@@ -160,13 +160,13 @@ async def _reconcile_vm(vm: dict):
 
     elif status == "running":
         # Check if VM process is still alive on host
-        alive = await _check_vm_on_host(host_ip, vm_id)
+        alive = await _check_vm_on_host(host_ip, vm_id, host)
         if not alive:
             logger.warning("VM %s not found on host %s, restarting", vm_id, host_id)
             await _create_vm_on_host(host_ip, vm, host)
 
     elif status == "stopping":
-        await _stop_vm_on_host(host_ip, vm_id)
+        await _stop_vm_on_host(host_ip, vm_id, host)
         await pool.set_vm_status(vm_id, "stopped")
 
 
@@ -207,7 +207,7 @@ async def _handle_draining_host(host: dict):
             continue
 
         # Stop on old host
-        await _stop_vm_on_host(host.get("ip", ""), vm["id"])
+        await _stop_vm_on_host(host.get("ip", ""), vm["id"], host)
 
         # Update VM record to new host
         await db.update("compute_vms", vm["id"], {
@@ -276,11 +276,14 @@ async def _create_vm_on_host(host_ip: str, vm: dict, host: dict) -> bool:
     return False
 
 
-async def _check_vm_on_host(host_ip: str, vm_id: str) -> bool:
+async def _check_vm_on_host(host_ip: str, vm_id: str, host: dict) -> bool:
     """Check if VM is alive on host."""
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.get(f"http://{host_ip}:{HOST_AGENT_PORT}/pool/vms/{vm_id}")
+            resp = await client.get(
+                f"http://{host_ip}:{HOST_AGENT_PORT}/pool/vms/{vm_id}",
+                headers=_host_auth(host),
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 return data.get("status") in ("running", "creating")
@@ -289,11 +292,14 @@ async def _check_vm_on_host(host_ip: str, vm_id: str) -> bool:
     return False
 
 
-async def _stop_vm_on_host(host_ip: str, vm_id: str) -> bool:
+async def _stop_vm_on_host(host_ip: str, vm_id: str, host: dict) -> bool:
     """Tell host to stop a VM."""
     try:
         async with httpx.AsyncClient(timeout=HOST_AGENT_TIMEOUT) as client:
-            resp = await client.delete(f"http://{host_ip}:{HOST_AGENT_PORT}/pool/vms/{vm_id}")
+            resp = await client.delete(
+                f"http://{host_ip}:{HOST_AGENT_PORT}/pool/vms/{vm_id}",
+                headers=_host_auth(host),
+            )
             return resp.status_code in (200, 204, 404)
     except Exception:
         return False
