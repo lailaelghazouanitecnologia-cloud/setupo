@@ -9,9 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from typing import Any, Optional
 
-from nso.shared.deps import require_admin, require_project
+from nso.shared.deps import require_admin, require_project, get_auth
+from nso.shared.auth.resolve import AuthContext
 from nso.engine.compute import pool
 from nso.engine.compute.types import get_cloud_init
+from nso.engine.compute import quota as compute_quota
 
 router = APIRouter()
 
@@ -298,8 +300,20 @@ async def list_all_vms(host_id: str = ""):
 
 
 @router.post("/vms")
-async def allocate_vm(req: AllocateVMRequest, project_id: str = Depends(require_project)):
-    """Allocate a VM on the pool for a project."""
+async def allocate_vm(
+    req: AllocateVMRequest,
+    project_id: str = Depends(require_project),
+    auth: AuthContext = Depends(get_auth),
+):
+    """Allocate a VM on the pool for a project. Enforces project quota."""
+    # Admins bypass quota checks
+    quota_info = None
+    if not auth.is_admin:
+        try:
+            quota_info = await compute_quota.check_quota(project_id, req.plan)
+        except Exception as e:
+            raise HTTPException(403, str(e))
+
     try:
         vm = await pool.allocate_vm(
             project_id=project_id,
@@ -310,7 +324,18 @@ async def allocate_vm(req: AllocateVMRequest, project_id: str = Depends(require_
         )
     except ValueError as e:
         raise HTTPException(400, str(e))
-    return {"vm": vm}
+
+    result = {"vm": vm}
+    if quota_info:
+        result["quota"] = quota_info
+    return result
+
+
+@router.get("/usage")
+async def get_usage(project_id: str = Depends(require_project)):
+    """Get current resource usage vs. project quota limits."""
+    usage = await compute_quota.get_project_usage(project_id)
+    return usage
 
 
 @router.get("/vms/project")
@@ -351,3 +376,42 @@ async def update_vm_status(vm_id: str, status: str):
         raise HTTPException(404, "VM not found")
     await pool.set_vm_status(vm_id, status)
     return {"updated": True, "vm_id": vm_id, "status": status}
+
+
+# ── Quota management (admin) ──
+
+class SetQuotaRequest(BaseModel):
+    max_vms: Optional[int] = None
+    max_vcpus: Optional[int] = None
+    max_ram_mb: Optional[int] = None
+    allowed_plans: Optional[list[str]] = None
+    notes: str = ""
+
+
+@router.get("/quota/{project_id}", dependencies=[Depends(require_admin)])
+async def get_project_quota(project_id: str):
+    """Get quota for a project (admin)."""
+    quota = await compute_quota.get_project_quota(project_id)
+    usage = await compute_quota.get_project_usage(project_id)
+    return {"quota": quota, "usage": usage}
+
+
+@router.put("/quota/{project_id}", dependencies=[Depends(require_admin)])
+async def set_project_quota(project_id: str, req: SetQuotaRequest):
+    """Set or update quota for a project (admin)."""
+    quota = await compute_quota.set_project_quota(
+        project_id=project_id,
+        max_vms=req.max_vms,
+        max_vcpus=req.max_vcpus,
+        max_ram_mb=req.max_ram_mb,
+        allowed_plans=req.allowed_plans,
+        notes=req.notes,
+    )
+    return {"quota": quota}
+
+
+@router.delete("/quota/{project_id}", dependencies=[Depends(require_admin)])
+async def delete_project_quota(project_id: str):
+    """Remove custom quota, reverting to defaults (admin)."""
+    deleted = await compute_quota.delete_project_quota(project_id)
+    return {"deleted": deleted, "project_id": project_id}

@@ -100,8 +100,9 @@ async def lifespan(app: FastAPI):
         from nso.engine.orchestrator.state import SPEC_MIGRATIONS
         from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
         from nso.engine.compute.pool import POOL_MIGRATIONS, seed_plans
+        from nso.engine.compute.quota import QUOTA_MIGRATIONS
         conn = await db.get_db()
-        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS:
+        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS + QUOTA_MIGRATIONS:
             await conn.execute(migration)
         await conn.commit()
 

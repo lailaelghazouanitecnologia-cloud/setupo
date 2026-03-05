@@ -27,6 +27,7 @@ import httpx
 from nso.shared import db
 from nso.shared.events import emit
 from nso.engine.compute import pool
+from nso.engine.compute import quota as compute_quota
 
 logger = logging.getLogger("nso.compute.vm_manager")
 
@@ -34,8 +35,6 @@ CHECK_INTERVAL = 15  # seconds
 AGENT_PORT = 8081
 AGENT_TIMEOUT = 10
 
-# Project-level limits
-DEFAULT_MAX_VMS_PER_PROJECT = 10
 MAX_CREATING_TIME = 300  # seconds before "creating" VM is considered stuck
 MAX_STOPPED_TIME = 86400 * 7  # 7 days stopped before auto-cleanup warning
 
@@ -252,7 +251,7 @@ async def _check_stuck_vms(vms: list[dict]):
 
 
 async def _check_quotas(vms: list[dict]):
-    """Check project-level VM quotas."""
+    """Check project-level VM quotas using compute_quota module."""
     project_counts: dict[str, int] = {}
     for vm in vms:
         if vm.get("status") in ("destroyed", "error"):
@@ -261,12 +260,17 @@ async def _check_quotas(vms: list[dict]):
         project_counts[pid] = project_counts.get(pid, 0) + 1
 
     for pid, count in project_counts.items():
-        if count > DEFAULT_MAX_VMS_PER_PROJECT:
-            await emit("vm.quota_exceeded", {
-                "project_id": pid,
-                "vm_count": count,
-                "limit": DEFAULT_MAX_VMS_PER_PROJECT,
-            }, source="vm_manager")
+        try:
+            quota = await compute_quota.get_project_quota(pid)
+            max_vms = quota.get("max_vms", compute_quota.DEFAULT_MAX_VMS)
+            if max_vms != -1 and count > max_vms:
+                await emit("vm.quota_exceeded", {
+                    "project_id": pid,
+                    "vm_count": count,
+                    "limit": max_vms,
+                }, source="vm_manager")
+        except Exception:
+            pass
 
 
 # ── Public API ──
@@ -282,13 +286,8 @@ async def allocate(
 
     Validates quotas before allocation.
     """
-    # Check project quota
-    existing = await pool.list_vms(project_id=project_id)
-    active = [v for v in existing if v.get("status") not in ("destroyed", "error")]
-    if len(active) >= DEFAULT_MAX_VMS_PER_PROJECT:
-        raise ValueError(
-            f"Project has {len(active)} VMs (limit: {DEFAULT_MAX_VMS_PER_PROJECT})"
-        )
+    # Check project quota (raises ValidationError if exceeded)
+    await compute_quota.check_quota(project_id, plan_code)
 
     vm = await pool.allocate_vm(
         project_id=project_id,
@@ -455,7 +454,7 @@ def get_stats() -> dict:
     return {
         "running": _task is not None and not _task.done(),
         "check_interval": CHECK_INTERVAL,
-        "max_vms_per_project": DEFAULT_MAX_VMS_PER_PROJECT,
+        "default_max_vms": compute_quota.DEFAULT_MAX_VMS,
     }
 
 
