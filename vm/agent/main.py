@@ -19,6 +19,7 @@ from exec import router as exec_router
 from deploy import router as deploy_router
 from envvars import router as secrets_router
 from supervisor import supervisor
+from pool_handler import router as pool_router, _restore_vms
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
     _start_time = time.monotonic()
     logger.info("NSO Agent starting on %s:%d", HOST, PORT)
     await store.init()
+    _restore_vms()  # restore VM state from disk
     await supervisor.start()
     yield
     logger.info("NSO Agent shutting down — draining processes")
@@ -62,6 +64,7 @@ app.include_router(files_router)
 app.include_router(exec_router)
 app.include_router(deploy_router)
 app.include_router(secrets_router)
+app.include_router(pool_router)
 
 
 @app.get("/health")

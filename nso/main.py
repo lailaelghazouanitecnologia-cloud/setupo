@@ -94,14 +94,19 @@ async def lifespan(app: FastAPI):
         from nso.engine.orchestrator.monitor import start_monitor, stop_monitor as _stop
         from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker as _stop_hc
         from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler as _stop_rec
+        from nso.engine.compute.pool_reconciler import start_pool_reconciler, stop_pool_reconciler as _stop_pool
 
-        # Run spec + event migrations
+        # Run spec + event + pool migrations
         from nso.engine.orchestrator.state import SPEC_MIGRATIONS
         from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
+        from nso.engine.compute.pool import POOL_MIGRATIONS, seed_plans
         conn = await db.get_db()
-        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION:
+        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS:
             await conn.execute(migration)
         await conn.commit()
+
+        # Seed default compute plans
+        await seed_plans()
 
         # Enable event persistence to DB
         set_persist_handler(_db_persist_handler)
@@ -109,6 +114,7 @@ async def lifespan(app: FastAPI):
         await start_monitor()
         await start_health_checker()
         await start_reconciler()
+        await start_pool_reconciler()
         stop_monitor = _stop
         stop_health = _stop_hc
         stop_reconciler = _stop_rec
@@ -116,6 +122,8 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("NSO shutting down...")
+    if SERVER_MODE in ("admin", "full"):
+        await stop_pool_reconciler()
     if stop_reconciler:
         await stop_reconciler()
     if stop_health:
@@ -171,6 +179,7 @@ from nso.engine.notifications import routes as notifications_routes
 from nso.engine.build import routes as build_routes
 from nso.engine.deploy_agent import routes as deploy_agent_routes
 from nso.engine.compute import ready_routes
+from nso.engine.compute import pool_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
@@ -194,6 +203,7 @@ app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/
 app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
 app.include_router(ready_routes.admin_router, prefix="/api/ready", tags=["ready"])
 app.include_router(ready_routes.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
+app.include_router(pool_routes.router, prefix="/api/compute/pool", tags=["compute-pool"])
 
 if SERVER_MODE in ("admin", "full"):
     from nso.engine.admin import routes as admin_routes
