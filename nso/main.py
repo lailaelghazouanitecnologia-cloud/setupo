@@ -60,20 +60,6 @@ class ServerModeMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-ROUTE_REGISTRY = {
-    "auth": {"prefix": "/api/auth", "tags": ["auth"]},
-    "billing": {"prefix": "/api/billing", "tags": ["billing"]},
-    "projects": {"prefix": "/api/projects", "tags": ["projects"]},
-    "compute": {"prefix": "/api/projects/{project_id}/instances", "tags": ["instances"]},
-    "storage": {"prefix": "/api/projects/{project_id}/zar", "tags": ["zar"]},
-    "deploy": {"prefix": "/api/projects/{project_id}/instances", "tags": ["deploy"]},
-    "workspace": {"prefix": "/api/projects/{project_id}/workspaces", "tags": ["workspaces"]},
-    "dns": {"prefix": "/api/projects/{project_id}/domains", "tags": ["domains"]},
-    "notifications": {"prefix": "/api/notifications", "tags": ["notifications"]},
-}
-
-ADMIN_MODULES = {"admin", "orchestrator"}
-
 
 logging.basicConfig(
     level=logging.INFO,
@@ -219,11 +205,8 @@ if SERVER_MODE in ("admin", "full"):
     app.include_router(orchestrator_routes.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
     app.include_router(lb_routes.router, prefix="/api/admin/lb", tags=["load-balancer"])
 
-app.include_router(
-    __import__("nso.engine.workspace.share_routes", fromlist=["join_router"]).join_router,
-    prefix="/api",
-    tags=["workspace-sharing"],
-)
+from nso.engine.workspace import share_routes
+app.include_router(share_routes.join_router, prefix="/api", tags=["workspace-sharing"])
 
 if os.environ.get("NSO_SERVE_STATIC"):
     from fastapi.staticfiles import StaticFiles

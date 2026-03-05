@@ -216,8 +216,8 @@ async def _db_persist_handler(event: dict):
              event.get("source", ""), event["timestamp"]),
         )
         await conn.commit()
-    except Exception:
-        pass  # Table may not exist yet — that's fine
+    except Exception as e:
+        logger.warning("Failed to persist event %s: %s", event.get("type", "?"), e)
 
 
 EVENTS_MIGRATION = [

@@ -85,10 +85,6 @@ class Settings:
         return cls.WORKSPACES_DIR / name
 
     @classmethod
-    def workspace_dir(cls, project_id: str, name: str) -> Path:
-        return cls.workspace_path(name)
-
-    @classmethod
     def keys_dir(cls, project_id: str) -> Path:
         base = cls.DATA_DIR if cls.DATA_DIR.parent.exists() else cls.DEV_DATA_DIR
         p = base / "keys" / project_id
