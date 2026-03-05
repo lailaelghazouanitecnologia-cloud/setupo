@@ -150,6 +150,7 @@ from nso.engine.addons.routes_addons import connectors as addons_connectors
 from nso.engine.addons.routes_addons import marketplace as addons_marketplace
 from nso.engine.billing import routes as billing_routes
 from nso.engine.notifications import routes as notifications_routes
+from nso.engine.build import routes as build_routes
 from nso.engine.compute import ready_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
@@ -166,6 +167,7 @@ app.include_router(plugins_routes.router, prefix="/api/projects/{project_id}/plu
 app.include_router(billing_routes.router, prefix="/api/billing", tags=["billing"])
 app.include_router(modules_routes.router, prefix="/api/modules", tags=["modules"])
 app.include_router(notifications_routes.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(build_routes.router, prefix="/api/projects/{project_id}/build", tags=["build"])
 app.include_router(plugin_api_routes.router, prefix="/api/projects/{project_id}/p", tags=["plugin-api"])
 app.include_router(addons_catalog.router, prefix="/api/projects/{project_id}/addons", tags=["addons"])
 app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/addons/connectors", tags=["addons-connectors"])

@@ -50,6 +50,10 @@ class Settings:
     STRIPE_WEBHOOK_SECRET = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
     STRIPE_PUBLISHABLE_KEY = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 
+    # Build server (optional — builds run on user's agent if not configured)
+    BUILD_SERVER_URL = os.environ.get("NSO_BUILD_SERVER_URL", "")
+    BUILD_SERVER_TOKEN = os.environ.get("NSO_BUILD_SERVER_TOKEN", "")
+
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
     SMTP_USER = os.environ.get("SMTP_USER", "")

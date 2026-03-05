@@ -25,6 +25,9 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
     "/api/billing/topup": (5, 3600),           # 5 per hour
 }
 
+# Build-specific rate limit: 1 build per 60s per project (enforced in build service)
+BUILD_RATE_LIMIT = (1, 60)
+
 # path -> { ip -> [timestamps] }
 _buckets: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
 

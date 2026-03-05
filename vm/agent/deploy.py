@@ -257,6 +257,27 @@ def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
     return manifest
 
 
+def _extract_build_artifact(artifact_bytes: bytes, target_dir: str):
+    """Extract pre-built artifact (tar.gz) over the target directory.
+
+    This overwrites build output directories (e.g. dist/, build/, .next/)
+    without removing source files. The artifact is a tar.gz containing
+    only the compiled output.
+    """
+    target = Path(target_dir)
+    with tarfile.open(fileobj=BytesIO(artifact_bytes), mode="r:gz") as tar:
+        for member in tar.getmembers():
+            if member.name.startswith("/") or ".." in member.name:
+                logger.warning("Skipping unsafe artifact path: %s", member.name)
+                continue
+            resolved = (target / member.name).resolve()
+            if not str(resolved).startswith(str(target.resolve())):
+                logger.warning("Skipping artifact path traversal: %s", member.name)
+                continue
+            tar.extract(member, target)
+    logger.info("Build artifact extracted to %s", target_dir)
+
+
 async def _install_deps(target_dir: str, stack: str) -> tuple[str, int]:
     cmd = INSTALL_COMMANDS.get(stack)
     if not cmd:
@@ -300,6 +321,22 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
     manifest = _extract_zar(zar_bytes, req.target_dir)
     logger.info("Extracted to %s", req.target_dir)
 
+    # ── Pre-built artifact: download from R2 if build server already compiled ──
+    build_artifact_key = req.secrets.pop("__BUILD_ARTIFACT_R2_KEY", "")
+    if build_artifact_key:
+        logger.info("Pre-built artifact found: %s — downloading", build_artifact_key)
+        try:
+            artifact_bytes = await _download_from_r2(
+                req.r2_endpoint, req.r2_bucket, build_artifact_key,
+                req.r2_access_key_id, req.r2_secret_access_key,
+            )
+            # Extract pre-built artifact over the source (overwrites build output)
+            _extract_build_artifact(artifact_bytes, req.target_dir)
+            logger.info("Pre-built artifact applied (%d bytes)", len(artifact_bytes))
+        except Exception as exc:
+            logger.warning("Failed to apply pre-built artifact: %s — will build locally", exc)
+            build_artifact_key = ""  # fall through to normal build
+
     # Check if deploy.toml exists → use new pipeline
     deploy_toml_path = os.path.join(req.target_dir, "deploy.toml")
     if req.use_pipeline and os.path.exists(deploy_toml_path):
@@ -310,6 +347,9 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
             secrets=req.secrets,
         )
         pipe.snapshot_name = snap or ""
+        # If pre-built artifact was applied, skip the build phase
+        if build_artifact_key:
+            pipe.skip_build = True
 
         with open(deploy_toml_path) as f:
             deploy_toml_content = f.read()

@@ -79,6 +79,7 @@ class DeployPipeline:
         self.result = PipelineResult()
         self.snapshot_name: str = ""
         self.is_first_deploy = False
+        self.skip_build = False  # skip build phase when pre-built artifact was applied
 
     async def run(self, deploy_toml_content: str | None = None) -> PipelineResult:
         """Execute the full pipeline.
@@ -118,8 +119,11 @@ class DeployPipeline:
             await self._rollback()
             return self.result
 
-        # Phase 5: Build
-        await self._phase_build()
+        # Phase 5: Build (skipped if pre-built artifact was applied by server)
+        if self.skip_build:
+            self.result.log_phase("build", True, "Skipped — pre-built artifact from build server")
+        else:
+            await self._phase_build()
         if not self.result.ok:
             await self._rollback()
             return self.result

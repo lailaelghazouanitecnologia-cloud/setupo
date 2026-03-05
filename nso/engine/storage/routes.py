@@ -12,6 +12,11 @@ from nso.engine.storage.service import R2Client
 from nso.engine.workspace.config import read_config, read_package_config
 from nso.config import settings
 from nso.shared.deps import require_project
+from nso.engine.build.service import (
+    compute_source_hash,
+    check_cache as check_build_cache,
+    execute_build,
+)
 
 logger = logging.getLogger("nso.routes.zar")
 router = APIRouter()
@@ -323,6 +328,33 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     except Exception as exc:
         logger.warning("Could not load project secrets: %s", exc)
 
+    # ── Smart Build: check cache / route to server or agent ──
+    build_info = {}
+    build_command = _detect_build_command(ws_path)
+    config = read_config(ws_path)
+    stack = config.type if config else ""
+
+    if build_command:
+        build_result = await execute_build(
+            project_id=project_id,
+            workspace=name,
+            zar_bytes=zar_bytes,
+            build_command=build_command,
+            stack=stack,
+            secrets=resolved_secrets,
+        )
+        build_info = {
+            "build_strategy": build_result.get("strategy", ""),
+            "build_cached": build_result.get("cached", False),
+            "build_server": build_result.get("built_on", ""),
+            "build_output": build_result.get("output", "")[:500],
+        }
+        # If server built and artifact cached, pass the artifact R2 key to agent
+        if build_result.get("artifact_r2_key"):
+            resolved_secrets["__BUILD_ARTIFACT_R2_KEY"] = build_result["artifact_r2_key"]
+        logger.info("Build for %s/%s: strategy=%s cached=%s",
+                     project_id, name, build_result.get("strategy"), build_result.get("cached"))
+
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
         result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
@@ -408,6 +440,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         "domain": deploy_domain,
         "pipeline": result.get("pipeline", False),
         "phases": result.get("phases", []),
+        "build": build_info,
     }
 
 
@@ -477,6 +510,32 @@ async def list_versions(name: str, branch: str = "main", project_id: str = Depen
     finally:
         await r2.close()
     return {"workspace": name, "branch": branch, "versions": versions, "branches": branches}
+
+
+def _detect_build_command(ws_path: str) -> str:
+    """Auto-detect build command from workspace files."""
+    import json as _json
+
+    checks = [
+        ("package.json", "npm run build"),
+        ("Makefile", "make build"),
+        ("Cargo.toml", "cargo build --release"),
+        ("go.mod", "go build -o app ./..."),
+    ]
+
+    for filename, command in checks:
+        fpath = os.path.join(ws_path, filename)
+        if os.path.exists(fpath):
+            if filename == "package.json":
+                try:
+                    with open(fpath) as f:
+                        pkg = _json.load(f)
+                    if "build" not in pkg.get("scripts", {}):
+                        continue
+                except Exception:
+                    continue
+            return command
+    return ""
 
 
 @router.post("/self-update")
