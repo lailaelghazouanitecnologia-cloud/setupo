@@ -1,0 +1,8 @@
+[workspace]
+name = "nso-platform"
+version = "0.2.0"
+
+[workspace.children]
+vm = { path = "vm" }
+nso = { path = "nso" }
+client = { path = "client" }

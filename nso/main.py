@@ -1,0 +1,205 @@
+import os
+import hmac
+import logging
+import importlib
+from pathlib import Path
+from contextlib import asynccontextmanager
+
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from nso.shared import db
+from nso.shared.errors import NsoError
+from nso.shared.ratelimit import RateLimitMiddleware
+from nso.config import settings
+
+SERVER_MODE = settings.SERVER_MODE
+
+_ADMIN_SECRET_EXEMPT = {"/api/health", "/api/billing/stripe/webhook"}
+
+
+class AdminHostMiddleware(BaseHTTPMiddleware):
+    ADMIN_HOSTS = {"sonfazt.nso.dev", "localhost", "127.0.0.1"}
+
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/admin"):
+            host = request.headers.get("host", "").split(":")[0]
+            if host not in self.ADMIN_HOSTS:
+                return JSONResponse(
+                    status_code=403,
+                    content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
+                )
+        return await call_next(request)
+
+
+class ServerModeMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+
+        if SERVER_MODE == "user" and path.startswith("/api/admin"):
+            return JSONResponse(status_code=404, content={"error": "Not found"})
+
+        if SERVER_MODE == "admin":
+            if path not in _ADMIN_SECRET_EXEMPT:
+                admin_secret = settings.ADMIN_SECRET
+                if admin_secret:
+                    provided = request.headers.get("x-admin-secret", "")
+                    if not provided or not hmac.compare_digest(provided, admin_secret):
+                        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+                allowed = [ip.strip() for ip in settings.ADMIN_ALLOWED_IPS if ip.strip()]
+                if allowed:
+                    client_ip = request.client.host if request.client else ""
+                    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+                    real_ip = forwarded or client_ip
+                    if real_ip not in allowed and real_ip != "127.0.0.1":
+                        return JSONResponse(status_code=403, content={"error": "Access denied"})
+
+        return await call_next(request)
+
+
+ROUTE_REGISTRY = {
+    "auth": {"prefix": "/api/auth", "tags": ["auth"]},
+    "billing": {"prefix": "/api/billing", "tags": ["billing"]},
+    "projects": {"prefix": "/api/projects", "tags": ["projects"]},
+    "compute": {"prefix": "/api/projects/{project_id}/instances", "tags": ["instances"]},
+    "storage": {"prefix": "/api/projects/{project_id}/zar", "tags": ["zar"]},
+    "deploy": {"prefix": "/api/projects/{project_id}/instances", "tags": ["deploy"]},
+    "workspace": {"prefix": "/api/projects/{project_id}/workspaces", "tags": ["workspaces"]},
+    "dns": {"prefix": "/api/projects/{project_id}/domains", "tags": ["domains"]},
+    "notifications": {"prefix": "/api/notifications", "tags": ["notifications"]},
+}
+
+ADMIN_MODULES = {"admin", "orchestrator"}
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("nso")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("NSO starting in '%s' mode...", SERVER_MODE)
+    await db.init_db()
+
+    stop_monitor = None
+    stop_health = None
+    if SERVER_MODE in ("admin", "full"):
+        from nso.engine.orchestrator.monitor import start_monitor, stop_monitor as _stop
+        from nso.engine.orchestrator.lb_health import start_health_checker, stop_health_checker as _stop_hc
+        await start_monitor()
+        await start_health_checker()
+        stop_monitor = _stop
+        stop_health = _stop_hc
+
+    yield
+
+    logger.info("NSO shutting down...")
+    if stop_health:
+        await stop_health()
+    if stop_monitor:
+        await stop_monitor()
+    await db.close_db()
+
+
+app = FastAPI(
+    title="NSO — Infrastructure API",
+    version="0.2.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(RateLimitMiddleware)
+if SERVER_MODE == "admin":
+    from nso.engine.orchestrator.lb_proxy import LBProxyMiddleware
+    app.add_middleware(LBProxyMiddleware)
+app.add_middleware(ServerModeMiddleware)
+if SERVER_MODE in ("admin", "full"):
+    app.add_middleware(AdminHostMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Secret"],
+)
+
+
+@app.exception_handler(NsoError)
+async def nso_error_handler(request: Request, exc: NsoError):
+    return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
+
+
+from nso.engine.auth import routes as auth_routes
+from nso.engine.auth import subdomain_routes
+from nso.engine.compute import health_routes
+from nso.engine.projects import routes as projects_routes
+from nso.engine.compute import routes as compute_routes
+from nso.engine.workspace import routes as workspace_routes
+from nso.engine.workspace import secrets_routes
+from nso.engine.dns import routes as dns_routes
+from nso.engine.deploy import routes as deploy_routes
+from nso.engine.storage import routes as storage_routes
+from nso.engine.addons import plugins_routes, plugin_api_routes, modules_routes
+from nso.engine.addons.routes_addons import catalog as addons_catalog
+from nso.engine.addons.routes_addons import connectors as addons_connectors
+from nso.engine.addons.routes_addons import marketplace as addons_marketplace
+from nso.engine.billing import routes as billing_routes
+from nso.engine.notifications import routes as notifications_routes
+from nso.engine.compute import ready_routes
+
+app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
+app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
+app.include_router(health_routes.router, prefix="/api", tags=["health"])
+app.include_router(projects_routes.router, prefix="/api/projects", tags=["projects"])
+app.include_router(compute_routes.router, prefix="/api/projects/{project_id}/instances", tags=["instances"])
+app.include_router(workspace_routes.router, prefix="/api/projects/{project_id}/workspaces", tags=["workspaces"])
+app.include_router(secrets_routes.router, prefix="/api/projects/{project_id}/secrets", tags=["secrets"])
+app.include_router(dns_routes.router, prefix="/api/projects/{project_id}/domains", tags=["domains"])
+app.include_router(deploy_routes.router, prefix="/api/projects/{project_id}/instances", tags=["deploy"])
+app.include_router(storage_routes.router, prefix="/api/projects/{project_id}/zar", tags=["zar"])
+app.include_router(plugins_routes.router, prefix="/api/projects/{project_id}/plugins", tags=["plugins"])
+app.include_router(billing_routes.router, prefix="/api/billing", tags=["billing"])
+app.include_router(modules_routes.router, prefix="/api/modules", tags=["modules"])
+app.include_router(notifications_routes.router, prefix="/api/notifications", tags=["notifications"])
+app.include_router(plugin_api_routes.router, prefix="/api/projects/{project_id}/p", tags=["plugin-api"])
+app.include_router(addons_catalog.router, prefix="/api/projects/{project_id}/addons", tags=["addons"])
+app.include_router(addons_connectors.router, prefix="/api/projects/{project_id}/addons/connectors", tags=["addons-connectors"])
+app.include_router(addons_marketplace.router, prefix="/api/projects/{project_id}/addons/marketplace", tags=["addons-marketplace"])
+app.include_router(ready_routes.admin_router, prefix="/api/ready", tags=["ready"])
+app.include_router(ready_routes.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
+
+if SERVER_MODE in ("admin", "full"):
+    from nso.engine.admin import routes as admin_routes
+    from nso.engine.orchestrator import routes as orchestrator_routes
+    from nso.engine.orchestrator import lb_routes
+    app.include_router(admin_routes.router, prefix="/api/admin", tags=["admin"])
+    app.include_router(orchestrator_routes.router, prefix="/api/admin/orchestrator", tags=["orchestrator"])
+    app.include_router(lb_routes.router, prefix="/api/admin/lb", tags=["load-balancer"])
+
+app.include_router(
+    __import__("nso.engine.workspace.share_routes", fromlist=["join_router"]).join_router,
+    prefix="/api",
+    tags=["workspace-sharing"],
+)
+
+if os.environ.get("NSO_SERVE_STATIC"):
+    from fastapi.staticfiles import StaticFiles
+    dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "client", "dashboard", "static")
+    if os.path.isdir(dashboard_dir):
+        app.mount("/dashboard", StaticFiles(directory=dashboard_dir, html=True), name="dashboard")
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "nso.main:app",
+        host=settings.HOST,
+        port=settings.PORT,
+        reload=True,
+        log_level="info",
+    )

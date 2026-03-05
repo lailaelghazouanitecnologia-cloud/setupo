@@ -1,0 +1,17 @@
+[workspace]
+name = "nso-server"
+version = "0.2.0"
+
+[workspace.children]
+auth = { path = "engine/auth" }
+billing = { path = "engine/billing" }
+compute = { path = "engine/compute" }
+storage = { path = "engine/storage" }
+deploy = { path = "engine/deploy" }
+workspace = { path = "engine/workspace" }
+projects = { path = "engine/projects" }
+dns = { path = "engine/dns" }
+addons = { path = "engine/addons" }
+admin = { path = "engine/admin" }
+notifications = { path = "engine/notifications" }
+orchestrator = { path = "engine/orchestrator" }

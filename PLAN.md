@@ -1,271 +1,302 @@
-# Plan: nso-ready — Pre-compiled Instant Boot System
+# NSO Restructuring Plan
 
-## Problema
+## Current State — Diagnosis
 
-El cloud-init actual tarda **~6-8 min** cuando no hay imagen pre-compilada:
-- `git clone` (~30s)
-- `pip install` requirements (~60s)
-- `curl nodesource + apt install nodejs` (~30s)
-- `npm install + build` dashboard (~120s)
-- `npm install + build` admin (~90s)
-- SSL + servicios (~60s)
-
-El cloud-init **ya tiene** detección de nso-ready (líneas 344-376), pero **no existe**
-un mecanismo para crear/subir la imagen al bucket `nso-ready`.
-
-## Solución: 2 niveles de pre-compilado
-
-### Nivel 1: Sistema NSO (bucket `nso-ready`)
-
-Pre-compilar el platform completo y guardarlo como .zar en R2.
-
-**R2 layout en `nso-ready`:**
 ```
-system/latest.zar
-system/v{version}.zar
-system/manifest.json          # { version, hash, built_at, git_branch, git_commit }
+setupo/                          PROBLEMS
+├── server/     (~14,500 lines)  God objects (billing.py 1798L, db.py 832L)
+│   ├── core/   (8,578 lines)   Single migration blob, no module boundaries
+│   ├── routes/ (5,802 lines)   Routes mixed with business logic
+│   └── auth/   (251 lines)     Scattered across server/auth + core/users
+├── instance/   (3,229 lines)   Tightly coupled, no config.toml awareness
+├── client/                      Broken React contexts, z86 mixed in
+│   ├── dashboard/               static/ nested 5+ levels (build bug)
+│   ├── admin/                   Minimal, likely broken imports
+│   └── z86/                     Remove
+├── cli/        (1,153 lines)   Works but no VM concept
+├── z86/                         Out of scope — remove
+├── common/                      Empty
+├── doc/                         Scattered docs
+├── scripts/                     Misc scripts
+└── tests/      (1,162 lines)   5 files, poor coverage, low quality
 ```
 
-**Contenido del system .zar:**
-```
-.zar-manifest.json
-files/
-  server/                     # Código Python del server
-  instance/                   # Código del agent
-  client/dashboard/static/    # Dashboard pre-built (next export)
-  client/admin/static/        # Admin pre-built (next export)
-  requirements.txt            # Para pip install en el VPS
-  common/                     # Shared utilities
-```
-
-**Flujo boot con nso-ready (ya implementado en cloud-init):**
-1. apt install packages
-2. Descargar `system/latest.zar` de `nso-ready` ← **ya existe en cloud-init**
-3. Extraer a `/opt/nso/`
-4. Crear venv + pip install (~30s)
-5. Arrancar servicios + SSL
-6. **Tiempo estimado: ~2 min** (vs 6-8 actual)
-
-### Nivel 2: Apps de usuario (bucket `nso`)
-
-Los usuarios pre-compilan su app para que nuevas instancias arranquen con la app lista.
-
-**R2 layout en `nso`:**
-```
-{project_id}/_ready/{workspace}/latest.zar
-{project_id}/_ready/{workspace}/v{version}.zar
-{project_id}/_ready/{workspace}/manifest.json
-```
-
-**Flujo boot con app-ready:**
-1. Boot rápido con nso-ready (nivel 1)
-2. Cloud-init detecta `APP_READY_KEY` en env
-3. Descarga app .zar de R2 → extrae a `/opt/app/`
-4. Instala deps + arranca servicio app
-5. **Instancia lista con app en ~3 min total**
+Key issues:
+- 11 root-level directories (should be 3)
+- db.py has 673 lines of CREATE TABLE in a single string
+- No module isolation — everything imports everything
+- No workspace config.toml system for the platform itself
+- No shareable workspace concept
+- Tests are superficial — no property testing, no pipeline
+- z86 references scattered in server/routes, client, root
 
 ---
 
-## Implementación — 8 tareas
-
-### Tarea 1: CLI command `nso system build`
-
-**Archivo:** `cli/main.py`
-
-Nuevo comando que:
-1. Ejecuta `npm run build` en `client/dashboard/` y `client/admin/`
-2. Empaqueta como .zar: `server/`, `instance/`, `client/*/static/`, `requirements.txt`, `common/`
-3. Sube a `nso-ready` bucket como `system/v{version}.zar` + `system/latest.zar`
-4. Actualiza `system/manifest.json`
+## Target State — Architecture
 
 ```
-nso system build                # Build + pack + push
-nso system build --skip-build   # Solo pack + push (si dashboards ya están built)
-nso system status               # Muestra versión actual en R2
+setupo/
+├── vm/                          # VM runtime + CLI
+│   ├── cli/                     # nso CLI commands
+│   │   ├── main.py              # entry point + arg parser
+│   │   ├── client.py            # HTTP client
+│   │   └── output.py            # terminal formatting
+│   ├── agent/                   # per-VPS agent (:8081)
+│   │   ├── main.py              # agent entry
+│   │   ├── auth.py              # agent JWT
+│   │   ├── files.py             # file CRUD
+│   │   ├── exec.py              # command execution
+│   │   ├── deploy.py            # .zar deploy/snapshot/rollback
+│   │   ├── envvars.py           # env var management
+│   │   ├── pipeline.py          # build pipelines
+│   │   ├── healthcheck.py       # health reporting
+│   │   └── store.py             # SQLite metrics
+│   ├── config.toml              # VM workspace config
+│   └── nso                      # CLI entry point script
+│
+├── nso/                         # Core platform (central server :8000)
+│   ├── main.py                  # FastAPI app entry, module registration
+│   ├── config.py                # env-based settings
+│   ├── shared/                  # Shared infrastructure
+│   │   ├── db.py                # Database connection + generic CRUD
+│   │   ├── models.py            # Shared Pydantic models
+│   │   ├── errors.py            # Exception hierarchy
+│   │   ├── middleware.py        # CORS, rate limit, admin host
+│   │   └── auth/                # Token resolution
+│   │       ├── jwt.py           # JWT + PBKDF2
+│   │       ├── keys.py          # API key generation
+│   │       └── resolve.py       # Token → AuthContext
+│   ├── engine/                  # Business logic modules (microvms)
+│   │   ├── auth/                # Auth microvm
+│   │   │   ├── service.py       # user CRUD, login, register
+│   │   │   ├── routes.py        # /api/auth/*
+│   │   │   ├── models.py        # auth-specific types
+│   │   │   ├── migrations.py    # users, email_tokens tables
+│   │   │   └── config.toml      # module config
+│   │   ├── billing/             # Billing microvm
+│   │   │   ├── service.py       # billing engine (split from 1798L)
+│   │   │   ├── plans.py         # plan management
+│   │   │   ├── invoices.py      # invoice logic
+│   │   │   ├── wallets.py       # wallet management
+│   │   │   ├── coupons.py       # coupon logic
+│   │   │   ├── usage.py         # metered usage
+│   │   │   ├── stripe.py        # Stripe integration
+│   │   │   ├── routes.py        # /api/billing/*
+│   │   │   ├── models.py        # billing types
+│   │   │   ├── migrations.py    # billing_* tables
+│   │   │   └── config.toml
+│   │   ├── compute/             # Instance management microvm
+│   │   │   ├── service.py       # instance lifecycle
+│   │   │   ├── provisioner.py   # VPS provisioning (Vultr)
+│   │   │   ├── routes.py        # /api/projects/{pid}/instances/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # instances table
+│   │   │   └── config.toml
+│   │   ├── storage/             # R2 + .zar storage microvm
+│   │   │   ├── service.py       # R2 operations
+│   │   │   ├── zar_packer.py    # .zar pack/unpack
+│   │   │   ├── zar_resolver.py  # dependency resolution
+│   │   │   ├── routes.py        # /api/projects/{pid}/zar/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py
+│   │   │   └── config.toml
+│   │   ├── deploy/              # Deploy pipeline microvm
+│   │   │   ├── service.py       # deploy orchestration
+│   │   │   ├── sync.py          # agent communication
+│   │   │   ├── routes.py        # deploy endpoints
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # deploy_logs table
+│   │   │   └── config.toml
+│   │   ├── workspace/           # Workspace management microvm
+│   │   │   ├── service.py       # workspace CRUD
+│   │   │   ├── config.py        # config.toml reader/writer
+│   │   │   ├── share.py         # workspace sharing (join codes)
+│   │   │   ├── nesting.py       # nested workspace resolution
+│   │   │   ├── routes.py        # /api/projects/{pid}/workspaces/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # workspaces, workspace_shares tables
+│   │   │   └── config.toml
+│   │   ├── projects/            # Project management microvm
+│   │   │   ├── service.py       # project CRUD
+│   │   │   ├── routes.py        # /api/projects/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # projects table
+│   │   │   └── config.toml
+│   │   ├── dns/                 # Domain management microvm
+│   │   │   ├── service.py       # Cloudflare DNS ops
+│   │   │   ├── routes.py        # /api/projects/{pid}/domains/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # domains table
+│   │   │   └── config.toml
+│   │   ├── addons/              # Addon/plugin system microvm
+│   │   │   ├── service.py       # addon lifecycle
+│   │   │   ├── catalog.py       # catalog management
+│   │   │   ├── routes.py        # /api/projects/{pid}/addons/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py
+│   │   │   └── config.toml
+│   │   ├── admin/               # Admin panel microvm
+│   │   │   ├── service.py       # admin operations
+│   │   │   ├── analytics.py     # metrics, fraud detection
+│   │   │   ├── ledger.py        # blockchain ledger
+│   │   │   ├── routes.py        # /api/admin/*
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # activity_log, analytics_snapshots
+│   │   │   └── config.toml
+│   │   ├── notifications/       # Notification microvm
+│   │   │   ├── service.py       # notification + email
+│   │   │   ├── routes.py
+│   │   │   ├── models.py
+│   │   │   ├── migrations.py    # notifications table
+│   │   │   └── config.toml
+│   │   └── orchestrator/        # Orchestrator + LB microvm
+│   │       ├── scheduler.py     # build scheduling
+│   │       ├── monitor.py       # health monitoring
+│   │       ├── scaler.py        # auto-scaling
+│   │       ├── loadbalancer.py  # LB pool management
+│   │       ├── routes.py        # /api/admin/orchestrator/*, /api/admin/lb/*
+│   │       ├── models.py
+│   │       ├── migrations.py    # instance_pool, build_queue, lb_*
+│   │       └── config.toml
+│   └── config.toml              # Platform workspace config
+│
+├── client/                      # Frontend dashboards
+│   ├── dashboard/               # Main user dashboard (Next.js)
+│   │   ├── src/
+│   │   │   ├── app/             # Next.js app router
+│   │   │   ├── components/      # UI components (by feature)
+│   │   │   │   ├── auth/        # login, register
+│   │   │   │   ├── billing/     # billing panel
+│   │   │   │   ├── compute/     # instances panel
+│   │   │   │   ├── deploy/      # deploy panel
+│   │   │   │   ├── workspace/   # workspace panel
+│   │   │   │   ├── settings/    # settings panel
+│   │   │   │   └── shared/      # layout, nav, common UI
+│   │   │   ├── lib/
+│   │   │   │   └── api/         # API client (typed)
+│   │   │   ├── stores/          # Zustand stores (one per feature)
+│   │   │   └── types/           # TypeScript types
+│   │   ├── package.json
+│   │   └── config.toml          # Dashboard workspace config
+│   └── admin/                   # Admin dashboard (Next.js)
+│       ├── src/
+│       ├── package.json
+│       └── config.toml
+│
+├── config.toml                  # Root workspace config (meta)
+├── requirements.txt
+├── pytest.ini
+├── .gitignore
+└── CLAUDE.md
 ```
 
-**Dependencias:** Necesita R2 credentials (del .env del server o CLI config).
+---
 
-### Tarea 2: Admin API endpoint `/api/admin/system/build`
+## Design Decisions
 
-**Archivo:** `server/routes/admin.py`
+### 1. Module Registration (Hybrid MicroVM)
 
-Nuevo endpoint admin-only que ejecuta el build desde el server:
+Each engine module is self-contained and auto-registers via config.toml:
 
+```toml
+# nso/engine/auth/config.toml
+[workspace]
+name = "auth"
+version = "0.1.0"
+
+[workspace.dependencies]
+shared = { path = "../../shared" }
+
+[workspace.routes]
+prefix = "/api/auth"
+tags = ["auth"]
 ```
-POST /api/admin/system/build
-  → { "version": "20260303.200000", "size_mb": 12.5, "uploaded": true }
-
-GET /api/admin/system/status
-  → { "version": "20260303.200000", "built_at": "...", "size_mb": 12.5 }
-```
-
-**Implementación:**
-- Nuevo módulo `server/core/system_build.py`:
-  - `async def build_system_image(skip_dashboards=False) -> SystemBuildResult`
-  - Usa `packer.pack()` internamente pero con paths custom
-  - Sube con `R2Client` al bucket `nso-ready`
-
-### Tarea 3: Adaptar `packer.py` para system builds
-
-**Archivo:** `server/core/zar/packer.py`
-
-Agregar función `pack_system()`:
 
 ```python
-def pack_system(
-    repo_root: str,              # Raíz del repo (donde está server/, instance/, etc.)
-    version: str | None = None,
-    git_branch: str = "main",
-    git_commit: str = "",
-) -> tuple[bytes, dict]:
-    """Pack NSO system files into a .zar for nso-ready bucket."""
-    # Include: server/, instance/, client/*/static/, requirements.txt, common/
-    # Exclude: node_modules, .git, __pycache__, venv, tests/, cli/, doc/
+# nso/main.py discovers modules from engine/*/config.toml
+# Each module owns: routes, service, models, migrations, config
+# Modules communicate via explicit imports, never globals
+# Split to processes later: replace imports with HTTP calls
 ```
 
-No modifica `pack()` existente — función separada.
+### 2. Per-Module Migrations
 
-### Tarea 4: Adaptar `storage.py` para nso-ready bucket
-
-**Archivo:** `server/core/zar/storage.py`
-
-Agregar métodos al `R2Client`:
+Each module owns its tables. db.py discovers and runs them all:
 
 ```python
-async def upload_system(self, version: str, zar_bytes: bytes) -> str:
-    """Upload system .zar to nso-ready bucket."""
-    # Upload versioned: system/v{version}.zar
-    # Upload latest: system/latest.zar
-    # Update manifest: system/manifest.json
-
-async def get_system_status(self) -> dict | None:
-    """Get current system image info from nso-ready."""
-    # Download and parse system/manifest.json
-
-async def upload_app_ready(self, project_id, workspace, version, zar_bytes) -> str:
-    """Upload user app .zar to _ready/ prefix in main bucket."""
-    # Upload: {project_id}/_ready/{workspace}/v{version}.zar
-    # Upload: {project_id}/_ready/{workspace}/latest.zar
-    # Update manifest
-
-async def get_app_ready_status(self, project_id, workspace) -> dict | None:
-    """Get app-ready image info."""
+# nso/engine/auth/migrations.py
+TABLES = """
+    CREATE TABLE IF NOT EXISTS users (...);
+    CREATE TABLE IF NOT EXISTS email_tokens (...);
+"""
+INDEXES = """
+    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+"""
 ```
 
-Estos métodos usan `R2_READY_BUCKET` para system y `R2_BUCKET` para apps.
+### 3. Workspace Config (config.toml everywhere)
 
-### Tarea 5: Nuevo route para app-ready
+Every directory that is a workspace has config.toml.
+Admin nests workspaces via [workspace.children].
+Dependencies declared explicitly.
 
-**Archivo:** `server/routes/zar.py`
-
-Nuevos endpoints:
+### 4. Shareable Workspaces (Join Codes)
 
 ```
-POST /api/projects/{pid}/zar/{name}/freeze
-  → Pack workspace + push a _ready/ prefix
-  → { "version": "...", "r2_key": "...", "size_mb": ... }
+POST /api/projects/{pid}/workspaces/{name}/share
+→ { "join_code": "ws_j_a1b2c3d4", "join_url": "https://nso.dev/join/ws_j_a1b2c3d4" }
 
-GET /api/projects/{pid}/zar/{name}/freeze/status
-  → { "version": "...", "built_at": "...", "size_mb": ... }
-
-DELETE /api/projects/{pid}/zar/{name}/freeze
-  → Elimina la imagen pre-compilada
+GET /api/join/{code}
+→ grants access based on permissions in workspace_shares table
 ```
 
-### Tarea 6: Cloud-init — app-ready integration
+### 5. Testing Strategy
 
-**Archivo:** `server/base/cloud-init.yaml`
-
-Agregar después del bloque nso-ready (línea ~400):
-
-```bash
-# ── App pre-built image ──
-APP_READY_KEY="${APP_READY_KEY:-}"
-if [ -n "$APP_READY_KEY" ]; then
-  echo "[nso] Downloading pre-built app from R2..."
-  python3 /opt/nso/deploy/r2-download.py "$R2_BUCKET" "$APP_READY_KEY" "/tmp/app-ready.zar"
-  if [ $? -eq 0 ]; then
-    echo "[nso] Extracting app..."
-    mkdir -p /opt/app
-    tar xzf /tmp/app-ready.zar -C /opt/app --strip-components=1
-    rm /tmp/app-ready.zar
-    APP_READY=1
-  fi
-fi
-```
-
-Y en `get_cloud_init()` (types.py):
-- Nuevo placeholder `{{APP_READY_KEY}}`
-- Se llena desde `instance.metadata.app_ready_key` si existe
-
-### Tarea 7: Instance creation — source_type enhancements
-
-**Archivo:** `server/core/instances/manager.py` + `types.py`
-
-Cuando `source_type == "repository"` y existe una imagen `_ready/` para ese workspace:
-- Pasar `APP_READY_KEY` al cloud-init
-- La instancia arranca con la app pre-compilada
-- Fallback a git clone si no hay imagen
-
-Nuevo source_type: `"ready"` — usa directamente la imagen frozen.
-
-**Archivo:** `server/core/models.py`
-
-```python
-class CreateInstanceRequest(BaseModel):
-    # ... existing fields ...
-    source_type: Optional[str] = None  # "repository" | "zar" | "folder" | "ready"
-    app_ready_key: Optional[str] = None  # R2 key for pre-built app
-```
-
-### Tarea 8: Dashboard UI updates
-
-**Archivo:** `client/dashboard/src/components/dashboard/instances-panel.tsx`
-
-1. **Create form**: Nuevo source_type `"ready"` con selector de workspace frozen
-2. **Instance card**: Mostrar badge "ready" cuando usa imagen pre-compilada
-3. **Instance detail grid**: Mostrar "Source: pre-built (workspace-name v20260303)"
+- Property-based testing with hypothesis
+- Test positive AND negative space
+- Pipeline tests for end-to-end flows
+- Each module has its own test file
 
 ---
 
-## Orden de implementación
+## Execution Phases
 
-```
-Tarea 3 (packer.py)  ─┐
-Tarea 4 (storage.py) ─┤─→ Tarea 2 (admin API) ─→ Tarea 1 (CLI)
-                       │
-                       └─→ Tarea 5 (freeze routes) ─→ Tarea 6 (cloud-init) ─→ Tarea 7 (instance creation) ─→ Tarea 8 (UI)
-```
+### Phase 1 — Clean (remove z86, create folders)
+1. Remove z86/, client/z86/, server/routes/z86_storage.py, z86 refs
+2. Create vm/, nso/, client/ structure
+3. Create config.toml files
+4. Move CLI + agent into vm/
 
-Tareas 3+4 son independientes y se hacen primero (backend).
-Luego bifurca: sistema (2→1) y apps (5→6→7→8).
+### Phase 2 — Split Server into Modules
+5. Create nso/shared/ from server/core/db.py, models.py, errors.py
+6. Create nso/shared/auth/ from server/auth/
+7. Split core/ + routes/ into engine modules (12 modules)
 
----
+### Phase 3 — Per-module Migrations
+8. Extract CREATE TABLE into per-module migrations.py
+9. Update db.py for module discovery
+10. Validate all tables exist
 
-## Build inicial del sistema
+### Phase 4 — Workspace Sharing
+11. Implement share service (join codes)
+12. Nested workspace resolution
+13. Share/join routes
 
-Después de implementar, el primer build se hace:
+### Phase 5 — Fix Frontend
+14. Remove client/z86/
+15. Fix dashboard React contexts
+16. Reorganize components by feature
+17. Fix static/ nesting, add .gitignore
+18. Fix admin/ imports
 
-```bash
-# Opción 1: CLI (desde máquina con el repo)
-nso system build
+### Phase 6 — Testing
+19. Add hypothesis
+20. Property tests for billing, zar, auth
+21. Integration tests for API flows
+22. Pipeline tests for deploy + workspace share
 
-# Opción 2: Admin API (desde el server en producción)
-curl -X POST https://nso.dev/api/admin/system/build \
-  -H "Authorization: Bearer $ADMIN_TOKEN"
-```
-
-Esto sube `system/latest.zar` (~12-15MB) a `nso-ready`.
-Las siguientes instancias creadas lo descargarán automáticamente.
-
----
-
-## Resultado esperado
-
-| Escenario | Antes | Después |
-|-----------|-------|---------|
-| Nueva instancia (sin nso-ready) | ~6-8 min | ~6-8 min (fallback) |
-| Nueva instancia (con nso-ready) | N/A | ~2 min |
-| Nueva instancia + app frozen | N/A | ~3 min |
-| Deploy app a instancia existente | ~30s | ~30s (sin cambio) |
+### Phase 7 — Cleanup
+23. Update CLAUDE.md
+24. Remove dead files (common/, scripts/, doc/)
+25. Update requirements.txt + imports
+26. Final validation

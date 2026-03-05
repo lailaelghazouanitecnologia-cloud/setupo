@@ -1,0 +1,7 @@
+[workspace]
+name = "vm"
+version = "0.1.0"
+
+[workspace.children]
+cli = { path = "cli" }
+agent = { path = "agent" }
