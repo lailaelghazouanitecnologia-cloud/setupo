@@ -1,7 +1,7 @@
 """Tests for core/billing.py — plans, subscriptions, coupons, wallets, invoices."""
 import pytest
-from server.core import billing
-from server.core.errors import ConflictError, NotFoundError, ValidationError
+from nso.engine.billing import service as billing
+from nso.shared.errors import ConflictError, NotFoundError, ValidationError
 
 
 # ── Plans ─────────────────────────────────────────────────────

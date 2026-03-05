@@ -2,9 +2,9 @@
 import pytest
 import secrets as _secrets
 
-from server.core import db
-from server.core.orchestrator import pool, scheduler, scaler
-from server.core.orchestrator.models import (
+from nso.shared import db
+from nso.engine.orchestrator import pool, scheduler, scaler
+from nso.engine.orchestrator.models import (
     NodeRole, NodeStatus, BuildStatus,
     RegisterNodeRequest, UpdateNodeRequest, SubmitBuildRequest,
 )
@@ -14,7 +14,7 @@ from server.core.orchestrator.models import (
 
 async def _create_project(fresh_db):
     """Create a test project and return its id."""
-    from server.auth.keys import generate_api_key
+    from nso.shared.auth.keys import generate_api_key
     pid = f"proj_{_secrets.token_hex(8)}"
     key = generate_api_key()
     import hashlib
@@ -65,14 +65,14 @@ async def test_register_duplicate_fails(fresh_db):
 
     await pool.register_node(RegisterNodeRequest(instance_id=iid))
 
-    from server.core.errors import ConflictError
+    from nso.shared.errors import ConflictError
     with pytest.raises(ConflictError):
         await pool.register_node(RegisterNodeRequest(instance_id=iid))
 
 
 @pytest.mark.asyncio
 async def test_register_nonexistent_instance_fails(fresh_db):
-    from server.core.errors import NotFoundError
+    from nso.shared.errors import NotFoundError
     with pytest.raises(NotFoundError):
         await pool.register_node(RegisterNodeRequest(instance_id="inst_nonexistent"))
 
@@ -100,7 +100,7 @@ async def test_remove_node(fresh_db):
     node = await pool.register_node(RegisterNodeRequest(instance_id=iid))
     await pool.remove_node(node.id)
 
-    from server.core.errors import NotFoundError
+    from nso.shared.errors import NotFoundError
     with pytest.raises(NotFoundError):
         await pool.get_node(node.id)
 
@@ -187,7 +187,7 @@ async def test_submit_build(fresh_db):
 
 @pytest.mark.asyncio
 async def test_submit_build_invalid_project(fresh_db):
-    from server.core.errors import NotFoundError
+    from nso.shared.errors import NotFoundError
     with pytest.raises(NotFoundError):
         await scheduler.submit_build(SubmitBuildRequest(
             project_id="proj_nonexistent",

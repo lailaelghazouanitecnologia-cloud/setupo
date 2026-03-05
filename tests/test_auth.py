@@ -1,8 +1,8 @@
 """Tests for auth — users, JWT, passwords."""
 import pytest
-from server.core import users
-from server.core.errors import AuthError, ConflictError, ValidationError
-from server.auth.jwt import (
+from nso.engine.auth import service as users
+from nso.shared.errors import AuthError, ConflictError, ValidationError
+from nso.shared.auth.jwt import (
     hash_password, verify_password,
     create_user_token, decode_user_token,
 )

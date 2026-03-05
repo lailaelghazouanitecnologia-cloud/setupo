@@ -15,35 +15,34 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    server/ — CENTRAL SERVER (:8000)              │
+│              nso/ — CENTRAL SERVER (:8000)                       │
 │                                                                 │
-│  server/                           server/core/                 │
-│  ├── main.py (entry + middleware)  ├── db.py (SQLite+migrations)│
-│  ├── config.py (env vars)          ├── models.py (Pydantic)     │
-│  ├── deps.py (auth deps)           ├── errors.py               │
-│  ├── ratelimit.py (brute-force)    ├── users.py (CRUD+auth)    │
-│  ├── auth/                         ├── billing.py (engine)      │
-│  │   ├── jwt.py (JWT+PBKDF2)      ├── blockchain.py (ledger)   │
-│  │   ├── keys.py (sk_live_ gen)    ├── analytics.py (metrics)   │
-│  │   └── middleware.py (resolve)   ├── email.py (SMTP)          │
-│  ├── routes/                       ├── workspace_config.py      │
-│  │   ├── health.py, auth.py       ├── deploy/ (orchestration)  │
-│  │   ├── projects.py, instances.py ├── instances/ (lifecycle)   │
-│  │   ├── workspaces.py, domains.py ├── projects/ (CRUD)         │
-│  │   ├── zar.py, deploy.py        ├── providers/ (Vultr, CF)   │
-│  │   ├── billing.py, admin.py     └── zar/ (packer, storage)   │
-│  │   ├── plugins.py, plugin_api.py                              │
-│  │   ├── addons/ (catalog, connectors, marketplace)             │
-│  │   ├── modules.py, notifications.py                           │
-│  │   └── subdomain.py             Cloudflare R2                 │
-│  └── base/                         ├── .zar packages            │
-│      └── cloud-init.yaml           ├── branches.json            │
-│                                    └── latest.zar per branch    │
+│  nso/                              nso/shared/                  │
+│  ├── main.py (auto-discovery)      ├── db.py (SQLite+CRUD)     │
+│  ├── config.py (env vars)          ├── models.py (Pydantic)    │
+│  └── config.toml                   ├── errors.py               │
+│                                    ├── deps.py (auth deps)     │
+│  nso/shared/auth/                  └── ratelimit.py            │
+│  ├── jwt.py (JWT+PBKDF2)                                       │
+│  ├── keys.py (sk_live_ gen)       nso/engine/ (13 modules)     │
+│  └── resolve.py (token→ctx)       ├── auth/     (users, email) │
+│                                    ├── billing/  (plans, subs)  │
+│  Each engine module has:           ├── compute/  (instances)    │
+│  ├── config.toml (discovery)       ├── deploy/   (pipeline)    │
+│  ├── routes.py                     ├── storage/  (R2, .zar)    │
+│  ├── service.py                    ├── workspace/(config)      │
+│  ├── migrations.py                 ├── projects/ (CRUD)        │
+│  └── models.py (optional)          ├── dns/      (domains)     │
+│                                    ├── addons/   (plugins)     │
+│  Cloudflare R2                     ├── admin/    (analytics)   │
+│  ├── .zar packages                 ├── notifications/          │
+│  ├── branches.json                 ├── orchestrator/ (+LB)     │
+│  └── latest.zar per branch         └── secrets/ (env vars)     │
 └───────────────────────┬─────────────────────────────────────────┘
                         │  HTTP (no SSH)
                         ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                   instance/ — NSO AGENT (per VPS :8081)          │
+│                vm/agent/ — NSO AGENT (per VPS :8081)             │
 │                                                                 │
 │  ├── main.py       (entry, router mounting)                     │
 │  ├── auth.py       (JWT login, PBKDF2)                          │
@@ -60,9 +59,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  client/dashboard/  — Main Next.js dashboard                    │
 │  client/admin/      — Admin Next.js dashboard                   │
-│  cli/               — Python CLI (nso login, ship, exec, inst)  │
-│  common/            — Shared utilities                          │
-│  doc/               — Documentation + deploy configs            │
+│  vm/cli/            — Python CLI (nso login, ship, exec, inst)  │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -88,7 +85,7 @@ The dashboard uses **two tokens simultaneously**:
 - `nso_token` → agent calls (files, exec, secrets, deploy)
 - `nso_api_token` → central API calls (projects, workspaces, instances, billing, etc.)
 
-### Dependency injection (server/deps.py)
+### Dependency injection (nso/shared/deps.py)
 
 ```python
 require_project  → API key provides project_id; admin gets it from URL
@@ -96,7 +93,7 @@ require_admin    → Admin token or user with role="admin"
 require_user     → User JWT (any authenticated user)
 ```
 
-### Token resolution (server/auth/middleware.py)
+### Token resolution (nso/shared/auth/resolve.py)
 
 ```
 Token starts with "usr_"  → decode user JWT → AuthContext(user_id, email, role)
@@ -539,50 +536,53 @@ STRIPE_PUBLISHABLE_KEY=...
 
 ```
 setupo/
-├── server/                      # Central server (API + business logic)
-│   ├── main.py                  # App entry, middleware stack, router mounting
+├── nso/                         # Central server (modular engine architecture)
+│   ├── __init__.py
+│   ├── main.py                  # Auto-discovery entry point (scans engine/*/config.toml)
 │   ├── config.py                # Settings from env (all config centralized)
-│   ├── deps.py                  # Shared FastAPI dependencies
-│   ├── ratelimit.py             # Rate limiting middleware
-│   ├── auth/                    # Auth system
-│   │   ├── jwt.py               # User JWT + PBKDF2 password hashing
-│   │   ├── keys.py              # API key generation (sk_live_)
-│   │   └── middleware.py        # Token resolution + AuthContext
-│   ├── routes/                  # All API route handlers
-│   │   ├── auth.py, health.py, projects.py, instances.py
-│   │   ├── workspaces.py, domains.py, deploy.py, zar.py
-│   │   ├── plugins.py, plugin_api.py, billing.py, admin.py
-│   │   ├── addons/ (catalog.py, connectors.py, marketplace.py)
-│   │   ├── modules.py, notifications.py, subdomain.py
-│   │   └── ...
-│   ├── core/                    # Core business logic
-│   │   ├── db.py                # SQLite persistence (aiosqlite) + migrations
-│   │   ├── models.py            # All Pydantic models
+│   ├── config.toml              # Project metadata
+│   ├── shared/                  # Cross-cutting infrastructure
+│   │   ├── db.py                # SQLite persistence (aiosqlite) + generic CRUD
+│   │   ├── models.py            # Shared Pydantic models (R2Config, etc.)
 │   │   ├── errors.py            # Exception hierarchy (NsoError tree)
-│   │   ├── workspace_config.py  # config.toml reader/writer
-│   │   ├── users.py             # User CRUD, auth, subdomain claiming
-│   │   ├── billing.py           # Billing engine
-│   │   ├── blockchain.py        # Hash-linked ledger
-│   │   ├── analytics.py         # Metrics, fraud detection
-│   │   ├── email.py             # SMTP email service
-│   │   ├── deploy/              # Deploy orchestration (pipeline.py, sync.py)
-│   │   ├── instances/           # Instance CRUD + lifecycle
-│   │   ├── projects/            # Project CRUD
-│   │   ├── providers/           # Cloud provider clients (Vultr, Cloudflare)
-│   │   ├── addons/              # Addon system (base types, defaults)
-│   │   └── zar/                 # .zar packaging (packer, storage, resolver)
-│   └── base/                    # VPS provisioning templates
-│       └── cloud-init.yaml
+│   │   ├── deps.py              # Shared FastAPI dependencies (require_admin, etc.)
+│   │   ├── ratelimit.py         # Rate limiting middleware
+│   │   └── auth/                # Auth infrastructure
+│   │       ├── jwt.py           # User JWT + PBKDF2 password hashing
+│   │       ├── keys.py          # API key generation (sk_live_)
+│   │       └── resolve.py       # Token resolution + AuthContext
+│   └── engine/                  # Modular business logic (13 modules)
+│       ├── auth/                # Users, login, registration, subdomain
+│       ├── billing/             # Plans, subscriptions, wallets, invoices
+│       ├── compute/             # Instance CRUD, lifecycle, providers (Vultr, CF)
+│       ├── deploy/              # Deploy pipeline, sync, config
+│       ├── storage/             # R2 client, .zar packing/resolving
+│       ├── workspace/           # Workspace config, platform workspaces, secrets
+│       ├── projects/            # Project CRUD
+│       ├── dns/                 # Domains, subdomain DNS
+│       ├── addons/              # Plugins, connectors, marketplace
+│       ├── admin/               # Analytics, blockchain ledger, fraud
+│       ├── notifications/       # Email service, notification inbox
+│       ├── orchestrator/        # Scheduler, pool, scaler, load balancer
+│       └── secrets/             # Project secret management
+│       # Each module contains: config.toml, routes.py, service.py, migrations.py
 │
-├── instance/                    # NSO Agent (runs on each VPS)
-│   ├── main.py                  # Agent entry
-│   ├── auth.py                  # Agent-local JWT auth
-│   ├── files.py                 # File operations
-│   ├── exec.py                  # Command execution
-│   ├── deploy.py                # .zar deploy/snapshot/rollback
-│   ├── envvars.py               # Env var CRUD with bucket grouping
-│   ├── store.py                 # SQLite metrics store
-│   └── models.py                # Agent models
+├── vm/                          # VM-side code (agent + CLI)
+│   ├── agent/                   # NSO Agent (runs on each VPS :8081)
+│   │   ├── main.py              # Agent entry
+│   │   ├── auth.py              # Agent-local JWT auth
+│   │   ├── files.py             # File operations
+│   │   ├── exec.py              # Command execution
+│   │   ├── deploy.py            # .zar deploy/snapshot/rollback
+│   │   ├── envvars.py           # Env var CRUD with bucket grouping
+│   │   ├── store.py             # SQLite metrics store
+│   │   └── models.py            # Agent models
+│   ├── cli/                     # Python CLI package
+│   │   ├── main.py              # Commands + argument parser
+│   │   ├── client.py            # HTTP client (auth, retries, timeouts)
+│   │   └── output.py            # Terminal formatting helpers
+│   ├── nso                      # CLI entry point
+│   └── config.toml              # VM workspace config
 │
 ├── client/                      # Frontend dashboards
 │   ├── dashboard/               # Main Next.js dashboard
@@ -595,19 +595,7 @@ setupo/
 │   └── admin/                   # Admin Next.js dashboard
 │       └── src/
 │
-├── common/                      # Shared utilities (future)
-├── doc/                         # Documentation + deploy configs
-│   ├── deploy/                  # nginx.conf, systemd units, bootstrap.sh
-│   ├── PLAN.md                  # Roadmap
-│   └── *.md                     # API reference, CLI docs, etc.
-│
 ├── tests/                       # Test suite
-├── cli/                         # Python CLI package
-│   ├── __init__.py
-│   ├── main.py                  # Commands + argument parser
-│   ├── client.py                # HTTP client (auth, retries, timeouts)
-│   └── output.py                # Terminal formatting helpers
-├── nso                          # CLI entry point
 ├── requirements.txt
 ├── pytest.ini
 └── CLAUDE.md                    # This file — architecture reference
@@ -629,10 +617,10 @@ setupo/
 
 ```bash
 # Run API server (dev)
-cd /opt/nso && venv/bin/uvicorn server.main:app --reload --port 8000
+cd /opt/nso && venv/bin/uvicorn nso.main:app --reload --port 8000
 
 # Run agent (dev)
-cd /opt/nso/instance && ../venv/bin/uvicorn main:app --port 8081
+cd /opt/nso/vm/agent && ../../venv/bin/uvicorn main:app --port 8081
 
 # Build dashboard
 cd client/dashboard && npm run build

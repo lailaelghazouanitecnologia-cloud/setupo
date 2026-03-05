@@ -50,6 +50,11 @@ async def close_db():
         _db = None
 
 
+async def _migrate(conn: aiosqlite.Connection):
+    """Alias for test compatibility."""
+    return await _run_module_migrations(conn)
+
+
 async def _run_module_migrations(conn: aiosqlite.Connection):
     engine_dir = Path(__file__).parent.parent / "engine"
     if not engine_dir.exists():

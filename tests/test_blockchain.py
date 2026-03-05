@@ -1,6 +1,6 @@
 """Tests for core/blockchain.py — immutable ledger."""
 import pytest
-from server.core import blockchain
+from nso.engine.admin import ledger as blockchain
 
 
 @pytest.mark.asyncio
@@ -56,7 +56,7 @@ async def test_verify_chain_valid(fresh_db, user_id):
 @pytest.mark.asyncio
 async def test_verify_chain_detects_tampering(fresh_db, user_id):
     """Modifying a block's data should break the chain."""
-    from server.core import db
+    from nso.shared import db
     await blockchain.append_block(
         user_id=user_id, block_type="wallet_topup",
         amount_cents=1000, balance_after_cents=1000,
@@ -81,7 +81,7 @@ async def test_verify_chain_detects_tampering(fresh_db, user_id):
 @pytest.mark.asyncio
 async def test_invalid_user_id_rejected(fresh_db):
     """Invalid user_id format should raise ValidationError."""
-    from server.core.errors import ValidationError
+    from nso.shared.errors import ValidationError
     with pytest.raises(ValidationError):
         await blockchain.append_block(
             user_id="bad_id", block_type="wallet_topup",
@@ -92,7 +92,7 @@ async def test_invalid_user_id_rejected(fresh_db):
 @pytest.mark.asyncio
 async def test_invalid_block_type_rejected(fresh_db, user_id):
     """Unknown block type should raise ValidationError."""
-    from server.core.errors import ValidationError
+    from nso.shared.errors import ValidationError
     with pytest.raises(ValidationError):
         await blockchain.append_block(
             user_id=user_id, block_type="fake_type",
@@ -103,7 +103,7 @@ async def test_invalid_block_type_rejected(fresh_db, user_id):
 @pytest.mark.asyncio
 async def test_amount_sign_validation(fresh_db, user_id):
     """Positive block types reject negative amounts and vice versa."""
-    from server.core.errors import ValidationError
+    from nso.shared.errors import ValidationError
     # wallet_topup requires non-negative
     with pytest.raises(ValidationError):
         await blockchain.append_block(
@@ -121,7 +121,7 @@ async def test_amount_sign_validation(fresh_db, user_id):
 @pytest.mark.asyncio
 async def test_negative_balance_rejected(fresh_db, user_id):
     """balance_after_cents cannot be negative."""
-    from server.core.errors import ValidationError
+    from nso.shared.errors import ValidationError
     with pytest.raises(ValidationError):
         await blockchain.append_block(
             user_id=user_id, block_type="invoice_charge",
@@ -159,7 +159,7 @@ async def test_get_chain_length(fresh_db, user_id):
 @pytest.mark.asyncio
 async def test_balance_proof(fresh_db, user_id):
     """get_balance_proof should report chain balance."""
-    from server.core import db
+    from nso.shared import db
     # Create user row
     await db.insert("users", {
         "id": user_id, "email": "proof@test.com",
