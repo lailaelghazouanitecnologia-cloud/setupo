@@ -380,6 +380,72 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
         except Exception as e:
             return json.dumps({"error": f"Cannot write file: {e}"})
 
+    async def run_validation(workspace: str = "", checks: str = "") -> str:
+        """Run validation checks on a workspace. If validate.toml exists in the workspace it runs those checks. Otherwise you can pass inline checks as a JSON array like: [{"name":"health","type":"http","url":"https://domain/health","expect_status":200}]"""
+        from nso.engine.validator import service as validator_service
+
+        # Build context
+        context: dict = {"project_id": ctx.project_id}
+        validations = []
+
+        if workspace:
+            ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
+            if ws:
+                ws_path = ws.get("path", "")
+                context["workspace"] = workspace
+                if ws.get("instance_id"):
+                    inst = await db.fetch_one("instances", id=ws["instance_id"])
+                    if inst:
+                        context["ip"] = inst.get("ip", "")
+
+                # Try domain lookup
+                domains = await db.fetch_all("domains", project_id=ctx.project_id)
+                for dom in domains:
+                    if workspace in dom.get("domain", ""):
+                        context["domain"] = dom["domain"]
+                        break
+
+                # Try validate.toml
+                toml_path = os.path.join(ws_path, "validate.toml") if ws_path else ""
+                if toml_path and os.path.isfile(toml_path):
+                    try:
+                        content = Path(toml_path).read_text()
+                        validations = validator_service.parse_validate_toml(content, ctx.project_id)
+                    except Exception as e:
+                        return json.dumps({"error": f"Invalid validate.toml: {e}"})
+
+        # Inline checks override
+        if checks:
+            try:
+                check_list = json.loads(checks)
+                if isinstance(check_list, list):
+                    validations = [
+                        validator_service.Validation(
+                            name=c.get("name", "check"),
+                            type=c.get("type", "http"),
+                            config={k: v for k, v in c.items() if k not in ("name", "type")},
+                            project_id=ctx.project_id,
+                        )
+                        for c in check_list
+                    ]
+            except json.JSONDecodeError:
+                return json.dumps({"error": "Invalid JSON for checks parameter"})
+
+        if not validations:
+            return json.dumps({"error": "No checks found. Create a validate.toml or pass inline checks."})
+
+        run = await validator_service.execute_batch(
+            validations,
+            project_id=ctx.project_id,
+            workspace=workspace,
+            trigger="agent",
+            context=context,
+            persist=True,
+            metadata={"user_id": ctx.user_id},
+        )
+
+        return json.dumps(run.to_dict())
+
     return [
         (analyze_project, "analyze_project", "Analyze workspace to detect stack, files, dependencies, entry points"),
         (generate_deploy_config, "generate_deploy_config", "Generate deploy.toml from analysis"),
@@ -390,6 +456,7 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
         (check_deploy_status, "check_deploy_status", "Check deploy status on an instance"),
         (read_workspace_file, "read_workspace_file", "Read a file from workspace"),
         (write_workspace_file, "write_workspace_file", "Write a file to workspace"),
+        (run_validation, "run_validation", "Run validation checks on a workspace (from validate.toml or inline)"),
     ]
 
 
