@@ -54,6 +54,11 @@ class Settings:
     BUILD_SERVER_URL = os.environ.get("NSO_BUILD_SERVER_URL", "")
     BUILD_SERVER_TOKEN = os.environ.get("NSO_BUILD_SERVER_TOKEN", "")
 
+    # Deploy agent LLM (any OpenAI-compatible API: Groq, OpenRouter, etc.)
+    DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
+    DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+    DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
+
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
     SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
     SMTP_USER = os.environ.get("SMTP_USER", "")

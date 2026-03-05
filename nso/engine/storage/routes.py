@@ -364,6 +364,13 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
 
+    # ── Auto-claim subdomain if user doesn't have one ──
+    project = await db.fetch_one("projects", id=project_id)
+    owner_id = project.get("owner", "") if project else ""
+    if owner_id:
+        from nso.engine.deploy_agent.tools import _auto_claim_subdomain
+        await _auto_claim_subdomain(owner_id)
+
     # ── Auto-assign deploy domain ──
     deploy_domain = ""
     inst = await db.fetch_one("instances", id=instance_id)
