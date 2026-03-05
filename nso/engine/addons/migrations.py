@@ -138,6 +138,18 @@ TABLES = """
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- AI App memory: per-project preferences + context for AI agent
+    CREATE TABLE IF NOT EXISTS ai_app_memory (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        preferences TEXT DEFAULT '{}',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (app_id) REFERENCES ai_apps(id) ON DELETE CASCADE
+    );
+
     -- AI App runs: execution history per project
     CREATE TABLE IF NOT EXISTS ai_app_runs (
         id TEXT PRIMARY KEY,
@@ -250,6 +262,7 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_ai_apps_slug ON ai_apps(slug);
     CREATE INDEX IF NOT EXISTS idx_ai_apps_published ON ai_apps(published);
     CREATE INDEX IF NOT EXISTS idx_ai_apps_category ON ai_apps(category);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_app_memory_unique ON ai_app_memory(project_id, app_id);
     CREATE INDEX IF NOT EXISTS idx_ai_app_runs_app ON ai_app_runs(app_id);
     CREATE INDEX IF NOT EXISTS idx_ai_app_runs_project ON ai_app_runs(project_id);
 

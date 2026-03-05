@@ -26,6 +26,9 @@ from nso.engine.addons.ai_apps_service import (
     call_baseten_model,
     validate_input,
     build_baseten_payload,
+    gather_memory,
+    save_memory,
+    store_output_to_r2,
 )
 
 logger = logging.getLogger("nso.ai_apps.routes")
@@ -409,11 +412,27 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
     }
     await db.insert("ai_app_runs", run_data)
 
-    # Build payload and call Baseten
+    # Extract output folder preference (default: "assets")
+    output_folder = input_data.pop("_output_folder", "assets")
+
+    # Gather memory/context for the AI agent
+    memory = await gather_memory(project_id, app["id"], db)
+
+    # If user sent preferences, save them
+    user_prefs = input_data.pop("_preferences", None)
+    if user_prefs and isinstance(user_prefs, dict):
+        await save_memory(project_id, app["id"], user_prefs, db)
+        memory["preferences"].update(user_prefs)
+
+    # Ensure output folder is in preferences
+    if "output_folder" not in memory.get("preferences", {}):
+        memory.setdefault("preferences", {})["output_folder"] = output_folder
+
+    # Build payload with memory injected and call Baseten
     system_prompt = app.get("system_prompt", "")
     if isinstance(system_prompt, str) and not system_prompt:
         system_prompt = ""
-    payload = build_baseten_payload(input_data, system_prompt, input_schema)
+    payload = build_baseten_payload(input_data, system_prompt, input_schema, memory=memory)
 
     timeout = app.get("max_timeout_seconds", 60) or 60
     result = await call_baseten_model(
@@ -427,10 +446,19 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
     # Update run record
     finished_at = datetime.now(timezone.utc).isoformat()
     latency_ms = result.get("latency_ms", 0)
+    stored_files = None
 
     if result.get("ok"):
+        output_data = result.get("result", {})
+
+        # Store file outputs (base64 images, etc.) to R2 under assets/
+        if isinstance(output_data, dict):
+            stored_files = await store_output_to_r2(
+                project_id, slug, run_id, output_data, output_folder,
+            )
+
         await db.update("ai_app_runs", run_id, {
-            "output": result.get("result", {}),
+            "output": output_data,
             "status": "success",
             "latency_ms": latency_ms,
             "credits_charged": app.get("credits_per_run", 0),
@@ -448,7 +476,7 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
             "finished_at": finished_at,
         })
 
-    return {
+    response = {
         "ok": result.get("ok", False),
         "run_id": run_id,
         "app": slug,
@@ -456,6 +484,12 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
         "error": result.get("error") if not result.get("ok") else None,
         "latency_ms": latency_ms,
     }
+
+    # Include stored file URLs if any outputs were saved to R2
+    if stored_files:
+        response["files"] = stored_files
+
+    return response
 
 
 @project_router.get("/{slug}/runs")
@@ -486,3 +520,37 @@ async def get_run_detail(slug: str, run_id: str, project_id: str = Depends(requi
     if not run:
         raise HTTPException(404, "Run not found")
     return {"run": run}
+
+
+@project_router.get("/{slug}/memory")
+async def get_app_memory(slug: str, project_id: str = Depends(require_project)):
+    """Get this project's memory/preferences for an AI app."""
+    app = await db.fetch_one("ai_apps", slug=slug)
+    if not app:
+        raise HTTPException(404, f"AI app '{slug}' not found")
+
+    memory = await gather_memory(project_id, app["id"], db)
+    return {"memory": memory}
+
+
+@project_router.put("/{slug}/memory")
+async def update_app_memory(slug: str, request: Request, project_id: str = Depends(require_project)):
+    """Update this project's preferences for an AI app.
+
+    Example: {"output_folder": "images", "default_style": "minimal"}
+    These preferences are injected as context into every run.
+    """
+    app = await db.fetch_one("ai_apps", slug=slug)
+    if not app:
+        raise HTTPException(404, f"AI app '{slug}' not found")
+
+    try:
+        prefs = await request.json()
+    except Exception:
+        raise HTTPException(400, "Invalid JSON body")
+
+    if not isinstance(prefs, dict):
+        raise HTTPException(400, "Body must be a JSON object")
+
+    await save_memory(project_id, app["id"], prefs, db)
+    return {"ok": True, "preferences": prefs}
