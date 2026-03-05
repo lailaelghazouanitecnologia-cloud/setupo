@@ -20,7 +20,10 @@ from pydantic import BaseModel
 
 from nso.shared import db
 from nso.shared.deps import require_project, require_user, AuthContext
-from nso.engine.deploy_agent.run import ToolRegistry, run_agent_loop, RunEvent
+from nso.shared.agent import Agent, RunEvent, OpenAILike
+from nso.shared.agent.tools import ToolRegistry
+from nso.shared.agent.run import run_agent_loop
+from nso.shared.agent.model import Message
 from nso.engine.deploy_agent.tools import create_tools, DeployContext
 
 logger = logging.getLogger("nso.routes.deploy_agent")
@@ -29,9 +32,19 @@ router = APIRouter()
 # ── LLM config ──
 # Supports any OpenAI-compatible API (Groq, OpenRouter, OpenAI, etc.)
 DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1/chat/completions")
+DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
 DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "15"))
+
+
+def _get_model() -> OpenAILike:
+    """Build the LLM model from env config."""
+    return OpenAILike(
+        id=DEPLOY_AGENT_MODEL,
+        api_key=DEPLOY_AGENT_API_KEY,
+        base_url=DEPLOY_AGENT_API_URL,
+        provider="groq",
+    )
 
 
 SYSTEM_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps users deploy their projects.
@@ -169,40 +182,41 @@ async def stream_message(
         "content": req.message,
     })
 
-    # Load conversation history
+    # Load conversation history as Message objects
     conn = await db.get_db()
     cursor = await conn.execute(
         "SELECT role, content, tool_calls, tool_results FROM deploy_messages WHERE thread_id = ? ORDER BY created_at ASC",
         (thread_id,),
     )
     rows = await cursor.fetchall()
-    messages = []
+    messages: list[Message] = []
     for row in rows:
         r = dict(row)
-        msg = {"role": r["role"], "content": r.get("content", "") or ""}
-        # Reconstruct tool_calls in assistant messages
-        if r["role"] == "assistant" and r.get("tool_calls"):
-            try:
-                tc = json.loads(r["tool_calls"]) if isinstance(r["tool_calls"], str) else r["tool_calls"]
-                if tc:
-                    msg["tool_calls"] = tc
-            except Exception:
-                pass
-        # Tool result messages
         if r["role"] == "tool" and r.get("tool_results"):
             try:
                 tr = json.loads(r["tool_results"]) if isinstance(r["tool_results"], str) else r["tool_results"]
-                if tr and isinstance(tr, dict):
-                    msg["tool_call_id"] = tr.get("tool_call_id", "")
+                tool_call_id = tr.get("tool_call_id", "") if isinstance(tr, dict) else ""
+            except Exception:
+                tool_call_id = ""
+            messages.append(Message.tool_result(tool_call_id=tool_call_id, content=r.get("content", "") or ""))
+        elif r["role"] == "assistant" and r.get("tool_calls"):
+            from nso.shared.agent.model.message import ToolCall, ToolCallFunction
+            tc_list = None
+            try:
+                tc_raw = json.loads(r["tool_calls"]) if isinstance(r["tool_calls"], str) else r["tool_calls"]
+                if tc_raw:
+                    tc_list = [ToolCall.from_dict(tc) for tc in tc_raw]
             except Exception:
                 pass
-        messages.append(msg)
+            messages.append(Message.assistant(content=r.get("content", "") or None, tool_calls=tc_list))
+        else:
+            messages.append(Message.from_dict({"role": r["role"], "content": r.get("content", "") or ""}))
 
     # Build tools
     ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "")
     registry = ToolRegistry()
     for func, name, desc in create_tools(ctx):
-        registry.register(func, name=name, description=desc)
+        registry.register_callable(func, name=name, description=desc)
 
     run_id = f"drun_{uuid.uuid4().hex[:12]}"
 
@@ -216,9 +230,7 @@ async def stream_message(
 
         try:
             async for event in run_agent_loop(
-                api_key=DEPLOY_AGENT_API_KEY,
-                api_url=DEPLOY_AGENT_API_URL,
-                model=DEPLOY_AGENT_MODEL,
+                model=_get_model(),
                 messages=messages,
                 system_prompt=SYSTEM_PROMPT,
                 registry=registry,
