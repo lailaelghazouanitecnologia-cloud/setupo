@@ -17,6 +17,7 @@ import re
 import secrets as token_gen
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 from pydantic import BaseModel
 
@@ -428,34 +429,86 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
     if "output_folder" not in memory.get("preferences", {}):
         memory.setdefault("preferences", {})["output_folder"] = output_folder
 
-    # Build payload with memory injected and call Baseten
+    # Resolve instance to proxy the AI call through the user's agent
+    instance_id = input_data.pop("_instance_id", "")
+    from nso.engine.storage.routes import (
+        _get_agent_url, _get_agent_token, _resolve_instance,
+    )
+
+    try:
+        resolved_instance_id = await _resolve_instance("", project_id, instance_id)
+    except HTTPException:
+        # No instance found — fall back to direct call from central
+        resolved_instance_id = ""
+
     system_prompt = app.get("system_prompt", "")
     if isinstance(system_prompt, str) and not system_prompt:
         system_prompt = ""
-    payload = build_baseten_payload(input_data, system_prompt, input_schema, memory=memory)
-
     timeout = app.get("max_timeout_seconds", 60) or 60
-    result = await call_baseten_model(
-        api_url=app.get("baseten_api_url", ""),
-        api_key=app.get("baseten_api_key", ""),
-        model_id=app.get("baseten_model_id", ""),
-        payload=payload,
-        timeout=float(timeout),
-    )
+
+    if resolved_instance_id:
+        # ── PROXY VIA AGENT (preferred) ──
+        # Same backend that runs deploys — executes on user's VPS
+        agent_url = await _get_agent_url(project_id, resolved_instance_id)
+        agent_token = await _get_agent_token(agent_url)
+
+        agent_payload = {
+            "app_slug": slug,
+            "run_id": run_id,
+            "api_url": app.get("baseten_api_url", ""),
+            "api_key": app.get("baseten_api_key", ""),
+            "model_id": app.get("baseten_model_id", ""),
+            "payload": input_data,
+            "system_prompt": system_prompt,
+            "memory": memory,
+            "timeout": float(timeout),
+            "output_folder": output_folder,
+            "save_output": True,
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=float(timeout) + 10) as client:
+                resp = await client.post(
+                    f"{agent_url}/ai/run",
+                    headers={"Authorization": f"Bearer {agent_token}"},
+                    json=agent_payload,
+                )
+            if resp.status_code == 200:
+                result = resp.json()
+            else:
+                result = {"ok": False, "error": f"Agent HTTP {resp.status_code}: {resp.text[:500]}"}
+        except httpx.TimeoutException:
+            result = {"ok": False, "error": "Agent AI request timed out"}
+        except httpx.ConnectError:
+            result = {"ok": False, "error": f"Cannot connect to agent at {agent_url}"}
+        except Exception as e:
+            result = {"ok": False, "error": str(e)}
+    else:
+        # ── DIRECT CALL (fallback when no instance) ──
+        payload = build_baseten_payload(input_data, system_prompt, input_schema, memory=memory)
+        result = await call_baseten_model(
+            api_url=app.get("baseten_api_url", ""),
+            api_key=app.get("baseten_api_key", ""),
+            model_id=app.get("baseten_model_id", ""),
+            payload=payload,
+            timeout=float(timeout),
+        )
 
     # Update run record
     finished_at = datetime.now(timezone.utc).isoformat()
     latency_ms = result.get("latency_ms", 0)
-    stored_files = None
+    stored_files = result.get("stored_files") or result.get("files")
 
     if result.get("ok"):
         output_data = result.get("result", {})
 
-        # Store file outputs (base64 images, etc.) to R2 under assets/
-        if isinstance(output_data, dict):
-            stored_files = await store_output_to_r2(
+        # If direct call, store outputs to R2 as fallback
+        if not resolved_instance_id and isinstance(output_data, dict):
+            r2_files = await store_output_to_r2(
                 project_id, slug, run_id, output_data, output_folder,
             )
+            if r2_files:
+                stored_files = r2_files
 
         await db.update("ai_app_runs", run_id, {
             "output": output_data,
@@ -483,9 +536,9 @@ async def run_ai_app(slug: str, request: Request, project_id: str = Depends(requ
         "result": result.get("result") if result.get("ok") else None,
         "error": result.get("error") if not result.get("ok") else None,
         "latency_ms": latency_ms,
+        "executed_on": "agent" if resolved_instance_id else "central",
     }
 
-    # Include stored file URLs if any outputs were saved to R2
     if stored_files:
         response["files"] = stored_files
 
