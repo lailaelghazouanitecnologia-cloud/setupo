@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useZ86Store } from "@/stores/z86-store";
 import { LoginForm, RegisterForm } from "@/components/auth-form";
 import { DashboardLayout } from "@/components/dashboard-layout";
@@ -55,7 +55,7 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
       <aside className="L">
         <ShaderBackground />
         <div className="L-top">
-          <Z86Logo width={80} height={32} />
+          <Z86Logo size={44} />
         </div>
         <div className="L-center">
           <h2 className="L-heading">Affordable,<br />scalable<br />infrastructure<br />you control.</h2>
@@ -185,7 +185,7 @@ function LandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister:
 }
 
 /* ═══════════════════════════════════════
-   SHADER — slow gradient mesh on dark bg
+   SHADER — subtle noise fog, slow drift
    ═══════════════════════════════════════ */
 function ShaderBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -217,22 +217,14 @@ float noise(vec2 p){
   return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
              mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
 }
-float fbm(vec2 p){
-  float v=0.0,a=0.5;
-  for(int i=0;i<4;i++){v+=a*noise(p);p*=2.0;a*=0.5;}
-  return v;
-}
 void main(){
   vec2 uv=gl_FragCoord.xy/r;
-  float n1=fbm(uv*3.0+vec2(t*0.08,t*0.06));
-  float n2=fbm(uv*2.5+vec2(-t*0.05,t*0.09)+4.0);
-  float n3=fbm(uv*4.0+vec2(t*0.03,-t*0.07)+8.0);
-  vec3 c1=vec3(0.08,0.06,0.14);
-  vec3 c2=vec3(0.04,0.10,0.12);
-  vec3 c3=vec3(0.12,0.04,0.08);
-  vec3 col=c1*n1+c2*n2+c3*n3;
-  col=mix(vec3(0.035),col,0.9);
-  float grain=hash(uv*r+t*100.0)*0.03;
+  float n=noise(uv*2.5+vec2(t*0.04,t*0.03));
+  float n2=noise(uv*4.0+vec2(-t*0.03,t*0.05)+3.0);
+  float fog=mix(n,n2,0.5);
+  vec3 base=vec3(0.065,0.06,0.055);
+  vec3 col=base+fog*0.04;
+  float grain=hash(uv*r+t*100.0)*0.025;
   col+=grain;
   gl_FragColor=vec4(col,1.0);
 }`;
@@ -277,41 +269,18 @@ void main(){
 }
 
 /* ═══════════════════════════════════════
-   LOGO — scan-line canvas
+   LOGO — clean square mark + wordmark
    ═══════════════════════════════════════ */
-function Z86Logo({ width = 80, height = 32 }: { width?: number; height?: number }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const draw = useCallback(() => {
-    const c = canvasRef.current;
-    if (!c) return;
-    const x = c.getContext("2d");
-    if (!x) return;
-    const w = c.width, h = c.height;
-    const o = document.createElement("canvas");
-    o.width = w; o.height = h;
-    const g = o.getContext("2d")!;
-    g.fillStyle = "#fff";
-    g.font = `900 28px "Arial Black",Impact,sans-serif`;
-    g.textAlign = "center";
-    g.textBaseline = "middle";
-    g.fillText("z86", w / 2, h / 2 + 1);
-    const m = g.getImageData(0, 0, w, h);
-    x.clearRect(0, 0, w, h);
-    const d = x.getImageData(0, 0, w, h);
-    const p = d.data;
-    for (let y = 0; y < h; y++) {
-      if ((y % 4) >= 2) continue;
-      const t = y / h;
-      const b = Math.floor(200 - t * 80);
-      for (let i = 0; i < w; i++) {
-        const j = (y * w + i) * 4;
-        if (m.data[j + 3] < 100) continue;
-        const v = Math.max(0, Math.min(255, b + (Math.random() - 0.5) * 40));
-        p[j] = v; p[j + 1] = v; p[j + 2] = v; p[j + 3] = 255;
-      }
-    }
-    x.putImageData(d, 0, 0);
-  }, []);
-  useEffect(() => { draw(); }, [draw]);
-  return <canvas ref={canvasRef} width={width} height={height} style={{ width, height }} />;
+function Z86Logo({ size = 32, color = "light" }: { size?: number; color?: "light" | "dark" }) {
+  const fg = color === "light" ? "rgba(255,255,255,0.9)" : "#1a1917";
+  const accent = "#2dd4bf";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <svg width={size} height={size} viewBox="0 0 32 32" fill="none">
+        <rect x="1" y="1" width="30" height="30" rx="6" stroke={accent} strokeWidth="2" />
+        <text x="16" y="22" textAnchor="middle" fontFamily="Georgia, serif" fontSize="18" fontWeight="400" fill={fg}>Z</text>
+      </svg>
+      <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "0.03em", color: fg }}>z86</span>
+    </div>
+  );
 }

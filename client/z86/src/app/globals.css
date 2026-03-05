@@ -26,25 +26,29 @@
 */
 
 :root {
-  /* ── Warm dark palette (BECANE) ── */
-  --black-1: #252423;
-  --black-2: #262422;
-  --black-3: #2c2a28;
-  --black-4: #3b3937;
+  /* ── Palette: warm blacks + medium grays ── */
+  --black-1: #1a1917;
+  --black-2: #1e1d1b;
+  --black-3: #262523;
+  --black-4: #343230;
 
-  --white-1: #f6f4f2;
-  --white-2: #cccac9;
-  --white-3: #85837e;
-  --white-4: #706e69;
-  --white-5: #5b5855;
-  --white-6: #4a4745;
-  --white-7: #3b3937;
-  --white-8: #2c2a28;
+  --white-1: #f0eeeb;
+  --white-2: #c8c5c1;
+  --white-3: #8a8783;
+  --white-4: #6e6b67;
+  --white-5: #56534f;
+  --white-6: #45423e;
+  --white-7: #343230;
+  --white-8: #262523;
 
-  --red-1: #ff4b4b;
-  --red-2: #d34343;
-  --red-3: #883534;
-  --red-4: #723130;
+  /* ── Accent: aqua + ruby/blood red ── */
+  --aqua: #2dd4bf;
+  --aqua-dim: #1a9e8f;
+  --aqua-bg: rgba(45,212,191,0.08);
+  --ruby: #be123c;
+  --ruby-bright: #e11d48;
+  --ruby-dim: #881337;
+  --ruby-bg: rgba(190,18,60,0.1);
 
   /* ── Semantic mapping ── */
   --background: var(--black-1);
@@ -55,7 +59,7 @@
   --muted: var(--white-7);
   --muted-foreground: var(--white-3);
   --accent: var(--black-4);
-  --accent-color: var(--red-1);
+  --accent-color: var(--aqua);
   --border: var(--black-3);
 
   /* ── Radii (subtle, not bubbly) ── */
@@ -121,6 +125,7 @@
     padding: 12px 14px;
     font-family: var(--font-mono); font-size: 11px;
     line-height: 1.85; color: rgba(255,255,255,0.4);
+    box-shadow: inset 0 0 30px rgba(0,0,0,0.15);
   }
   .L-c { color: rgba(255,255,255,0.85); font-weight: 600; }
   .L-a { color: rgba(255,255,255,0.55); }
@@ -291,35 +296,91 @@
   }
 
   /* ═══════════════════════════════════════
-     AUTH PAGES
+     AUTH PAGES — Split layout
+     Left: dark branding panel
+     Right: clean form
      ═══════════════════════════════════════ */
   .auth-page {
-    min-height: 100vh; display: flex; align-items: center; justify-content: center;
-    background: var(--black-1); padding: 24px;
+    min-height: 100vh; display: flex;
+    background: var(--black-1);
+  }
+
+  /* ── Left branding panel ── */
+  .auth-left {
+    width: 42%; min-height: 100vh;
+    background: var(--black-2);
+    display: flex; flex-direction: column;
+    justify-content: space-between;
+    padding: 40px; position: relative; overflow: hidden;
+  }
+  .auth-left-noise {
+    position: absolute; inset: 0; z-index: 0;
+    opacity: 0.5;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    background-size: 256px 256px;
+  }
+  .auth-left > * { position: relative; z-index: 1; }
+  .auth-left-brand {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 18px; font-weight: 800; letter-spacing: 0.03em;
+    color: var(--white-1);
+  }
+  .auth-left-center { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 20px; }
+  .auth-left-heading {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: clamp(26px, 2.8vw, 38px);
+    font-weight: 400; line-height: 1.18;
+    letter-spacing: -0.3px;
+    color: rgba(255,255,255,0.85);
+  }
+  .auth-left-sub {
+    font-size: 14px; color: var(--white-4); line-height: 1.6;
+    max-width: 340px;
+  }
+  .auth-left-features {
+    display: flex; flex-direction: column; gap: 10px; margin-top: 12px;
+  }
+  .auth-left-feat {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 13px; color: var(--white-3);
+  }
+  .auth-left-feat-dot {
+    width: 5px; height: 5px; border-radius: 50%;
+    background: var(--aqua); flex-shrink: 0;
+  }
+  .auth-left-bottom {
+    font-size: 11px; color: var(--white-5);
+  }
+
+  /* ── Right form panel ── */
+  .auth-right {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    padding: 40px;
   }
   .auth-card {
-    width: 100%; max-width: 400px; background: var(--black-1);
-    border: 1px solid var(--black-4);
-    padding: 48px 40px; border-radius: var(--r-2xl);
+    width: 100%; max-width: 380px;
     animation: fade-up 0.3s ease;
   }
-  .auth-header { text-align: center; margin-bottom: 36px; }
-  .auth-header svg { color: var(--white-3); margin-bottom: 20px; }
-  .auth-header h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.03em; margin-bottom: 8px; color: var(--white-1); }
-  .auth-header p { font-size: 13.5px; color: var(--white-4); }
-  .auth-form { display: flex; flex-direction: column; gap: 18px; }
-  .auth-form label { display: flex; flex-direction: column; gap: 8px; }
+  .auth-header { margin-bottom: 32px; }
+  .auth-header h1 {
+    font-family: 'Georgia', 'Times New Roman', serif;
+    font-size: 24px; font-weight: 400; letter-spacing: -0.5px;
+    margin-bottom: 8px; color: var(--white-1);
+  }
+  .auth-header p { font-size: 13px; color: var(--white-4); line-height: 1.5; }
+  .auth-form { display: flex; flex-direction: column; gap: 20px; }
+  .auth-form label { display: flex; flex-direction: column; gap: 7px; }
   .auth-form label span { font-size: 12px; color: var(--white-4); font-weight: 500; }
   .auth-form input {
-    height: 44px; padding: 0 14px; background: var(--black-1); color: var(--white-1);
+    height: 46px; padding: 0 16px; background: var(--black-2); color: var(--white-1);
     font-size: 14px; outline: none; border: 1px solid var(--black-4);
     border-radius: var(--r-lg); transition: border-color 0.15s;
   }
   .auth-form input:hover { border-color: var(--white-7); }
-  .auth-form input:focus { border-color: var(--white-5); }
+  .auth-form input:focus { border-color: var(--aqua-dim); }
   .auth-form input::placeholder { color: var(--white-6); }
   .auth-submit {
-    height: 44px; padding: 0 20px; background: var(--white-1); color: var(--black-1);
+    height: 46px; padding: 0 20px; background: var(--white-1); color: var(--black-1);
     border: none; font-size: 14px; font-weight: 500; cursor: pointer;
     border-radius: var(--r-lg); transition: all 0.15s; margin-top: 4px;
   }
@@ -327,17 +388,23 @@
   .auth-submit:active { transform: scale(0.985); }
   .auth-submit:disabled { opacity: 0.4; cursor: default; transform: none; }
   .auth-error {
-    font-size: 12px; color: var(--red-1); background: var(--red-4);
+    font-size: 12px; color: var(--ruby-bright); background: var(--ruby-bg);
     padding: 12px 18px; border-radius: var(--r-lg);
   }
   .auth-footer {
-    text-align: center; margin-top: 28px; font-size: 12.5px; color: var(--white-5);
+    margin-top: 24px; font-size: 12.5px; color: var(--white-5);
   }
   .auth-footer button {
-    background: none; border: none; color: var(--red-1);
+    background: none; border: none; color: var(--aqua);
     cursor: pointer; font-size: 12.5px; font-weight: 500;
   }
-  .auth-footer button:hover { color: var(--red-2); }
+  .auth-footer button:hover { color: var(--aqua-dim); }
+
+  /* ── Auth responsive ── */
+  @media (max-width: 800px) {
+    .auth-left { display: none; }
+    .auth-right { padding: 24px; }
+  }
 
   /* ═══════════════════════════════════════
      DASHBOARD
@@ -479,11 +546,11 @@
   .btn-back:hover { border-color: var(--white-7); color: var(--white-2); }
   .btn-back:active { transform: scale(0.985); }
   .btn-danger-sm {
-    padding: 4px 12px; background: transparent; color: var(--red-1);
-    border: 1px solid var(--red-4); font-size: 10px; font-weight: 500; cursor: pointer;
+    padding: 4px 12px; background: transparent; color: var(--ruby-bright);
+    border: 1px solid var(--ruby-bg); font-size: 10px; font-weight: 500; cursor: pointer;
     border-radius: 4px; transition: all 0.12s;
   }
-  .btn-danger-sm:hover { background: var(--red-4); border-color: var(--red-3); }
+  .btn-danger-sm:hover { background: var(--ruby-bg); border-color: var(--ruby-dim); }
   .btn-danger-sm:active { transform: scale(0.985); }
   .link-btn {
     background: none; border: none; color: var(--white-2);
@@ -520,9 +587,9 @@
   }
   .bar-track { height: 3px; background: var(--black-1); border-radius: 2px; overflow: hidden; }
   .bar-track-large { height: 6px; }
-  .bar-fill { height: 100%; background: var(--red-1); border-radius: 2px; transition: width 0.5s ease; }
+  .bar-fill { height: 100%; background: var(--aqua); border-radius: 2px; transition: width 0.5s ease; }
   .bar-pct { font-size: 10px; color: var(--white-6); margin-top: 6px; display: block; font-family: var(--font-mono); }
-  .bar-pct-large { font-size: 26px; font-weight: 800; color: var(--red-1); }
+  .bar-pct-large { font-size: 26px; font-weight: 800; color: var(--aqua); }
   .bar-footer {
     display: flex; justify-content: space-between; margin-top: 10px;
     font-size: 11px; color: var(--white-5); font-family: var(--font-mono);
@@ -598,8 +665,8 @@
   .status-badge {
     font-size: 10px; padding: 2px 8px; border-radius: 3px; font-weight: 500;
   }
-  .status-badge.active { color: #22c55e; background: rgba(34,197,94,0.1); }
-  .status-badge.revoked { color: var(--red-1); background: var(--red-4); }
+  .status-badge.active { color: var(--aqua); background: var(--aqua-bg); }
+  .status-badge.revoked { color: var(--ruby-bright); background: var(--ruby-bg); }
 
   /* ── Forms — BECANE flat sections ── */
   .form-outer { border-bottom: 1px solid var(--black-4); }
@@ -617,7 +684,7 @@
   .form-row { display: flex; gap: 8px; }
   .form-row input { flex: 1; }
   .form-hint { font-size: 10px; color: var(--white-6); font-family: var(--font-mono); }
-  .form-error { font-size: 12px; color: var(--red-1); background: var(--red-4); padding: 10px 14px; border-radius: 6px; }
+  .form-error { font-size: 12px; color: var(--ruby-bright); background: var(--ruby-bg); padding: 10px 14px; border-radius: 6px; }
   .form-msg { font-size: 12px; color: #22c55e; font-weight: 500; }
 
   /* ── Filter — BECANE bar input ── */
@@ -675,7 +742,7 @@
   .stg-field input::placeholder { color: var(--white-6); }
   .stg-actions { padding-top: 4px; }
   .stg-msg-ok { font-size: 12px; color: #22c55e; font-weight: 500; }
-  .stg-msg-err { font-size: 12px; color: var(--red-1); background: var(--red-4); padding: 10px 14px; border-radius: var(--r-lg); }
+  .stg-msg-err { font-size: 12px; color: var(--ruby-bright); background: var(--ruby-bg); padding: 10px 14px; border-radius: var(--r-lg); }
 
   /* Key-value list (endpoint info) */
   .stg-kv-list { display: flex; flex-direction: column; }
