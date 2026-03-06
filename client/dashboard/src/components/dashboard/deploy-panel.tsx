@@ -129,7 +129,7 @@ export function DeployPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || "";
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string }[]>([]);
-  const [instances, setInstances] = useState<{ id: string; label: string; main_ip: string; status: string }[]>([]);
+  const [instances, setInstances] = useState<{ id: string; label: string; main_ip: string; status: string; state?: string; domain?: string; ip?: string; [key: string]: any }[]>([]);
   const [selectedWs, setSelectedWs] = useState("");
   const [selectedInstance, setSelectedInstance] = useState("");
   const [branch, setBranch] = useState("main");
