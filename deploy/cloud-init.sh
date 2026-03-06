@@ -99,6 +99,9 @@ NSO_ADMIN_PASSWORD=${NSO_ADMIN_PASSWORD}
 
 # Agent
 AGENT_ADMIN_PASSWORD=${AGENT_ADMIN_PASSWORD}
+
+# JWT — MUST be set so all uvicorn workers share the same secret
+NSO_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
 ENVEOF
 chmod 600 /opt/nso/config/.env
 
