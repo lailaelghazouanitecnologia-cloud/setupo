@@ -25,7 +25,7 @@ mkdir -p /opt/nso/client/{dashboard,admin}
 # ── 4. Clone repo ──────────────────────────────────────────
 cd /opt/nso
 if [ ! -d repo ]; then
-  git clone --depth 1 https://github.com/lailaelghazouanitecnologia-cloud/setupo.git repo
+  git clone --depth 1 -b claude/analyze-codebase-nHGXt https://github.com/lailaelghazouanitecnologia-cloud/setupo.git repo
 fi
 cp -r repo/nso /opt/nso/nso
 cp -r repo/vm /opt/nso/vm
