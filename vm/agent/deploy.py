@@ -559,6 +559,105 @@ async def _handoff_to_supervisor(config: dict, working_dir: str, version: str):
         )
 
 
+class PlatformUpdateRequest(BaseModel):
+    branch: str = "main"
+    rebuild_dashboard: bool = True
+    rebuild_admin: bool = False
+    restart_services: list[str] = Field(default_factory=lambda: ["nso", "nso-agent"])
+
+
+@router.post("/platform-update")
+async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends(require_admin)):
+    """Pull latest code from repo, rebuild dashboards, restart services.
+
+    Use this instead of recreating the VPS for code updates.
+    Call via: POST /agent/deploy/platform-update
+    """
+    results: dict = {"steps": [], "ok": True}
+    repo_dir = "/opt/nso/repo"
+
+    async def _run(cmd: str, cwd: str = repo_dir, timeout: int = 300) -> tuple[str, int]:
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=cwd,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode(errors="replace"), proc.returncode
+
+    def _step(name: str, output: str, code: int):
+        ok = code == 0
+        results["steps"].append({"name": name, "ok": ok, "output": output[-500:]})
+        if not ok:
+            results["ok"] = False
+        return ok
+
+    # 1. Git pull
+    out, code = await _run(f"git fetch origin {req.branch} && git reset --hard origin/{req.branch}")
+    _step("git_pull", out, code)
+    if code != 0:
+        raise HTTPException(500, results)
+
+    # 2. Copy updated code to production dirs
+    out, code = await _run(
+        "cp -r /opt/nso/repo/nso/* /opt/nso/nso/ && "
+        "cp -r /opt/nso/repo/vm/* /opt/nso/vm/ && "
+        "cp /opt/nso/repo/requirements.txt /opt/nso/requirements.txt"
+    )
+    _step("copy_code", out, code)
+
+    # 3. Update Python deps
+    out, code = await _run("/opt/nso/venv/bin/pip install -r /opt/nso/requirements.txt --quiet")
+    _step("pip_install", out, code)
+
+    # 4. Rebuild main dashboard
+    if req.rebuild_dashboard:
+        dashboard_dir = "/opt/nso/repo/client/dashboard"
+        out, code = await _run("npm install --legacy-peer-deps", cwd=dashboard_dir, timeout=120)
+        _step("npm_install_dashboard", out, code)
+        if code == 0:
+            out, code = await _run("npm run build", cwd=dashboard_dir, timeout=180)
+            _step("build_dashboard", out, code)
+            if code == 0:
+                out, code = await _run(
+                    f"cp -r {dashboard_dir}/out/* /opt/nso/client/dashboard/"
+                )
+                _step("deploy_dashboard", out, code)
+
+    # 5. Rebuild admin dashboard
+    if req.rebuild_admin:
+        admin_dir = "/opt/nso/repo/client/admin"
+        if os.path.exists(os.path.join(admin_dir, "package.json")):
+            out, code = await _run("npm install --legacy-peer-deps", cwd=admin_dir, timeout=120)
+            _step("npm_install_admin", out, code)
+            if code == 0:
+                out, code = await _run("npm run build", cwd=admin_dir, timeout=180)
+                _step("build_admin", out, code)
+                if code == 0:
+                    out, code = await _run(
+                        f"cp -r {admin_dir}/out/* /opt/nso/client/admin/"
+                    )
+                    _step("deploy_admin", out, code)
+
+    # 6. Restart services
+    for svc in req.restart_services:
+        out, code = await _restart_service(svc)
+        _step(f"restart_{svc}", out, code)
+
+    # 7. Health check
+    await asyncio.sleep(2)
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get("http://127.0.0.1:8000/api/health")
+            _step("health_api", resp.text, 0 if resp.status_code == 200 else 1)
+    except Exception as e:
+        _step("health_api", str(e), 1)
+
+    results["timestamp"] = datetime.now(timezone.utc).isoformat()
+    return results
+
+
 @router.get("/current")
 async def deploy_current(admin: AdminUser = Depends(require_admin)):
     state = _load_state()
