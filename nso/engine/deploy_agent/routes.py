@@ -75,6 +75,18 @@ When a user pastes a token or API key, detect what it is and configure the right
 - Looks like S3 credentials → S3 connector
 Configure it automatically, test the connection, and confirm to the user.
 
+## Secrets:
+Secrets (environment variables) are organized by **buckets** (groups):
+- **auth** — authentication keys (NSO_ADMIN, JWT, etc.)
+- **providers** — cloud provider keys (VULTR, CF)
+- **storage** — storage credentials (R2)
+- **connectors** — credentials synced from connectors (GITHUB_TOKEN, S3_ACCESS_KEY, SLACK_BOT_TOKEN)
+- **system** — system configuration (HOST, PORT, DB)
+- **custom** — everything else
+
+When you configure a connector, its credentials are automatically synced to the Secrets panel under the "connectors" bucket. The user can see and manage them there.
+All secrets are available as environment variables during deploy.
+
 ## Rules:
 - Always analyze before deploying if you haven't already
 - If deploy.toml is missing, create it and explain its contents

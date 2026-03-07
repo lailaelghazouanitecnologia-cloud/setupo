@@ -447,6 +447,66 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
 
         return json.dumps(run.to_dict())
 
+    # ── Secrets management tools ──
+
+    async def list_secrets() -> str:
+        """List all secrets (environment variables) for this project grouped by bucket."""
+        conn = await db.get_db()
+        cursor = await conn.execute(
+            "SELECT key, bucket FROM project_secrets WHERE project_id = ? AND scope = 'general' ORDER BY bucket, key",
+            (ctx.project_id,),
+        )
+        rows = await cursor.fetchall()
+        grouped: dict[str, list[str]] = {}
+        for r in rows:
+            row = dict(r)
+            b = row.get("bucket", "custom")
+            if b not in grouped:
+                grouped[b] = []
+            grouped[b].append(row["key"])
+        return json.dumps({"secrets": grouped, "total": len(rows)})
+
+    async def add_secret(key: str, value: str) -> str:
+        """Add or update a secret (environment variable) for this project. Key must be uppercase with underscores."""
+        import re
+        key = key.strip().upper().replace(" ", "_")
+        if not re.match(r"^[A-Z][A-Z0-9_]*$", key):
+            return json.dumps({"error": f"Invalid key format: {key}. Must be uppercase letters, digits, underscores."})
+
+        # Classify bucket
+        bucket_rules = [
+            (["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_", "NSO_JWT_"], "auth"),
+            (["VULTR_", "CF_"], "providers"),
+            (["R2_"], "storage"),
+            (["GITHUB_", "S3_ACCESS", "S3_SECRET", "S3_ENDPOINT", "S3_BUCKET", "SLACK_"], "connectors"),
+            (["NSO_HOST", "NSO_PORT", "NSO_DATA_", "NSO_CONFIG_", "HOST", "PORT", "DB_", "LOG_", "CORS_"], "system"),
+        ]
+        bucket = "custom"
+        for prefixes, bname in bucket_rules:
+            if any(key.startswith(p) for p in prefixes):
+                bucket = bname
+                break
+
+        existing = await db.fetch_one("project_secrets", project_id=ctx.project_id, key=key, scope="general")
+        if existing:
+            conn = await db.get_db()
+            await conn.execute(
+                "UPDATE project_secrets SET value = ?, bucket = ? WHERE id = ?",
+                (value, bucket, existing["id"]),
+            )
+            await conn.commit()
+            return json.dumps({"ok": True, "key": key, "bucket": bucket, "action": "updated"})
+
+        await db.insert("project_secrets", {
+            "id": f"sec_{uuid.uuid4().hex[:16]}",
+            "project_id": ctx.project_id,
+            "key": key,
+            "value": value,
+            "bucket": bucket,
+            "scope": "general",
+        })
+        return json.dumps({"ok": True, "key": key, "bucket": bucket, "action": "created"})
+
     # ── Connector management tools ──
 
     async def setup_connector(connector_id: str, config_json: str) -> str:
@@ -547,6 +607,8 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
         (read_workspace_file, "read_workspace_file", "Read a file from workspace"),
         (write_workspace_file, "write_workspace_file", "Write a file to workspace"),
         (run_validation, "run_validation", "Run validation checks on a workspace (from validate.toml or inline)"),
+        (list_secrets, "list_secrets", "List all project secrets grouped by bucket (auth, providers, storage, connectors, system, custom)"),
+        (add_secret, "add_secret", "Add or update a project secret (environment variable)"),
         (setup_connector, "setup_connector", "Install and configure a connector (github, s3, slack) with credentials — auto-tests connection"),
         (list_connectors, "list_connectors", "List installed connectors with their connection status"),
     ]

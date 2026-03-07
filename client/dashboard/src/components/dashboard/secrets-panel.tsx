@@ -23,11 +23,12 @@ const BUCKET_META: Record<string, Bucket> = {
   auth: { name: "auth", label: "Authentication", icon: "auth" },
   providers: { name: "providers", label: "Providers", icon: "provider" },
   storage: { name: "storage", label: "Storage (R2)", icon: "storage" },
+  connectors: { name: "connectors", label: "Connectors", icon: "provider" },
   system: { name: "system", label: "System", icon: "system" },
   custom: { name: "custom", label: "Custom", icon: "custom" },
 };
 
-const BUCKET_ORDER = ["auth", "providers", "storage", "system", "custom"];
+const BUCKET_ORDER = ["auth", "providers", "storage", "connectors", "system", "custom"];
 
 export function SecretsPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
@@ -191,7 +192,10 @@ export function SecretsPanel() {
     grouped[b].push(s);
   }
 
-  const activeBuckets = BUCKET_ORDER.filter((b) => grouped[b]?.length);
+  // Show known buckets in order, then any unknown buckets at the end
+  const knownBuckets = BUCKET_ORDER.filter((b) => grouped[b]?.length);
+  const unknownBuckets = Object.keys(grouped).filter((b) => !BUCKET_ORDER.includes(b) && grouped[b]?.length);
+  const activeBuckets = [...knownBuckets, ...unknownBuckets];
   const domainScopes = scopes.filter((s) => s.type === "domain");
   const activeScopeLabel = scopes.find((s) => s.id === activeScope)?.label || activeScope;
 
