@@ -2581,24 +2581,23 @@
 
 /* ── Tool result block ── */
 .da-result-block {
-  margin: 6px 0; border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  background: color-mix(in srgb, var(--muted-foreground) 4%, transparent);
+  margin: 2px 0;
   overflow: hidden;
 }
 .da-result-header {
   display: flex; align-items: center; gap: 6px;
-  padding: 6px 12px; font-size: 13px;
+  padding: 4px 0; font-size: 13px;
 }
 .da-result-status {
   font-size: 11px; font-weight: 500; margin-left: auto;
   font-family: var(--font-mono, monospace);
 }
 .da-result-output {
-  margin: 0; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap;
+  margin: 0; padding: 6px 10px; overflow-x: auto; white-space: pre-wrap;
   font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.5;
   color: var(--muted-foreground);
-  border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+  background: color-mix(in srgb, var(--muted-foreground) 4%, transparent);
+  border-radius: 6px;
   max-height: 300px; overflow-y: auto;
 }
 
