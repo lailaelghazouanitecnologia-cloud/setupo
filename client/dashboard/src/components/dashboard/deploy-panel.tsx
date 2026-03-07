@@ -367,7 +367,7 @@ export function DeployPanel() {
         <Rocket className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">Nothing to deploy yet</div>
         <div className="panel-empty-sub">Create a workspace and an instance first.</div>
-        <button className="panel-btn" onClick={() => useDashboardStore.getState().setActiveView("instances")}>
+        <button className="panel-btn" onClick={() => useDashboardStore.getState().setActiveView("infrastructure")}>
           <Server className="h-3.5 w-3.5" /> <span>Create Instance</span>
         </button>
       </div>

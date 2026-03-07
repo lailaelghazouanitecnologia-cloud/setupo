@@ -315,7 +315,7 @@ export function ProjectsPanel() {
                 </div>
                 <div
                   style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: "var(--font-xs)" }}
-                  onClick={() => setActiveView("instances")}
+                  onClick={() => setActiveView("infrastructure")}
                 >
                   <Server className="h-3.5 w-3.5" style={{ color: "var(--color-purple)" }} />
                   <span>{detailLoading ? "..." : instCount} instances</span>
