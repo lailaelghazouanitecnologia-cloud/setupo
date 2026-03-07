@@ -2,6 +2,7 @@
 
 import logging
 import secrets as token_gen
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -81,6 +82,49 @@ async def _ensure_legacy_seeded():
             "created_at": now,
             "updated_at": now,
         })
+
+
+# Key mapping: connector config field → project_secrets key
+_SECRET_KEY_MAP = {
+    "github": {"token": "GITHUB_TOKEN"},
+    "s3": {"endpoint": "S3_ENDPOINT", "access_key": "S3_ACCESS_KEY", "secret_key": "S3_SECRET_KEY", "bucket": "S3_BUCKET"},
+    "slack": {"bot_token": "SLACK_BOT_TOKEN", "webhook_url": "SLACK_WEBHOOK_URL"},
+}
+
+
+async def _sync_connector_secrets(project_id: str, connector_id: str, config: dict):
+    """Sync connector credentials to project_secrets for visibility in Secrets panel."""
+    key_map = _SECRET_KEY_MAP.get(connector_id, {})
+    if not key_map:
+        return
+
+    scope = "general"
+    now = datetime.now(timezone.utc).isoformat()
+
+    for config_field, secret_key in key_map.items():
+        value = config.get(config_field, "")
+        if not value:
+            continue
+
+        existing = await db.fetch_one("project_secrets", project_id=project_id, key=secret_key, scope=scope)
+        if existing:
+            conn = await db.get_db()
+            await conn.execute(
+                "UPDATE project_secrets SET value = ?, updated_at = ? WHERE id = ?",
+                (value, now, existing["id"]),
+            )
+            await conn.commit()
+        else:
+            await db.insert("project_secrets", {
+                "id": f"sec_{uuid.uuid4().hex[:16]}",
+                "project_id": project_id,
+                "key": secret_key,
+                "value": value,
+                "bucket": "connectors",
+                "scope": scope,
+            })
+
+    logger.info("Synced %s connector secrets for project %s", connector_id, project_id)
 
 
 # ═══════════════════════════════════════════
@@ -270,6 +314,10 @@ async def install_addon(req: InstallPluginRequest, addon_type: str = "plugin", p
         except Exception:
             pass  # Legacy table may not be in sync
 
+    # Sync connector credentials to project_secrets
+    if catalog_entry["addon_type"] == "connector" and req.config:
+        await _sync_connector_secrets(project_id, req.plugin_id, req.config)
+
     logger.info("Installed %s addon %s for project %s", catalog_entry["addon_type"], req.plugin_id, project_id)
     return {"ok": True, "addon": {**addon_data, "installed": True}}
 
@@ -293,6 +341,10 @@ async def update_addon(addon_id: str, req: UpdatePluginRequest, addon_type: str 
 
     if updates:
         await db.update("addons", existing["id"], updates)
+
+        # Sync connector credentials to project_secrets
+        if existing.get("addon_type") == "connector" and req.config is not None:
+            await _sync_connector_secrets(project_id, addon_id, req.config)
 
         # Sync to legacy plugins table
         if existing.get("addon_type") == "plugin":

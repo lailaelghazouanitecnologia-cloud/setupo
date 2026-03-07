@@ -4,19 +4,19 @@ import { useState, useEffect, useCallback } from "react";
 import {
   Puzzle, Download, Trash2, Package,
   Loader, AlertCircle, ToggleLeft, ToggleRight,
-  HardDrive, FileText, Globe, Activity, Archive,
+  HardDrive, FileText, Globe, Activity,
   Clock, ChevronDown, ChevronUp, RefreshCw,
-  Link2, ShoppingBag, Zap, Github, Database,
-  Cloud, MessageSquare, Container, BarChart3,
-  HeartPulse, Shield, Table, Mail, Timer,
-  Star, ExternalLink, Check,
+  Link2, ShoppingBag, Zap, Github,
+  Cloud, MessageSquare,
+  HeartPulse, Shield, Timer,
+  Star, Check,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   listAddons, installAddon, uninstallAddon, updateAddon,
   testConnector,
   pluginStorageList, pluginStorageDelete,
-  pluginLogsList, pluginDnsList, pluginMonitoring, pluginBackupsList,
+  pluginLogsList, pluginDnsList, pluginMonitoring,
   type AddonInfo,
 } from "@/lib/api/client";
 import {
@@ -32,22 +32,16 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
   // Plugins
   storage: HardDrive,
   monitoring: Activity,
-  backups: Archive,
   logs: FileText,
   dns: Globe,
   cron: Clock,
   // Connectors
   github: Github,
-  supabase: Database,
   s3: Cloud,
   slack: MessageSquare,
-  "docker-registry": Container,
   // Marketplace
-  "analytics-dashboard": BarChart3,
   "uptime-monitor": HeartPulse,
   "ssl-manager": Shield,
-  "database-viewer": Table,
-  "email-service": Mail,
   "scheduled-tasks": Timer,
 };
 
@@ -84,8 +78,6 @@ function PluginDetailView({ addonId, projectId }: { addonId: string; projectId: 
         setData(await pluginDnsList(projectId));
       } else if (addonId === "monitoring") {
         setData(await pluginMonitoring(projectId));
-      } else if (addonId === "backups") {
-        setData(await pluginBackupsList(projectId));
       }
     } catch (e: any) {
       setError(e.message || "Failed to load");
@@ -220,29 +212,6 @@ function PluginDetailView({ addonId, projectId }: { addonId: string; projectId: 
     );
   }
 
-  if (addonId === "backups") {
-    const backups = data?.backups || [];
-    return (
-      <div className="plugin-detail">
-        <div className="plugin-detail-header">
-          <span>{backups.length} backup{backups.length !== 1 ? "s" : ""} in R2</span>
-          <button className="plugin-detail-retry" onClick={load}><RefreshCw className="h-3 w-3" /></button>
-        </div>
-        {backups.length === 0 ? (
-          <div className="plugin-detail-empty">No backups yet. Deploy a workspace to create .zar backups.</div>
-        ) : (
-          <div className="plugin-detail-list">
-            {backups.map((b: any, i: number) => (
-              <div key={i} className="plugin-detail-row">
-                <span className="plugin-detail-row-name">{b.workspace}/{b.branch}/{b.file}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  }
-
   if (addonId === "cron") {
     return (
       <div className="plugin-detail">
@@ -257,12 +226,124 @@ function PluginDetailView({ addonId, projectId }: { addonId: string; projectId: 
 }
 
 // ═══════════════════════════════════════════
+//  CONNECTOR CONFIG SCHEMAS
+// ═══════════════════════════════════════════
+
+const CONNECTOR_FIELDS: Record<string, { key: string; label: string; placeholder: string; secret?: boolean }[]> = {
+  github: [
+    { key: "token", label: "Personal Access Token", placeholder: "ghp_xxxxxxxxxxxx", secret: true },
+  ],
+  s3: [
+    { key: "endpoint", label: "Endpoint URL", placeholder: "https://xxx.r2.cloudflarestorage.com" },
+    { key: "access_key", label: "Access Key", placeholder: "AKIA...", secret: true },
+    { key: "secret_key", label: "Secret Key", placeholder: "wJalr...", secret: true },
+    { key: "bucket", label: "Bucket Name", placeholder: "my-bucket" },
+  ],
+  slack: [
+    { key: "bot_token", label: "Bot Token", placeholder: "xoxb-xxxx", secret: true },
+    { key: "webhook_url", label: "Webhook URL (optional)", placeholder: "https://hooks.slack.com/services/..." },
+  ],
+};
+
+function maskValue(v: string): string {
+  if (v.length <= 8) return "••••••";
+  return `${v.slice(0, 4)}${"•".repeat(Math.min(12, v.length - 8))}${v.slice(-4)}`;
+}
+
+// ═══════════════════════════════════════════
+//  CONNECTOR CONFIG FORM
+// ═══════════════════════════════════════════
+
+function ConnectorConfigForm({
+  connectorId, projectId, initialConfig, onSaved,
+}: {
+  connectorId: string;
+  projectId: string;
+  initialConfig: Record<string, any>;
+  onSaved: () => void;
+}) {
+  const fields = CONNECTOR_FIELDS[connectorId] || [];
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const v: Record<string, string> = {};
+    for (const f of fields) v[f.key] = "";
+    return v;
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const hasExistingConfig = Object.keys(initialConfig || {}).length > 0;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      // Merge: only send fields that have a value (don't overwrite with empty)
+      const merged = { ...(initialConfig || {}) };
+      for (const [k, v] of Object.entries(values)) {
+        if (v.trim()) merged[k] = v.trim();
+      }
+      await updateAddon(projectId, connectorId, { config: merged }, "connector");
+      setValues(() => {
+        const v: Record<string, string> = {};
+        for (const f of fields) v[f.key] = "";
+        return v;
+      });
+      onSaved();
+    } catch (e: any) {
+      setError(e.message || "Failed to save");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+      {fields.map((f) => (
+        <div key={f.key}>
+          <label style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", display: "block", marginBottom: 3 }}>
+            {f.label}
+          </label>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <input
+              type={f.secret ? "password" : "text"}
+              value={values[f.key]}
+              onChange={(e) => setValues((p) => ({ ...p, [f.key]: e.target.value }))}
+              placeholder={initialConfig?.[f.key] ? maskValue(initialConfig[f.key]) : f.placeholder}
+              style={{
+                flex: 1, padding: "5px 8px", fontSize: "var(--font-xs)",
+                background: "var(--bg-deeper, oklch(0.12 0.01 240))", border: "1px solid var(--border)",
+                borderRadius: 4, color: "var(--foreground)", fontFamily: "var(--font-mono)",
+                outline: "none",
+              }}
+            />
+            {initialConfig?.[f.key] && (
+              <Check style={{ width: 12, height: 12, color: "var(--color-green)", flexShrink: 0 }} />
+            )}
+          </div>
+        </div>
+      ))}
+      {error && (
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--color-red)" }}>{error}</div>
+      )}
+      <button
+        className="plugin-action"
+        onClick={handleSave}
+        disabled={saving || Object.values(values).every((v) => !v.trim())}
+        style={{ alignSelf: "flex-start", marginTop: 4, padding: "4px 12px" }}
+      >
+        {saving ? <Loader className="h-3 w-3 animate-spin" /> : <>{hasExistingConfig ? "Update" : "Save"}</>}
+      </button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════
 //  CONNECTOR DETAIL VIEW
 // ═══════════════════════════════════════════
 
-function ConnectorDetailView({ addon, projectId }: { addon: AddonInfo; projectId: string }) {
+function ConnectorDetailView({ addon, projectId, onRefresh }: { addon: AddonInfo; projectId: string; onRefresh: () => void }) {
   const [testing, setTesting] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [editing, setEditing] = useState(false);
 
   const handleTest = async () => {
     setTesting(true);
@@ -277,15 +358,24 @@ function ConnectorDetailView({ addon, projectId }: { addon: AddonInfo; projectId
   };
 
   const configKeys = Object.keys(addon.config || {});
+  const hasConfig = configKeys.length > 0;
 
   return (
     <div className="plugin-detail">
       <div className="plugin-detail-header">
         <span>Configuration</span>
-        <button className="plugin-detail-retry" onClick={handleTest} disabled={testing}>
-          {testing ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
-          <span style={{ marginLeft: 4 }}>Test</span>
-        </button>
+        <div style={{ display: "flex", gap: 6 }}>
+          {hasConfig && (
+            <button className="plugin-detail-retry" onClick={() => setEditing(!editing)}>
+              <RefreshCw className="h-3 w-3" />
+              <span style={{ marginLeft: 3 }}>{editing ? "Cancel" : "Edit"}</span>
+            </button>
+          )}
+          <button className="plugin-detail-retry" onClick={handleTest} disabled={testing || !hasConfig}>
+            {testing ? <Loader className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+            <span style={{ marginLeft: 3 }}>Test</span>
+          </button>
+        </div>
       </div>
 
       {result && (
@@ -294,20 +384,25 @@ function ConnectorDetailView({ addon, projectId }: { addon: AddonInfo; projectId
           background: result.ok ? "rgba(52,211,153,0.08)" : "rgba(239,68,68,0.08)",
           color: result.ok ? "var(--color-green)" : "var(--color-red)",
         }}>
-          {result.message}
+          {result.ok ? "✓ " : "✗ "}{result.message}
         </div>
       )}
 
-      {configKeys.length === 0 ? (
-        <div className="plugin-detail-empty">
-          No credentials configured yet. Use the API to set connector config.
-        </div>
+      {!hasConfig || editing ? (
+        <ConnectorConfigForm
+          connectorId={addon.addon_id}
+          projectId={projectId}
+          initialConfig={addon.config || {}}
+          onSaved={() => { setEditing(false); onRefresh(); }}
+        />
       ) : (
         <div className="plugin-detail-list">
           {configKeys.map((key) => (
             <div key={key} className="plugin-detail-row">
-              <span className="plugin-detail-row-name" style={{ fontFamily: "var(--font-mono)" }}>{key}</span>
-              <span className="plugin-detail-row-meta">configured</span>
+              <span className="plugin-detail-row-name" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-xxs)" }}>{key}</span>
+              <span className="plugin-detail-row-meta" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--font-xxs)" }}>
+                {maskValue(String(addon.config[key] || ""))}
+              </span>
             </div>
           ))}
         </div>
@@ -533,7 +628,7 @@ function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninsta
 
 function AddonCard({
   addon, projectId, busy, expanded,
-  onInstall, onUninstall, onToggle, onToggleExpand,
+  onInstall, onUninstall, onToggle, onToggleExpand, onRefresh,
 }: {
   addon: AddonInfo;
   projectId: string;
@@ -543,6 +638,7 @@ function AddonCard({
   onUninstall: () => void;
   onToggle: (enabled: boolean) => void;
   onToggleExpand: () => void;
+  onRefresh: () => void;
 }) {
   const Icon = ADDON_ICONS[addon.addon_id] || Puzzle;
 
@@ -613,7 +709,7 @@ function AddonCard({
       </div>
       {expanded && addon.installed && addon.enabled && (
         addon.addon_type === "connector" ? (
-          <ConnectorDetailView addon={addon} projectId={projectId} />
+          <ConnectorDetailView addon={addon} projectId={projectId} onRefresh={onRefresh} />
         ) : (
           <PluginDetailView addonId={addon.addon_id} projectId={projectId} />
         )
@@ -660,6 +756,8 @@ export function AddonsPanel() {
     try {
       await installAddon(projectId, addonId, addonType);
       await loadAddons();
+      // Auto-expand connectors so user sees the config form
+      if (addonType === "connector") setExpandedId(addonId);
     } catch (e: any) {
       setError(`Install failed: ${e.message}`);
     }
@@ -759,6 +857,7 @@ export function AddonsPanel() {
                     onUninstall={() => handleUninstall(a.addon_id, a.addon_type)}
                     onToggle={(enabled) => handleToggle(a.addon_id, enabled, a.addon_type)}
                     onToggleExpand={() => setExpandedId(expandedId === a.addon_id ? null : a.addon_id)}
+                    onRefresh={loadAddons}
                   />
                 ))}
               </div>
@@ -792,6 +891,7 @@ export function AddonsPanel() {
                     onUninstall={() => handleUninstall(a.addon_id, a.addon_type)}
                     onToggle={(enabled) => handleToggle(a.addon_id, enabled, a.addon_type)}
                     onToggleExpand={() => {}}
+                    onRefresh={loadAddons}
                   />
                 ))}
               </div>
