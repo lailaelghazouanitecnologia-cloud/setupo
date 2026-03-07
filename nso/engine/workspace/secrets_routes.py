@@ -8,33 +8,12 @@ from pydantic import BaseModel
 
 from nso.shared import db
 from nso.shared.deps import require_project
+from nso.shared.secrets import BUCKETS, classify_secret
 
 logger = logging.getLogger("nso.secrets")
 router = APIRouter()
 
 KEY_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*$")
-
-BUCKETS = [
-    {"name": "auth", "label": "Authentication", "prefixes": ["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_", "NSO_JWT_"]},
-    {"name": "providers", "label": "Providers", "prefixes": ["VULTR_", "CF_"]},
-    {"name": "storage", "label": "Storage (R2)", "prefixes": ["R2_"]},
-    {"name": "connectors", "label": "Connectors", "prefixes": [
-        "GITHUB_", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT", "S3_BUCKET",
-        "SLACK_BOT_TOKEN", "SLACK_WEBHOOK_URL",
-    ]},
-    {"name": "system", "label": "System", "prefixes": [
-        "NSO_HOST", "NSO_PORT", "NSO_DATA_", "NSO_CONFIG_", "NSO_WORKSPACES_",
-        "NSO_CORS_", "NSO_BASE_", "NSO_AGENT_", "NSO_SERVE",
-        "HOST", "PORT", "DB_", "LOG_", "CORS_",
-    ]},
-]
-
-
-def _classify(key: str) -> str:
-    for bucket in BUCKETS:
-        if any(key.startswith(p) for p in bucket["prefixes"]):
-            return bucket["name"]
-    return "custom"
 
 
 class SecretAddRequest(BaseModel):
@@ -101,7 +80,7 @@ async def add_secret(
     if existing:
         raise HTTPException(409, f"Secret '{key}' already exists in scope '{scope}'. Use PUT to update.")
 
-    bucket = _classify(key)
+    bucket = classify_secret(key)
     secret_id = f"sec_{uuid.uuid4().hex[:16]}"
     await db.insert("project_secrets", {
         "id": secret_id,

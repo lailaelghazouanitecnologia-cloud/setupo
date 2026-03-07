@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from nso.shared import db
+from nso.shared.secrets import classify_secret
 from nso.config import settings
 
 logger = logging.getLogger("nso.deploy_agent.tools")
@@ -473,19 +474,7 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
         if not re.match(r"^[A-Z][A-Z0-9_]*$", key):
             return json.dumps({"error": f"Invalid key format: {key}. Must be uppercase letters, digits, underscores."})
 
-        # Classify bucket
-        bucket_rules = [
-            (["NSO_ADMIN", "AGENT_ADMIN", "JWT_", "SECRET_", "NSO_JWT_"], "auth"),
-            (["VULTR_", "CF_"], "providers"),
-            (["R2_"], "storage"),
-            (["GITHUB_", "S3_ACCESS", "S3_SECRET", "S3_ENDPOINT", "S3_BUCKET", "SLACK_"], "connectors"),
-            (["NSO_HOST", "NSO_PORT", "NSO_DATA_", "NSO_CONFIG_", "HOST", "PORT", "DB_", "LOG_", "CORS_"], "system"),
-        ]
-        bucket = "custom"
-        for prefixes, bname in bucket_rules:
-            if any(key.startswith(p) for p in prefixes):
-                bucket = bname
-                break
+        bucket = classify_secret(key)
 
         existing = await db.fetch_one("project_secrets", project_id=ctx.project_id, key=key, scope="general")
         if existing:

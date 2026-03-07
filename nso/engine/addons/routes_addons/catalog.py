@@ -84,17 +84,12 @@ async def _ensure_legacy_seeded():
         })
 
 
-# Key mapping: connector config field → project_secrets key
-_SECRET_KEY_MAP = {
-    "github": {"token": "GITHUB_TOKEN"},
-    "s3": {"endpoint": "S3_ENDPOINT", "access_key": "S3_ACCESS_KEY", "secret_key": "S3_SECRET_KEY", "bucket": "S3_BUCKET"},
-    "slack": {"bot_token": "SLACK_BOT_TOKEN", "webhook_url": "SLACK_WEBHOOK_URL"},
-}
+from nso.shared.secrets import CONNECTOR_SECRET_MAP, classify_secret
 
 
 async def _sync_connector_secrets(project_id: str, connector_id: str, config: dict):
     """Sync connector credentials to project_secrets for visibility in Secrets panel."""
-    key_map = _SECRET_KEY_MAP.get(connector_id, {})
+    key_map = CONNECTOR_SECRET_MAP.get(connector_id, {})
     if not key_map:
         return
 
@@ -106,12 +101,13 @@ async def _sync_connector_secrets(project_id: str, connector_id: str, config: di
         if not value:
             continue
 
+        bucket = classify_secret(secret_key)
         existing = await db.fetch_one("project_secrets", project_id=project_id, key=secret_key, scope=scope)
         if existing:
             conn = await db.get_db()
             await conn.execute(
-                "UPDATE project_secrets SET value = ?, updated_at = ? WHERE id = ?",
-                (value, now, existing["id"]),
+                "UPDATE project_secrets SET value = ?, bucket = ?, updated_at = ? WHERE id = ?",
+                (value, bucket, now, existing["id"]),
             )
             await conn.commit()
         else:
@@ -120,7 +116,7 @@ async def _sync_connector_secrets(project_id: str, connector_id: str, config: di
                 "project_id": project_id,
                 "key": secret_key,
                 "value": value,
-                "bucket": "connectors",
+                "bucket": bucket,
                 "scope": scope,
             })
 
