@@ -1656,7 +1656,7 @@ export async function uploadObject(projectId: string, bucketId: string, file: Fi
   });
   if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(parseErrorMessage(text, resp.status));
+    throw new Error(parseErrorText(resp.status, text));
   }
   return resp.json();
 }
