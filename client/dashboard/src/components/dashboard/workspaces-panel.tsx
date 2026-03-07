@@ -78,7 +78,7 @@ export function WorkspacesPanel() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newStack, setNewStack] = useState("node");
+  const [newStack] = useState("custom");
 
   const [tab, setTab] = useState<"files" | "versions">("files");
 
@@ -226,16 +226,6 @@ export function WorkspacesPanel() {
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               autoFocus
             />
-            <select
-              className="ws-create-select"
-              value={newStack}
-              onChange={(e) => setNewStack(e.target.value)}
-            >
-              <option value="node">Node.js</option>
-              <option value="python">Python</option>
-              <option value="static">Static</option>
-              <option value="custom">Custom</option>
-            </select>
             <div className="ws-create-actions">
               <button className="ws-btn ws-btn-primary" onClick={handleCreate}>Create</button>
               <button className="ws-btn ws-btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
