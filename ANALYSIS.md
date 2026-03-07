@@ -188,3 +188,56 @@ Despite the issues above, the codebase has several strong design choices:
 - **Deploy agent**: LLM-powered conversational deploy is innovative
 
 The platform is well-conceived. The improvements above will harden it for production use.
+
+---
+
+## 8. Additional Findings (Infrastructure & Tests Deep Dive)
+
+### 8.1 Hardcoded Default Password in Agent
+- **File**: `vm/agent/auth.py:39`
+- **Issue**: `_DEFAULT_HASH = _hash_password("zarnlok4123")` — if env vars aren't set, any agent is accessible with this password
+- **Impact**: CRITICAL — any misconfigured VPS is fully compromised
+- **Fix**: Remove default fallback; fail startup if `AGENT_ADMIN_PASSWORD` not set
+
+### 8.2 Database Passwords Stored in Plaintext
+- **File**: `nso/engine/infrastructure/database/service.py:110`
+- **Issue**: `"password_encrypted": db_password` — TODO comment admits it's not actually encrypted
+- **Impact**: HIGH — data breach exposes all managed DB credentials
+- **Fix**: Encrypt with Fernet or similar before storing
+
+### 8.3 Cloud-Init Security Hardening Gaps
+- No SSL cipher hardening in nginx (missing HSTS, CSP, X-Frame-Options, X-Content-Type-Options)
+- Agent port 8081 open globally via UFW — should restrict to internal IPs
+- Init log at `/var/log/nso-init.log` world-readable — may contain secrets
+- Systemd services run as root with no capability restrictions or ReadOnlyPaths
+- CF API token visible in process list during DNS curl commands
+
+### 8.4 Missing nginx Security Headers
+```nginx
+# All missing from cloud-init nginx config:
+add_header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload" always;
+add_header X-Frame-Options "DENY" always;
+add_header X-Content-Type-Options "nosniff" always;
+add_header Referrer-Policy "no-referrer" always;
+add_header Content-Security-Policy "default-src 'self'" always;
+```
+
+### 8.5 No WebSocket Rate Limiting
+- `/ws/*` endpoints bypass `RateLimitMiddleware` entirely
+- No request size limits on any endpoint (DoS via large payloads)
+
+### 8.6 Default CORS Includes localhost in Production
+- **File**: `nso/config.py:40-43`
+- `localhost:3000` and `localhost:3001` included in CORS origins even in prod
+- Should be stripped when `NSO_ENV=production`
+
+### 8.7 Critical TODOs Left in Code
+| File | Issue |
+|------|-------|
+| `orchestrator/reconciler.py:586` | Agent auth not using instance metadata |
+| `infrastructure/database/service.py:110` | DB passwords not encrypted at rest |
+
+### 8.8 Missing Dev Tooling
+- No linter (`ruff`), formatter (`black`), type checker (`mypy`), or security scanner (`bandit`)
+- No `pyproject.toml` for unified tool config
+- pytest.ini missing coverage config, markers, and timeout settings
