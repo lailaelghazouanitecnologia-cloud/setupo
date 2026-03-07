@@ -2386,7 +2386,7 @@
 .error-boundary-retry:hover { background: var(--accent); }
 
 /* ═══════════════════════════════════════════
-   DEPLOY AGENT — chatagent-style (da-*)
+   DEPLOY AGENT — compact, squared (da-*)
    ═══════════════════════════════════════════ */
 
 /* Layout */
@@ -2395,42 +2395,47 @@
 
 /* ── Sidebar ── */
 .da-sidebar {
-  width: 240px; min-width: 240px;
+  width: 220px; min-width: 220px;
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
   background: var(--sidebar-background);
 }
 .da-sidebar-header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 14px 10px;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--border);
 }
-.da-sidebar-title { font-size: var(--font-xs); font-weight: 600; color: var(--foreground); }
-.da-sidebar-new {
-  width: 28px; height: 28px; border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); background: var(--card);
-  color: var(--foreground); cursor: pointer; transition: background 0.15s;
-}
-.da-sidebar-new:hover { background: var(--accent); }
-.da-sidebar-list { flex: 1; overflow-y: auto; }
-.da-sidebar-empty {
-  padding: 32px 16px; text-align: center;
-  font-size: var(--font-xxs); color: var(--muted-foreground);
-}
-.da-sidebar-empty-sub { font-size: 10px; margin-top: 4px; opacity: 0.5; }
-.da-sidebar-groups { padding: 4px 12px; }
-.da-group-label {
-  padding: 6px 8px 4px; font-size: 10px; font-weight: 500;
-  text-transform: uppercase; letter-spacing: 0.05em;
+.da-sidebar-title {
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.04em;
   color: var(--muted-foreground); opacity: 0.6;
 }
-.da-group-items { /* space-y-px */ }
+.da-sidebar-new {
+  width: 24px; height: 24px; border-radius: 5px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border); background: var(--card);
+  color: var(--muted-foreground); cursor: pointer; transition: all 0.15s;
+}
+.da-sidebar-new:hover { background: var(--accent); color: var(--foreground); }
+.da-sidebar-list { flex: 1; overflow-y: auto; }
+.da-sidebar-empty {
+  padding: 24px 12px; text-align: center;
+  font-size: 11px; color: var(--muted-foreground);
+}
+.da-sidebar-empty-sub { font-size: 10px; margin-top: 2px; opacity: 0.4; }
+.da-sidebar-groups { padding: 4px 8px; }
+.da-group-label {
+  padding: 6px 6px 3px; font-size: 10px; font-weight: 500;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted-foreground); opacity: 0.5;
+}
+.da-group-items { }
 
 /* Thread row */
 .da-thread {
   display: flex; align-items: center; gap: 2px;
-  padding: 6px 8px; border-radius: 6px;
-  cursor: pointer; font-size: var(--font-xxs);
+  padding: 5px 6px; border-radius: 5px;
+  cursor: pointer; font-size: 11px;
   color: var(--muted-foreground); transition: background 0.15s;
   position: relative;
 }
@@ -2442,7 +2447,7 @@
 .da-thread-menu {
   background: none; border: none; cursor: pointer;
   color: var(--muted-foreground); padding: 2px; border-radius: 4px;
-  display: flex; align-items: center; width: 20px; height: 20px; justify-content: center;
+  display: flex; align-items: center; width: 18px; height: 18px; justify-content: center;
 }
 .da-thread-menu:hover { color: var(--foreground); background: var(--accent); }
 
@@ -2450,14 +2455,14 @@
 .da-dropdown {
   position: absolute; right: 0; top: 100%; z-index: 50;
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 8px; padding: 4px; min-width: 120px;
+  border-radius: 6px; padding: 3px; min-width: 110px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
 .da-dropdown-item {
   display: flex; align-items: center; gap: 6px;
-  width: 100%; padding: 6px 10px; border-radius: 5px;
+  width: 100%; padding: 5px 8px; border-radius: 4px;
   border: none; background: none; cursor: pointer;
-  font-size: var(--font-xxs); color: var(--foreground); transition: background 0.1s;
+  font-size: 11px; color: var(--foreground); transition: background 0.1s;
 }
 .da-dropdown-item:hover { background: var(--accent); }
 .da-dropdown-item.danger { color: var(--color-red); }
@@ -2468,101 +2473,102 @@
   flex: 1; display: flex; align-items: center; justify-content: center;
 }
 .da-welcome-inner {
-  width: 100%; max-width: 640px; padding: 0 16px;
-  display: flex; flex-direction: column; align-items: center; gap: 24px;
+  width: 100%; max-width: 560px; padding: 0 16px;
+  display: flex; flex-direction: column; align-items: center; gap: 16px;
 }
 .da-welcome-title {
-  font-size: 20px; font-weight: 600; color: var(--foreground); text-align: center;
+  font-size: 16px; font-weight: 500; color: var(--foreground); text-align: center;
 }
 .da-welcome-suggestions {
-  display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
 }
 .da-suggestion {
-  padding: 6px 12px; border-radius: 6px;
+  padding: 5px 10px; border-radius: 5px;
   border: 1px solid var(--border); background: var(--background);
-  color: var(--muted-foreground); font-size: var(--font-xxs);
+  color: var(--muted-foreground); font-size: 11px;
   cursor: pointer; transition: all 0.15s;
 }
 .da-suggestion:hover { background: var(--accent); color: var(--foreground); }
 .da-input-container { width: 100%; }
 
 /* ── Messages area ── */
-.da-messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 24px; }
+.da-messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 12px; }
 .da-messages-inner {
-  max-width: 768px; width: 100%; margin: 0 auto;
-  padding: 0 16px; display: flex; flex-direction: column;
+  max-width: 700px; width: 100%; margin: 0 auto;
+  padding: 0 14px; display: flex; flex-direction: column;
 }
 
-/* ── User message (chatagent exact: muted bubble, right-aligned) ── */
-.da-msg-user { margin-bottom: 4px; margin-top: 24px; }
-.da-msg-user-col { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+/* ── User message ── */
+.da-msg-user { margin-bottom: 2px; margin-top: 12px; }
+.da-msg-user-col { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
 .da-user-bubble {
-  display: inline-flex; border-radius: 24px; border-bottom-right-radius: 8px;
-  background: color-mix(in srgb, var(--muted-foreground) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  padding: 10px 16px; max-width: 85%; word-break: break-word;
+  display: inline-flex; border-radius: 8px; border-bottom-right-radius: 3px;
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding: 7px 12px; max-width: 80%; word-break: break-word;
 }
 .da-user-text {
-  white-space: pre-wrap; line-height: 1.6; font-size: 14px; margin: 0;
+  white-space: pre-wrap; line-height: 1.5; font-size: 13px; margin: 0;
 }
 
 /* Edit mode */
-.da-edit-wrap { width: 100%; max-width: 85%; display: flex; flex-direction: column; gap: 6px; }
+.da-edit-wrap { width: 100%; max-width: 80%; display: flex; flex-direction: column; gap: 4px; }
 .da-edit-textarea {
-  width: 100%; border-radius: 8px; border: 1px solid var(--border);
-  background: var(--accent); padding: 10px 16px; font-size: 14px;
-  line-height: 1.6; resize: none; outline: none; color: var(--foreground);
+  width: 100%; border-radius: 6px; border: 1px solid var(--border);
+  background: var(--accent); padding: 7px 12px; font-size: 13px;
+  line-height: 1.5; resize: none; outline: none; color: var(--foreground);
+  font-family: inherit;
 }
 .da-edit-textarea:focus { border-color: var(--foreground); }
-.da-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.da-edit-actions { display: flex; gap: 4px; justify-content: flex-end; }
 .da-edit-cancel {
-  padding: 4px 12px; font-size: var(--font-xxs); border-radius: 8px;
+  padding: 3px 10px; font-size: 11px; border-radius: 5px;
   border: none; background: none; cursor: pointer; color: var(--muted-foreground);
 }
 .da-edit-cancel:hover { background: var(--accent); }
 .da-edit-save {
-  padding: 4px 12px; font-size: var(--font-xxs); border-radius: 8px;
+  padding: 3px 10px; font-size: 11px; border-radius: 5px;
   border: none; background: var(--foreground); color: var(--background);
-  cursor: pointer;
+  cursor: pointer; font-weight: 500;
 }
 .da-edit-save:hover { opacity: 0.9; }
 
-/* ── Assistant message (chatagent exact: no bubble, clean text) ── */
-.da-msg-assistant { margin-top: 24px; }
+/* ── Assistant message ── */
+.da-msg-assistant { margin-top: 12px; }
 .da-assistant-text {
-  padding-left: 8px; padding-right: 32px; font-size: 14px; line-height: 1.75;
+  padding-left: 4px; padding-right: 16px; font-size: 13px; line-height: 1.6;
 }
 
-/* ── Hover actions (chatagent: rounded-full, very subtle) ── */
+/* ── Hover actions ── */
 .da-hover-actions {
-  display: flex; align-items: center; gap: 2px;
-  opacity: 0; transition: opacity 0.2s;
+  display: flex; align-items: center; gap: 1px;
+  opacity: 0; transition: opacity 0.15s;
 }
 .group:hover .da-hover-actions { opacity: 1; }
 .da-action-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 32px; height: 32px; border-radius: 50%;
+  width: 26px; height: 26px; border-radius: 5px;
   border: none; background: none; cursor: pointer;
   color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
   transition: all 0.15s;
 }
 .da-action-btn:hover {
   color: var(--foreground);
-  background: color-mix(in srgb, var(--accent) 60%, transparent);
+  background: var(--accent);
 }
 
-/* ── Tool pill (chatagent exact: rounded-full inline pill) ── */
+/* ── Tool pill ── */
 .da-tool-pill {
-  display: inline-flex; align-items: center; gap: 6px;
-  max-width: 100%; border-radius: 9999px; padding: 0 12px; height: 28px;
-  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  background: color-mix(in srgb, var(--muted-foreground) 6%, transparent);
+  display: inline-flex; align-items: center; gap: 5px;
+  max-width: 100%; border-radius: 5px; padding: 0 10px; height: 26px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: color-mix(in srgb, var(--muted-foreground) 5%, transparent);
   cursor: pointer; transition: background 0.15s;
-  font-size: 13px; color: var(--muted-foreground); text-align: left;
+  font-size: 12px; color: var(--muted-foreground); text-align: left;
 }
-.da-tool-pill:hover { background: color-mix(in srgb, var(--muted-foreground) 12%, transparent); }
+.da-tool-pill:hover { background: color-mix(in srgb, var(--muted-foreground) 10%, transparent); }
 .da-tool-dot {
-  width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
 }
 .da-tool-dot.streaming { background: #60a5fa; animation: da-pulse 1.5s ease-in-out infinite; }
 .da-tool-dot.success { background: #4ade80; }
@@ -2571,54 +2577,55 @@
 @keyframes da-pulse {
   0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
 }
-.da-tool-name { font-weight: 500; color: color-mix(in srgb, var(--foreground) 80%, transparent); white-space: nowrap; }
+.da-tool-name { font-weight: 500; font-size: 11px; color: color-mix(in srgb, var(--foreground) 80%, transparent); white-space: nowrap; }
 .da-tool-preview {
-  font-family: monospace; font-size: 12px;
+  font-family: var(--font-mono, monospace); font-size: 11px;
   color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
 }
-.da-tool-status { font-size: 12px; }
+.da-tool-status { font-size: 11px; }
 
 /* Tool expanded */
 .da-tool-expanded {
-  margin-top: 6px; margin-left: 12px; padding-left: 12px;
+  margin-top: 4px; margin-left: 10px; padding-left: 10px;
   border-left: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-  font-size: 14px;
+  font-size: 12px;
 }
 .da-tool-json {
-  margin: 4px 0; border-radius: 8px; padding: 10px;
-  background: #09090b; color: #d4d4d8;
-  font-family: monospace; font-size: 12px;
-  overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+  margin: 3px 0; border-radius: 5px; padding: 8px 10px;
+  background: #0a0a0b; color: #d4d4d8;
+  font-family: var(--font-mono, monospace); font-size: 11px;
+  overflow-x: auto; max-height: 180px; overflow-y: auto; white-space: pre-wrap;
 }
 .da-tool-loading {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 0; font-size: var(--font-xxs); color: var(--muted-foreground);
+  display: flex; align-items: center; gap: 6px;
+  padding: 3px 0; font-size: 11px; color: var(--muted-foreground);
 }
 
-/* ── Reasoning (chatagent exact: details/summary) ── */
+/* ── Reasoning ── */
 .da-reasoning-summary {
-  display: flex; align-items: center; gap: 6px;
-  cursor: pointer; padding: 4px 0; list-style: none;
-  font-size: var(--font-xxs);
+  display: flex; align-items: center; gap: 5px;
+  cursor: pointer; padding: 3px 0; list-style: none;
+  font-size: 11px;
   color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
   transition: color 0.15s; user-select: none;
 }
 .da-reasoning-summary::-webkit-details-marker { display: none; }
 .da-reasoning-summary:hover { color: var(--muted-foreground); }
 .da-reasoning-body {
-  margin-top: 8px; padding-left: 12px;
+  margin-top: 4px; padding-left: 10px;
   border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  font-size: 14px; color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
+  font-size: 12px; color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
+  line-height: 1.5;
 }
 
 /* ── Connecting / thinking ── */
 .da-connecting {
-  display: flex; align-items: center; gap: 8px;
-  padding: 8px; font-size: 14px; color: var(--muted-foreground);
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px; font-size: 13px; color: var(--muted-foreground);
 }
 .da-dot {
-  width: 6px; height: 6px; border-radius: 50%;
+  width: 5px; height: 5px; border-radius: 50%;
   background: color-mix(in srgb, var(--foreground) 30%, transparent);
   animation: da-bounce 1.4s ease-in-out infinite;
 }
@@ -2626,55 +2633,54 @@
 .da-dot.d3 { animation-delay: 300ms; }
 @keyframes da-bounce {
   0%, 80%, 100% { transform: translateY(0); opacity: 0.3; }
-  40% { transform: translateY(-6px); opacity: 1; }
+  40% { transform: translateY(-4px); opacity: 1; }
 }
 
 /* ── Cursor ── */
 .da-cursor {
-  display: inline-block; width: 2px; height: 16px;
+  display: inline-block; width: 2px; height: 14px;
   background: color-mix(in srgb, var(--foreground) 70%, transparent);
-  margin-left: 2px; vertical-align: text-bottom;
+  margin-left: 1px; vertical-align: text-bottom;
   animation: da-cursor-pulse 1s ease-in-out infinite;
 }
 @keyframes da-cursor-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.2; } }
 
 /* ── Error ── */
 .da-error {
-  border-radius: 8px; border: 1px solid color-mix(in srgb, #ef4444 20%, transparent);
+  border-radius: 5px; border: 1px solid color-mix(in srgb, #ef4444 20%, transparent);
   background: color-mix(in srgb, #ef4444 5%, transparent);
-  padding: 8px 12px; margin-left: 8px;
+  padding: 6px 10px; margin-left: 4px;
 }
-.da-error-text { font-size: 14px; color: #ef4444; margin: 0; }
+.da-error-text { font-size: 12px; color: #ef4444; margin: 0; }
 .da-error-dismiss {
-  display: flex; align-items: center; gap: 6px; margin-top: 8px;
+  display: flex; align-items: center; gap: 4px; margin-top: 4px;
   border: none; background: none; cursor: pointer;
-  font-size: var(--font-xxs); color: #f87171; transition: color 0.15s;
+  font-size: 11px; color: #f87171; transition: color 0.15s;
 }
 .da-error-dismiss:hover { color: #fca5a5; }
 
-/* ── Input (chatagent exact: shadow-based, rounded-[20px]) ── */
+/* ── Input box ── */
 .da-input-bottom {
   position: sticky; bottom: 0; z-index: 5;
-  max-width: 768px; width: 100%; margin: 0 auto;
-  padding: 16px 8px 0;
+  max-width: 700px; width: 100%; margin: 0 auto;
+  padding: 8px 8px 0;
 }
 .da-input-box { width: 100%; }
 .da-input-inner {
-  background: var(--background); border-radius: 20px;
-  border: none; position: relative; z-index: 10; cursor: text;
-  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.035), 0 0 0 0.5px color-mix(in srgb, var(--muted-foreground) 12%, transparent);
-  transition: box-shadow 0.2s;
+  background: var(--background); border-radius: 8px;
+  border: 1px solid var(--border); position: relative; z-index: 10;
+  transition: border-color 0.15s;
 }
 .da-input-inner:focus-within {
-  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.06), 0 0 0 0.5px color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+  border-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
 }
-.da-input-content { display: flex; flex-direction: column; margin: 12px; gap: 10px; }
+.da-input-content { display: flex; flex-direction: column; padding: 8px 10px; gap: 6px; }
 .da-textarea {
   display: block; outline: none !important; resize: none; width: 100%;
   background: transparent; color: var(--foreground);
-  font-size: var(--font-xxs); line-height: 1.6; font-family: inherit;
-  border: none; overflow: hidden; min-height: 24px; max-height: 200px;
-  padding-left: 4px;
+  font-size: 13px; line-height: 1.5; font-family: inherit;
+  border: none; overflow: hidden; min-height: 20px; max-height: 160px;
+  padding: 0;
 }
 .da-textarea::placeholder { color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
 .da-textarea:disabled { cursor: not-allowed; opacity: 0.5; }
@@ -2683,65 +2689,96 @@
 }
 .da-toolbar-left { display: flex; align-items: center; gap: 4px; }
 .da-model-label {
-  display: inline-flex; align-items: center; height: 28px;
-  padding: 0 8px; border-radius: 6px; font-size: 11px;
-  color: var(--muted-foreground); white-space: nowrap;
+  display: inline-flex; align-items: center; height: 22px;
+  padding: 0 6px; border-radius: 4px; font-size: 10px;
+  color: var(--muted-foreground); opacity: 0.5; white-space: nowrap;
+  font-family: var(--font-mono, monospace);
 }
 
 /* Send/stop button */
 .da-send-btn {
-  width: 28px; height: 28px; border-radius: 6px;
+  width: 26px; height: 26px; border-radius: 5px;
   display: flex; align-items: center; justify-content: center;
   border: none; cursor: pointer; transition: all 0.15s;
   color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
   background: none;
 }
 .da-send-btn.active {
-  background: #3b82f6; color: #fff;
+  background: var(--foreground); color: var(--background);
 }
-.da-send-btn.active:hover { opacity: 0.9; }
+.da-send-btn.active:hover { opacity: 0.85; }
 .da-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .da-disclaimer {
-  text-align: center; font-size: 10px; padding: 6px 0;
-  color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+  text-align: center; font-size: 10px; padding: 4px 0;
+  color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
 }
 
 /* ── Markdown ── */
-.da-md { word-break: break-word; }
+.da-md { word-break: break-word; font-size: 13px; line-height: 1.6; }
 .da-md strong { font-weight: 600; }
 .da-md em { font-style: italic; }
-.da-h { font-weight: 600; margin: 16px 0 8px; color: var(--foreground); }
-h2.da-h { font-size: 18px; } h3.da-h { font-size: 16px; } h4.da-h { font-size: 14px; }
-.da-li { margin-left: 24px; padding: 1px 0; list-style: disc; }
-.da-li.da-ol { list-style: decimal; }
+.da-p { margin: 4px 0; line-height: 1.6; }
+.da-h { font-weight: 600; color: var(--foreground); }
+.da-h1 { font-size: 16px; margin: 12px 0 4px; }
+.da-h2 { font-size: 15px; margin: 10px 0 4px; }
+.da-h3 { font-size: 14px; margin: 8px 0 3px; }
+.da-h4 { font-size: 13px; margin: 6px 0 2px; }
+.da-ul { margin: 4px 0 4px 18px; list-style: disc; }
+.da-ol-list { margin: 4px 0 4px 18px; list-style: decimal; }
+.da-ul li, .da-ol-list li { padding: 1px 0; }
 .da-icode {
-  border-radius: 4px; border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-radius: 3px; border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   background: color-mix(in srgb, var(--accent) 80%, transparent);
-  padding: 1px 4px; font-family: monospace; font-size: 11px;
+  padding: 1px 4px; font-family: var(--font-mono, monospace); font-size: 11px;
+}
+.da-link {
+  color: var(--color-blue, #3b82f6); text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.da-link:hover { opacity: 0.8; }
+.da-blockquote {
+  margin: 6px 0; padding-left: 10px;
+  border-left: 2px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  color: var(--muted-foreground); font-style: italic;
+}
+.da-hr { margin: 8px 0; border-color: var(--border); }
+.da-table-wrap {
+  margin: 6px 0; overflow-x: auto; border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+.da-table { width: 100%; font-size: 12px; border-collapse: collapse; }
+.da-th {
+  padding: 5px 10px; text-align: left; font-size: 11px; font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--muted-foreground) 6%, transparent);
+}
+.da-td {
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
 }
 
 /* Code blocks */
 .da-codeblock {
-  margin: 12px 0; overflow: hidden; border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
-  background: var(--accent);
+  margin: 8px 0; overflow: hidden; border-radius: 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  background: color-mix(in srgb, var(--muted-foreground) 4%, transparent);
 }
 .da-codeblock-header {
   display: flex; align-items: center; justify-content: space-between;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
-  background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
-  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: color-mix(in srgb, var(--muted-foreground) 6%, transparent);
+  padding: 4px 10px;
 }
-.da-codeblock-lang { font-size: 11px; font-family: monospace; color: var(--muted-foreground); }
+.da-codeblock-lang { font-size: 10px; font-family: var(--font-mono, monospace); color: var(--muted-foreground); opacity: 0.6; }
 .da-codeblock-copy {
   border: none; background: none; cursor: pointer;
-  font-size: 11px; color: var(--muted-foreground); transition: color 0.15s;
+  font-size: 10px; color: var(--muted-foreground); transition: color 0.15s; opacity: 0.6;
 }
-.da-codeblock-copy:hover { color: var(--foreground); }
+.da-codeblock-copy:hover { color: var(--foreground); opacity: 1; }
 .da-codeblock-pre {
-  margin: 0; padding: 12px; overflow-x: auto; white-space: pre;
-  font-family: monospace; font-size: 13px; line-height: 1.6;
+  margin: 0; padding: 10px; overflow-x: auto; white-space: pre;
+  font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.5;
   color: var(--foreground);
 }
 .da-codeblock-pre code { font-family: inherit; white-space: pre; }

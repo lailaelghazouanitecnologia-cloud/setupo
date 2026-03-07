@@ -397,7 +397,7 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
           />
           <div className="da-toolbar">
             <div className="da-toolbar-left">
-              <span className="da-model-label">GLM-4.7</span>
+              <span className="da-model-label">gpt-oss-20b</span>
             </div>
             {streaming ? (
               <button onClick={onStop} className="da-send-btn active" title="Stop">
@@ -416,7 +416,7 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
           </div>
         </div>
       </div>
-      <div className="da-disclaimer">GLM-4.7 can make mistakes. Double-check responses.</div>
+      <div className="da-disclaimer">AI can make mistakes. Double-check responses.</div>
     </div>
   );
 }
@@ -591,7 +591,7 @@ const StreamingBlock = memo(function StreamingBlock({ text, reasoning, toolCall,
   status: "connecting" | "streaming";
 }) {
   return (
-    <div className="da-msg-assistant group mt-6">
+    <div className="da-msg-assistant group">
       {reasoning && <ReasoningSection content={reasoning} isStreaming />}
       {toolCall && <ToolPill name={toolCall.name} args={toolCall.args} isStreaming />}
       {text ? (
@@ -724,37 +724,11 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 /* ═══════════════════════════════════════════
-   CHAT MARKDOWN
+   CHAT MARKDOWN — react-markdown + remark-gfm
    ═══════════════════════════════════════════ */
 
-const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
-  const parts = text.split(/(```[\s\S]*?```)/g);
-  return (
-    <div className="da-md">
-      {parts.map((part, i) => {
-        if (part.startsWith("```") && part.endsWith("```")) {
-          const inner = part.slice(3, -3);
-          const nl = inner.indexOf("\n");
-          const lang = nl >= 0 ? inner.slice(0, nl).trim() : "";
-          const code = nl >= 0 ? inner.slice(nl + 1) : inner;
-          return <CodeBlock key={i} code={code} lang={lang} />;
-        }
-        const html = part
-          .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-          .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-          .replace(/\*(.*?)\*/g, "<em>$1</em>")
-          .replace(/`([^`]+)`/g, '<code class="da-icode">$1</code>')
-          .replace(/^### (.+)$/gm, '<h4 class="da-h">$1</h4>')
-          .replace(/^## (.+)$/gm, '<h3 class="da-h">$1</h3>')
-          .replace(/^# (.+)$/gm, '<h2 class="da-h">$1</h2>')
-          .replace(/^[-*] (.+)$/gm, '<li class="da-li">$1</li>')
-          .replace(/^\d+\. (.+)$/gm, '<li class="da-li da-ol">$1</li>')
-          .replace(/\n/g, "<br/>");
-        return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
-      })}
-    </div>
-  );
-});
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
@@ -772,6 +746,54 @@ function CodeBlock({ code, lang }: { code: string; lang: string }) {
     </div>
   );
 }
+
+const mdComponents: Components = {
+  code(props) {
+    const { className, children, ...rest } = props;
+    const match = /language-(\w+)/.exec(className || "");
+    const content = String(children).replace(/\n$/, "");
+    const isInline = !match && !content.includes("\n");
+    if (isInline) {
+      return <code className="da-icode" {...rest}>{children}</code>;
+    }
+    if (match) {
+      return <CodeBlock code={content} lang={match[1]} />;
+    }
+    return (
+      <pre className="da-codeblock-pre" style={{ margin: "6px 0" }}>
+        <code>{content}</code>
+      </pre>
+    );
+  },
+  pre({ children }) { return <>{children}</>; },
+  a({ href, children, ...props }) {
+    return <a href={href} target="_blank" rel="noopener noreferrer" className="da-link" {...props}>{children}</a>;
+  },
+  table({ children, ...props }) {
+    return <div className="da-table-wrap"><table className="da-table" {...props}>{children}</table></div>;
+  },
+  th({ children, ...props }) { return <th className="da-th" {...props}>{children}</th>; },
+  td({ children, ...props }) { return <td className="da-td" {...props}>{children}</td>; },
+  ul({ children, ...props }) { return <ul className="da-ul" {...props}>{children}</ul>; },
+  ol({ children, ...props }) { return <ol className="da-ol-list" {...props}>{children}</ol>; },
+  blockquote({ children, ...props }) { return <blockquote className="da-blockquote" {...props}>{children}</blockquote>; },
+  h1({ children, ...props }) { return <h1 className="da-h da-h1" {...props}>{children}</h1>; },
+  h2({ children, ...props }) { return <h2 className="da-h da-h2" {...props}>{children}</h2>; },
+  h3({ children, ...props }) { return <h3 className="da-h da-h3" {...props}>{children}</h3>; },
+  h4({ children, ...props }) { return <h4 className="da-h da-h4" {...props}>{children}</h4>; },
+  p({ children, ...props }) { return <p className="da-p" {...props}>{children}</p>; },
+  hr() { return <hr className="da-hr" />; },
+};
+
+const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
+  return (
+    <div className="da-md">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+        {text}
+      </ReactMarkdown>
+    </div>
+  );
+});
 
 /* ═══════════════════════════════════════════
    HELPERS
