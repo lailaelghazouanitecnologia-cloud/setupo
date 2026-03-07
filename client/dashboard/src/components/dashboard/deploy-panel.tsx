@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import {
-  Rocket, Send, Square, Loader,
-  MessageSquare, Plus, Trash2, ChevronDown, ChevronRight,
+  Rocket, ArrowUp, Square, Loader2,
+  MessageSquare, Plus, Trash2, ChevronDown,
   CheckCircle2, XCircle, AlertTriangle, Copy, Check,
-  Lightbulb, RotateCcw, Pencil, MoreHorizontal,
+  RotateCcw, Pencil, MoreHorizontal, X,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
@@ -66,7 +66,7 @@ interface ChatMsg {
 }
 
 /* ═══════════════════════════════════════════
-   AGENT CHAT — Main Component
+   AGENT CHAT
    ═══════════════════════════════════════════ */
 
 function DeployAgentChat({ projectId }: { projectId: string }) {
@@ -81,22 +81,22 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const abortRef = useRef<AbortController | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
-  useEffect(() => { scrollToBottom(); }, [messages, streamText, scrollToBottom]);
+  // Auto-scroll
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, streamText]);
 
   // Auto-resize textarea
-  useEffect(() => {
-    const ta = textareaRef.current;
-    if (!ta) return;
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInput(e.target.value);
+    const ta = e.target;
     ta.style.height = "auto";
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
-  }, [input]);
+  }, []);
 
   // Load threads
   useEffect(() => {
@@ -116,10 +116,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   useEffect(() => {
     if (!activeThreadId) { setMessages([]); return; }
     getDeployThread(projectId, activeThreadId)
-      .then((t) => {
-        const msgs = (t.messages || []).flatMap(dbMsgToChat);
-        setMessages(msgs);
-      })
+      .then((t) => setMessages((t.messages || []).flatMap(dbMsgToChat)))
       .catch(() => {});
   }, [activeThreadId, projectId]);
 
@@ -129,9 +126,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       setThreads((prev) => [t, ...prev]);
       setActiveThreadId(t.id);
       setMessages([]);
-    } catch (e: any) {
-      setError(e.message || "Failed to create thread");
-    }
+    } catch (e: any) { setError(e.message || "Failed to create thread"); }
   };
 
   const deleteThread = async (id: string) => {
@@ -151,8 +146,8 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
     setStreaming(false);
   };
 
-  const sendMessage = async () => {
-    const content = input.trim();
+  const sendMessage = async (override?: string) => {
+    const content = (override || input).trim();
     if (!content || streaming) return;
     if (!activeThreadId) {
       try {
@@ -160,34 +155,26 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
         setThreads((prev) => [t, ...prev]);
         setActiveThreadId(t.id);
         await doStream(t.id, content);
-      } catch (e: any) {
-        setError(e.message || "Failed to create thread");
-      }
+      } catch (e: any) { setError(e.message || "Failed to create thread"); }
       return;
     }
     await doStream(activeThreadId, content);
   };
 
-  const retryMessage = (msgId: string) => {
-    const idx = messages.findIndex((m) => m.id === msgId);
-    if (idx < 0) return;
-    const msg = messages[idx];
-    if (msg.role === "user" && activeThreadId) {
-      setMessages((prev) => prev.slice(0, idx));
-      doStream(activeThreadId, msg.content);
-    }
+  const retryMessage = (content: string) => {
+    if (activeThreadId) doStream(activeThreadId, content);
   };
 
   const doStream = async (threadId: string, content: string) => {
     setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
     setError("");
     setStreamText("");
     setStreamReasoning("");
     setActiveToolCall(null);
     setStreaming(true);
 
-    const userMsg: ChatMsg = { id: `u_${Date.now()}`, role: "user", content, timestamp: new Date().toISOString() };
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => [...prev, { id: `u_${Date.now()}`, role: "user", content, timestamp: new Date().toISOString() }]);
 
     const { eventSource, response } = streamDeployAgent(projectId, threadId, content);
     abortRef.current = eventSource;
@@ -198,7 +185,6 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
         const text = await resp.text().catch(() => "");
         throw new Error(`Server error ${resp.status}: ${text}`);
       }
-
       const reader = resp.body?.getReader();
       if (!reader) throw new Error("No response body");
 
@@ -210,7 +196,6 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
@@ -219,18 +204,13 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
           if (!line.startsWith("data: ")) continue;
           const data = line.slice(6).trim();
           if (data === "[DONE]") continue;
-
           let event: StreamEvent;
           try { event = JSON.parse(data); } catch { continue; }
 
           switch (event.type) {
             case "text_chunk":
-              if (event.content) {
-                accText += event.content;
-                setStreamText(accText);
-              }
+              if (event.content) { accText += event.content; setStreamText(accText); }
               break;
-
             case "reasoning_chunk":
             case "thinking":
               if (event.reasoning || event.content) {
@@ -238,81 +218,62 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
                 setStreamReasoning(accReasoning);
               }
               break;
-
             case "tool_call":
               setActiveToolCall({ name: event.name || "tool", args: event.arguments });
               if (accText) {
                 setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", content: accText }]);
-                accText = "";
-                setStreamText("");
+                accText = ""; setStreamText("");
               }
               setMessages((prev) => [...prev, {
-                id: `tc_${event.id || Date.now()}`,
-                role: "tool_call",
-                content: `Calling ${event.name}...`,
-                toolName: event.name,
-                toolArgs: event.arguments,
+                id: `tc_${event.id || Date.now()}`, role: "tool_call",
+                content: `Calling ${event.name}...`, toolName: event.name, toolArgs: event.arguments,
               }]);
               break;
-
             case "tool_result":
               setActiveToolCall(null);
               setMessages((prev) => [...prev, {
-                id: `tr_${event.id || Date.now()}`,
-                role: "tool_result",
-                content: event.result || "",
-                toolName: event.name,
-                toolResult: event.result,
+                id: `tr_${event.id || Date.now()}`, role: "tool_result",
+                content: event.result || "", toolName: event.name, toolResult: event.result,
               }]);
               break;
-
             case "error":
               setError(event.error || "Unknown error");
               break;
-
             case "status":
-              if (event.final_text && !accText) {
-                accText = event.final_text;
-              }
+              if (event.final_text && !accText) accText = event.final_text;
               break;
           }
         }
       }
-
       if (accText) {
         setMessages((prev) => [...prev, { id: `a_${Date.now()}`, role: "assistant", content: accText }]);
       }
     } catch (err: any) {
-      if (err.name !== "AbortError") {
-        setError(err.message || "Stream failed");
-      }
+      if (err.name !== "AbortError") setError(err.message || "Stream failed");
     } finally {
       setStreaming(false);
-      setStreamText("");
-      setStreamReasoning("");
-      setActiveToolCall(null);
+      setStreamText(""); setStreamReasoning(""); setActiveToolCall(null);
       abortRef.current = null;
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
   };
 
   if (loading) {
     return (
       <div className="panel-empty">
-        <Loader className="h-6 w-6 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.5 }} />
+        <Loader2 className="h-6 w-6 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.5 }} />
         <div className="panel-empty-sub">Loading deploy agent...</div>
       </div>
     );
   }
 
+  const isEmpty = messages.length === 0 && !streaming;
+
   return (
-    <div className="agent-chat">
+    <div className="da-layout">
       {/* Thread sidebar */}
       <ThreadSidebar
         threads={threads}
@@ -323,185 +284,82 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       />
 
       {/* Chat area */}
-      <div className="agent-main">
-        <div className="agent-messages">
-          {messages.length === 0 && !streaming && (
-            <EmptyState onSend={(s) => { setInput(s); setTimeout(() => sendMessage(), 50); }} />
-          )}
-
-          {messages.map((msg) => (
-            <MessageRow
-              key={msg.id}
-              msg={msg}
-              onRetry={() => retryMessage(msg.id)}
-            />
-          ))}
-
-          {/* Streaming state */}
-          {streaming && (
-            <StreamingIndicator
-              streamText={streamText}
-              streamReasoning={streamReasoning}
-              activeToolCall={activeToolCall}
-            />
-          )}
-
-          {error && (
-            <div className="agent-error">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              <span>{error}</span>
-              <button className="agent-error-dismiss" onClick={() => setError("")}>Dismiss</button>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Input */}
-        <div className="agent-input-area">
-          <div className="agent-input-wrap">
-            <textarea
-              ref={textareaRef}
-              className="agent-input"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="What do you want to deploy?"
-              disabled={streaming}
-              rows={1}
-            />
-            <div className="agent-input-actions">
-              {streaming ? (
-                <button className="agent-stop-btn" onClick={stopStreaming} title="Stop">
-                  <Square className="h-3.5 w-3.5" />
-                </button>
-              ) : (
-                <button
-                  className="agent-send-btn"
-                  onClick={sendMessage}
-                  disabled={!input.trim()}
-                  title="Send"
-                >
-                  <Send className="h-3.5 w-3.5" />
-                </button>
-              )}
+      <main className="da-main">
+        {isEmpty && !activeThreadId ? (
+          /* Welcome / empty state */
+          <div className="da-welcome">
+            <div className="da-welcome-inner">
+              <h2 className="da-welcome-title">What can I help you deploy?</h2>
+              <div className="da-welcome-suggestions">
+                {SUGGESTIONS.map((s) => (
+                  <button key={s} className="da-suggestion" onClick={() => sendMessage(s)}>
+                    {s}
+                  </button>
+                ))}
+              </div>
+              {/* Input inside welcome */}
+              <div className="da-input-container">
+                <ChatInputBox
+                  input={input}
+                  streaming={streaming}
+                  textareaRef={textareaRef}
+                  onInputChange={handleInputChange}
+                  onKeyDown={handleKeyDown}
+                  onSend={() => sendMessage()}
+                  onStop={stopStreaming}
+                />
+              </div>
             </div>
           </div>
-          <div className="agent-input-hint">GLM-4.7 can make mistakes. Double-check responses.</div>
-        </div>
-      </div>
-    </div>
-  );
-}
+        ) : (
+          <>
+            {/* Messages */}
+            <div ref={scrollRef} className="da-messages">
+              <div className="da-messages-inner">
+                {messages.map((msg) => (
+                  <MessageRow key={msg.id} msg={msg} onRetry={retryMessage} />
+                ))}
 
-/* ═══════════════════════════════════════════
-   THREAD SIDEBAR
-   ═══════════════════════════════════════════ */
+                {streaming && (
+                  <StreamingBlock
+                    text={streamText}
+                    reasoning={streamReasoning}
+                    toolCall={activeToolCall}
+                    status={streamText ? "streaming" : "connecting"}
+                  />
+                )}
 
-function groupThreadsByDate(threads: DeployThread[]) {
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+                {error && (
+                  <div className="da-error">
+                    <p className="da-error-text">{error}</p>
+                    <button className="da-error-dismiss" onClick={() => setError("")}>
+                      <RotateCcw className="h-3 w-3" /> Dismiss
+                    </button>
+                  </div>
+                )}
 
-  const groups: { label: string; threads: DeployThread[] }[] = [
-    { label: "Today", threads: [] },
-    { label: "Yesterday", threads: [] },
-    { label: "Previous", threads: [] },
-  ];
+                <div className="h-12" aria-hidden="true" />
+              </div>
+            </div>
 
-  for (const t of threads) {
-    const d = new Date(t.created_at);
-    if (d.toDateString() === today.toDateString()) groups[0].threads.push(t);
-    else if (d.toDateString() === yesterday.toDateString()) groups[1].threads.push(t);
-    else groups[2].threads.push(t);
-  }
-
-  return groups.filter((g) => g.threads.length > 0);
-}
-
-const ThreadSidebar = memo(function ThreadSidebar({
-  threads, activeThreadId, onSelect, onCreate, onDelete,
-}: {
-  threads: DeployThread[];
-  activeThreadId: string | null;
-  onSelect: (id: string) => void;
-  onCreate: () => void;
-  onDelete: (id: string) => void;
-}) {
-  const groups = groupThreadsByDate(threads);
-
-  return (
-    <div className="agent-threads">
-      <div className="agent-threads-header">
-        <span className="agent-threads-title">Conversations</span>
-        <button className="agent-new-btn" onClick={onCreate} title="New conversation">
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="agent-threads-list">
-        {threads.length === 0 ? (
-          <div className="agent-threads-empty">No conversations yet</div>
-        ) : groups.map((group) => (
-          <div key={group.label} className="agent-thread-group">
-            <div className="agent-thread-group-label">{group.label}</div>
-            {group.threads.map((t) => (
-              <ThreadItem
-                key={t.id}
-                thread={t}
-                isActive={activeThreadId === t.id}
-                onSelect={onSelect}
-                onDelete={onDelete}
+            {/* Input */}
+            <div className="da-input-bottom">
+              <ChatInputBox
+                input={input}
+                streaming={streaming}
+                textareaRef={textareaRef}
+                onInputChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                onSend={() => sendMessage()}
+                onStop={stopStreaming}
               />
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
-
-const ThreadItem = memo(function ThreadItem({
-  thread, isActive, onSelect, onDelete,
-}: {
-  thread: DeployThread;
-  isActive: boolean;
-  onSelect: (id: string) => void;
-  onDelete: (id: string) => void;
-}) {
-  const [showMenu, setShowMenu] = useState(false);
-
-  return (
-    <div
-      className={`agent-thread-item ${isActive ? "active" : ""}`}
-      onClick={() => onSelect(thread.id)}
-      onMouseLeave={() => setShowMenu(false)}
-    >
-      <span className="agent-thread-title">{thread.title || "New deploy"}</span>
-      <div className="agent-thread-actions">
-        <button
-          className="agent-thread-menu-btn"
-          onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-        >
-          <MoreHorizontal className="h-3.5 w-3.5" />
-        </button>
-        {showMenu && (
-          <div className="agent-thread-dropdown">
-            <button
-              className="agent-thread-dropdown-item danger"
-              onClick={(e) => { e.stopPropagation(); onDelete(thread.id); setShowMenu(false); }}
-            >
-              <Trash2 className="h-3 w-3" /> Delete
-            </button>
-          </div>
+            </div>
+          </>
         )}
-      </div>
+      </main>
     </div>
   );
-});
-
-/* ═══════════════════════════════════════════
-   EMPTY STATE
-   ═══════════════════════════════════════════ */
+}
 
 const SUGGESTIONS = [
   "Deploy my app to production",
@@ -510,52 +368,197 @@ const SUGGESTIONS = [
   "Generate a deploy config",
 ];
 
-const EmptyState = memo(function EmptyState({ onSend }: { onSend: (s: string) => void }) {
+/* ═══════════════════════════════════════════
+   CHAT INPUT BOX (chatagent-style)
+   ═══════════════════════════════════════════ */
+
+function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop }: {
+  input: string;
+  streaming: boolean;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onKeyDown: (e: React.KeyboardEvent) => void;
+  onSend: () => void;
+  onStop: () => void;
+}) {
   return (
-    <div className="agent-empty">
-      <div className="agent-empty-title">What can I help you deploy?</div>
-      <div className="agent-empty-sub">
-        I can analyze your workspace, generate configs, build, and ship your project.
+    <div className="da-input-box">
+      <div className="da-input-inner">
+        <div className="da-input-content">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={onInputChange}
+            onKeyDown={onKeyDown}
+            placeholder="Message deploy agent..."
+            disabled={streaming}
+            className="da-textarea"
+            rows={1}
+          />
+          <div className="da-toolbar">
+            <div className="da-toolbar-left">
+              <span className="da-model-label">GLM-4.7</span>
+            </div>
+            {streaming ? (
+              <button onClick={onStop} className="da-send-btn active" title="Stop">
+                <Square className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <button
+                onClick={onSend}
+                disabled={!input.trim()}
+                className={`da-send-btn ${input.trim() ? "active" : ""}`}
+                title="Send"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
-      <div className="agent-suggestions">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} className="agent-suggestion" onClick={() => onSend(s)}>
-            {s}
-          </button>
-        ))}
+      <div className="da-disclaimer">GLM-4.7 can make mistakes. Double-check responses.</div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   THREAD SIDEBAR
+   ═══════════════════════════════════════════ */
+
+function groupByDate(threads: DeployThread[]) {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const groups: { label: string; items: DeployThread[] }[] = [];
+  const t: DeployThread[] = [], y: DeployThread[] = [], o: DeployThread[] = [];
+  for (const th of threads) {
+    const d = new Date(th.created_at);
+    if (d.toDateString() === today.toDateString()) t.push(th);
+    else if (d.toDateString() === yesterday.toDateString()) y.push(th);
+    else o.push(th);
+  }
+  if (t.length) groups.push({ label: "Today", items: t });
+  if (y.length) groups.push({ label: "Yesterday", items: y });
+  if (o.length) groups.push({ label: "Previous", items: o });
+  return groups;
+}
+
+const ThreadSidebar = memo(function ThreadSidebar({ threads, activeThreadId, onSelect, onCreate, onDelete }: {
+  threads: DeployThread[];
+  activeThreadId: string | null;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const groups = groupByDate(threads);
+  return (
+    <div className="da-sidebar">
+      <div className="da-sidebar-header">
+        <span className="da-sidebar-title">Deploy Agent</span>
+        <button className="da-sidebar-new" onClick={onCreate} title="New conversation">
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="da-sidebar-list">
+        {threads.length === 0 ? (
+          <div className="da-sidebar-empty">
+            <MessageSquare className="h-6 w-6 opacity-20 mx-auto mb-2" />
+            <p>No conversations yet</p>
+            <p className="da-sidebar-empty-sub">Start a new chat</p>
+          </div>
+        ) : (
+          <div className="da-sidebar-groups">
+            {groups.map((g) => (
+              <div key={g.label}>
+                <p className="da-group-label">{g.label}</p>
+                <div className="da-group-items">
+                  {g.items.map((th) => (
+                    <ThreadRow key={th.id} thread={th} active={activeThreadId === th.id} onSelect={onSelect} onDelete={onDelete} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 });
 
+function ThreadRow({ thread, active, onSelect, onDelete }: {
+  thread: DeployThread; active: boolean;
+  onSelect: (id: string) => void; onDelete: (id: string) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  return (
+    <div
+      className={`da-thread ${active ? "active" : ""}`}
+      onClick={() => onSelect(thread.id)}
+      onMouseLeave={() => setMenuOpen(false)}
+    >
+      <span className="da-thread-name">{thread.title || "New deploy"}</span>
+      <div className="da-thread-actions">
+        <button className="da-thread-menu" onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}>
+          <MoreHorizontal className="h-3 w-3" />
+        </button>
+        {menuOpen && (
+          <div className="da-dropdown">
+            <button className="da-dropdown-item danger" onClick={(e) => { e.stopPropagation(); onDelete(thread.id); }}>
+              <Trash2 className="h-3.5 w-3.5" /> Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════
    MESSAGE ROW
    ═══════════════════════════════════════════ */
 
-const MessageRow = memo(function MessageRow({
-  msg, onRetry,
-}: {
-  msg: ChatMsg;
-  onRetry: () => void;
-}) {
-  if (msg.role === "user") return <UserMessage msg={msg} onRetry={onRetry} />;
-  if (msg.role === "assistant") return <AssistantMessage msg={msg} />;
-  if (msg.role === "tool_call") return <ToolCallCard name={msg.toolName || ""} args={msg.toolArgs} />;
-  if (msg.role === "tool_result") return <ToolResultCard name={msg.toolName || ""} result={msg.toolResult || ""} />;
+const MessageRow = memo(function MessageRow({ msg, onRetry }: { msg: ChatMsg; onRetry: (c: string) => void }) {
+  if (msg.role === "user") return <UserMsg msg={msg} onRetry={onRetry} />;
+  if (msg.role === "assistant") return <AssistantMsg msg={msg} />;
+  if (msg.role === "tool_call") return <ToolPill name={msg.toolName || ""} args={msg.toolArgs} />;
+  if (msg.role === "tool_result") return <ToolPill name={msg.toolName || ""} result={msg.toolResult} />;
   return null;
 });
 
-/* ═══════════════════════════════════════════
-   USER MESSAGE
-   ═══════════════════════════════════════════ */
+/* User message — muted bubble, right-aligned */
+function UserMsg({ msg, onRetry }: { msg: ChatMsg; onRetry: (c: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(msg.content);
 
-function UserMessage({ msg, onRetry }: { msg: ChatMsg; onRetry: () => void }) {
   return (
-    <div className="agent-msg agent-msg-user">
-      <div className="agent-user-row">
-        <div className="agent-user-bubble">{msg.content}</div>
-        <div className="agent-msg-actions">
-          <ActionBtn icon={<RotateCcw className="h-3 w-3" />} title="Retry" onClick={onRetry} />
+    <div className="da-msg-user group">
+      <div className="da-msg-user-col">
+        {editing ? (
+          <div className="da-edit-wrap">
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              className="da-edit-textarea"
+              rows={3}
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onRetry(editText.trim()); setEditing(false); }
+                if (e.key === "Escape") { setEditText(msg.content); setEditing(false); }
+              }}
+            />
+            <div className="da-edit-actions">
+              <button className="da-edit-cancel" onClick={() => { setEditText(msg.content); setEditing(false); }}>Cancel</button>
+              <button className="da-edit-save" onClick={() => { onRetry(editText.trim()); setEditing(false); }}>Save & Resend</button>
+            </div>
+          </div>
+        ) : (
+          <div className="da-user-bubble">
+            <p className="da-user-text">{msg.content}</p>
+          </div>
+        )}
+        <div className="da-hover-actions">
+          <ActionBtn icon={RotateCcw} label="Retry" onClick={() => onRetry(msg.content)} />
+          <ActionBtn icon={Pencil} label="Edit" onClick={() => { setEditText(msg.content); setEditing(true); }} />
           <CopyBtn text={msg.content} />
         </div>
       </div>
@@ -563,53 +566,47 @@ function UserMessage({ msg, onRetry }: { msg: ChatMsg; onRetry: () => void }) {
   );
 }
 
-/* ═══════════════════════════════════════════
-   ASSISTANT MESSAGE
-   ═══════════════════════════════════════════ */
-
-function AssistantMessage({ msg }: { msg: ChatMsg }) {
+/* Assistant message — no bubble, just clean markdown */
+function AssistantMsg({ msg }: { msg: ChatMsg }) {
   return (
-    <div className="agent-msg agent-msg-assistant-row">
-      <div className="agent-assistant-content">
+    <div className="da-msg-assistant group">
+      <div className="da-assistant-text">
         <ChatMarkdown text={msg.content} />
       </div>
-      <div className="agent-msg-actions">
+      <div className="da-hover-actions">
         <CopyBtn text={msg.content} />
+        <ActionBtn icon={RotateCcw} label="Retry" onClick={() => {}} />
       </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════
-   STREAMING INDICATOR
+   STREAMING BLOCK
    ═══════════════════════════════════════════ */
 
-const StreamingIndicator = memo(function StreamingIndicator({
-  streamText, streamReasoning, activeToolCall,
-}: {
-  streamText: string;
-  streamReasoning: string;
-  activeToolCall: { name: string; args?: any } | null;
+const StreamingBlock = memo(function StreamingBlock({ text, reasoning, toolCall, status }: {
+  text: string; reasoning: string;
+  toolCall: { name: string; args?: any } | null;
+  status: "connecting" | "streaming";
 }) {
   return (
-    <div className="agent-msg agent-msg-assistant-row">
-      {streamReasoning && (
-        <ReasoningSection content={streamReasoning} isStreaming />
-      )}
-      {activeToolCall && (
-        <ToolCallCard name={activeToolCall.name} args={activeToolCall.args} isStreaming />
-      )}
-      {streamText ? (
-        <div className="agent-assistant-content">
-          <ChatMarkdown text={streamText} />
-          <span className="agent-cursor" />
+    <div className="da-msg-assistant group mt-6">
+      {reasoning && <ReasoningSection content={reasoning} isStreaming />}
+      {toolCall && <ToolPill name={toolCall.name} args={toolCall.args} isStreaming />}
+      {text ? (
+        <div className="da-assistant-text">
+          <ChatMarkdown text={text} />
+          <span className="da-cursor" />
         </div>
-      ) : !activeToolCall && !streamReasoning ? (
-        <div className="agent-thinking">
-          <div className="agent-bounce">
-            <span /><span /><span />
-          </div>
+      ) : status === "connecting" ? (
+        <div className="da-connecting">
+          <Loader2 className="h-4 w-4 animate-spin" />
           <span>Thinking...</span>
+        </div>
+      ) : !toolCall && !reasoning ? (
+        <div className="da-connecting">
+          <span className="da-dot" /><span className="da-dot d2" /><span className="da-dot d3" />
         </div>
       ) : null}
     </div>
@@ -617,101 +614,85 @@ const StreamingIndicator = memo(function StreamingIndicator({
 });
 
 /* ═══════════════════════════════════════════
-   REASONING SECTION (collapsible <details>)
+   REASONING (collapsible details — exact chatagent match)
    ═══════════════════════════════════════════ */
 
 function ReasoningSection({ content, isStreaming, defaultOpen = true }: {
-  content: string;
-  isStreaming?: boolean;
-  defaultOpen?: boolean;
+  content: string; isStreaming?: boolean; defaultOpen?: boolean;
 }) {
+  const [expanded, setExpanded] = useState(defaultOpen || !!isStreaming);
   return (
-    <details className="agent-reasoning" open={defaultOpen}>
-      <summary className="agent-reasoning-summary">
-        <Lightbulb className="h-3.5 w-3.5" />
-        <span>{isStreaming ? "Thinking..." : "Thought process"}</span>
-      </summary>
-      <div className="agent-reasoning-body">
-        <ChatMarkdown text={content} />
-        {isStreaming && <span className="agent-cursor" />}
-      </div>
-    </details>
+    <div className="mb-3">
+      <details open={expanded}>
+        <summary
+          onClick={(e) => { e.preventDefault(); setExpanded(!expanded); }}
+          className="da-reasoning-summary"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="opacity-70">
+            <path d="M9 21h6M12 3a6 6 0 0 1 4 10.5V17H8v-3.5A6 6 0 0 1 12 3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+          <span>{isStreaming ? "Thinking..." : "Thought process"}</span>
+        </summary>
+        {expanded && (
+          <div className="da-reasoning-body">
+            <ChatMarkdown text={content} />
+            {isStreaming && <span className="da-cursor" />}
+          </div>
+        )}
+      </details>
+    </div>
   );
 }
 
 /* ═══════════════════════════════════════════
-   TOOL CARDS
+   TOOL PILL (exact chatagent match — rounded-full inline pill)
    ═══════════════════════════════════════════ */
 
-const TOOL_LABELS: Record<string, string> = {
-  analyze_project: "Analyze Project",
-  generate_deploy_config: "Generate Config",
-  list_workspaces: "List Workspaces",
-  list_instances: "List Instances",
-  run_build: "Build Project",
-  run_ship: "Ship to Instance",
-  claim_subdomain: "Claim Subdomain",
-  check_deploy_status: "Check Status",
-  read_workspace_file: "Read File",
-  write_workspace_file: "Write File",
-  run_validation: "Run Validation",
-  list_ai_apps: "List AI Apps",
-  start_ai_app: "Start AI App",
-  advance_ai_app: "Advance AI App",
+const TOOL_NAMES: Record<string, string> = {
+  analyze_project: "Analyze Project", generate_deploy_config: "Generate Config",
+  list_workspaces: "List Workspaces", list_instances: "List Instances",
+  run_build: "Build Project", run_ship: "Ship to Instance",
+  claim_subdomain: "Claim Subdomain", check_deploy_status: "Check Status",
+  read_workspace_file: "Read File", write_workspace_file: "Write File",
+  run_validation: "Run Validation", list_ai_apps: "List AI Apps",
+  start_ai_app: "Start AI App", advance_ai_app: "Advance AI App",
 };
 
-function ToolCallCard({ name, args, isStreaming }: { name: string; args?: any; isStreaming?: boolean }) {
+function ToolPill({ name, args, result, isStreaming }: {
+  name: string; args?: any; result?: string; isStreaming?: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
-  const label = TOOL_LABELS[name] || name;
+  const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+  const parsedArgs = typeof args === "string" ? safeParse(args) : args;
+  const parsedResult = result ? safeParse(result) : null;
+  const isOk = parsedResult ? parsedResult?.ok !== false : true;
 
-  // Get first arg preview
-  let preview = "";
-  if (args) {
-    const obj = typeof args === "string" ? safeParse(args) : args;
-    if (typeof obj === "object" && obj !== null) {
-      const firstVal = Object.values(obj)[0];
-      if (typeof firstVal === "string") preview = firstVal.length > 40 ? firstVal.slice(0, 40) + "..." : firstVal;
-    }
-  }
+  const preview = parsedArgs && typeof parsedArgs === "object"
+    ? String(Object.values(parsedArgs)[0] || "").slice(0, 60) : "";
 
   return (
-    <div className="agent-tool-pill">
-      <div className="agent-tool-pill-header" onClick={() => setExpanded(!expanded)}>
-        <span className={`agent-tool-dot ${isStreaming ? "streaming" : "done"}`} />
-        <span className="agent-tool-pill-label">{label}</span>
-        {preview && <span className="agent-tool-preview">{preview}</span>}
-        {isStreaming && <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--muted-foreground)" }} />}
-        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </div>
-      {expanded && args && (
-        <div className="agent-tool-detail">
-          <div className="agent-tool-detail-label">Arguments</div>
-          <pre className="agent-tool-json">{typeof args === "string" ? args : JSON.stringify(args, null, 2)}</pre>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ToolResultCard({ name, result }: { name: string; result: string }) {
-  const [expanded, setExpanded] = useState(false);
-  let parsed: any = null;
-  try { parsed = JSON.parse(result); } catch {}
-  const isOk = parsed?.ok !== false;
-  const label = TOOL_LABELS[name] || name;
-
-  return (
-    <div className="agent-tool-pill">
-      <div className="agent-tool-pill-header" onClick={() => setExpanded(!expanded)}>
-        <span className={`agent-tool-dot ${isOk ? "success" : "error"}`} />
-        <span className="agent-tool-pill-label">{label}</span>
-        <span className="agent-tool-status-text">{isOk ? "Done" : "Failed"}</span>
-        {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-      </div>
+    <div className="my-1.5">
+      <button onClick={() => setExpanded(!expanded)} className="da-tool-pill">
+        <span className={`da-tool-dot ${isStreaming ? "streaming" : result ? (isOk ? "success" : "error") : "idle"}`} />
+        <span className="da-tool-name">{displayName}</span>
+        {preview && !result && <span className="da-tool-preview">{preview}</span>}
+        {result && <span className="da-tool-status">{isOk ? "Done" : "Failed"}</span>}
+        {isStreaming && <Loader2 className="h-3 w-3 animate-spin text-blue-400 shrink-0" />}
+        <ChevronDown className={`h-3 w-3 opacity-40 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+      </button>
       {expanded && (
-        <div className="agent-tool-detail">
-          <div className="agent-tool-detail-label">Result</div>
-          <pre className="agent-tool-json">{parsed ? JSON.stringify(parsed, null, 2) : result}</pre>
+        <div className="da-tool-expanded">
+          {parsedArgs && Object.keys(parsedArgs).length > 0 && (
+            <pre className="da-tool-json">{JSON.stringify(parsedArgs, null, 2)}</pre>
+          )}
+          {parsedResult && (
+            <pre className="da-tool-json">{JSON.stringify(parsedResult, null, 2)}</pre>
+          )}
+          {isStreaming && !result && (
+            <div className="da-tool-loading">
+              <Loader2 className="h-3 w-3 animate-spin" /> Executing...
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -719,40 +700,37 @@ function ToolResultCard({ name, result }: { name: string; result: string }) {
 }
 
 /* ═══════════════════════════════════════════
-   REUSABLE ACTION BUTTONS
+   ACTION BUTTONS
    ═══════════════════════════════════════════ */
 
-function ActionBtn({ icon, title, onClick }: { icon: React.ReactNode; title: string; onClick: () => void }) {
+function ActionBtn({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
   return (
-    <button className="agent-action-btn" title={title} onClick={onClick}>
-      {icon}
+    <button onClick={onClick} className="da-action-btn" aria-label={label}>
+      <Icon className="h-4 w-4" />
     </button>
   );
 }
 
 function CopyBtn({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
   return (
-    <button className="agent-action-btn" title="Copy" onClick={copy}>
-      {copied ? <Check className="h-3 w-3" style={{ color: "var(--color-green)" }} /> : <Copy className="h-3 w-3" />}
+    <button
+      onClick={() => { navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      className="da-action-btn" aria-label="Copy"
+    >
+      {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
     </button>
   );
 }
 
 /* ═══════════════════════════════════════════
-   CHAT MARKDOWN (richer than SimpleMarkdown)
+   CHAT MARKDOWN
    ═══════════════════════════════════════════ */
 
 const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const parts = text.split(/(```[\s\S]*?```)/g);
   return (
-    <div className="agent-md">
+    <div className="da-md">
       {parts.map((part, i) => {
         if (part.startsWith("```") && part.endsWith("```")) {
           const inner = part.slice(3, -3);
@@ -761,17 +739,16 @@ const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
           const code = nl >= 0 ? inner.slice(nl + 1) : inner;
           return <CodeBlock key={i} code={code} lang={lang} />;
         }
-        // Process inline markdown
         const html = part
           .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
           .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
           .replace(/\*(.*?)\*/g, "<em>$1</em>")
-          .replace(/`([^`]+)`/g, '<code class="agent-icode">$1</code>')
-          .replace(/^### (.+)$/gm, '<h4 class="agent-md-h">$1</h4>')
-          .replace(/^## (.+)$/gm, '<h3 class="agent-md-h">$1</h3>')
-          .replace(/^# (.+)$/gm, '<h2 class="agent-md-h">$1</h2>')
-          .replace(/^[-*] (.+)$/gm, '<li class="agent-md-li">$1</li>')
-          .replace(/^\d+\. (.+)$/gm, '<li class="agent-md-li agent-md-ol">$1</li>')
+          .replace(/`([^`]+)`/g, '<code class="da-icode">$1</code>')
+          .replace(/^### (.+)$/gm, '<h4 class="da-h">$1</h4>')
+          .replace(/^## (.+)$/gm, '<h3 class="da-h">$1</h3>')
+          .replace(/^# (.+)$/gm, '<h2 class="da-h">$1</h2>')
+          .replace(/^[-*] (.+)$/gm, '<li class="da-li">$1</li>')
+          .replace(/^\d+\. (.+)$/gm, '<li class="da-li da-ol">$1</li>')
           .replace(/\n/g, "<br/>");
         return <span key={i} dangerouslySetInnerHTML={{ __html: html }} />;
       })}
@@ -781,22 +758,17 @@ const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(code).then(() => {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    });
-  };
-
   return (
-    <div className="agent-codeblock">
-      <div className="agent-codeblock-header">
-        <span className="agent-codeblock-lang">{lang || "text"}</span>
-        <button className="agent-codeblock-copy" onClick={copy}>
-          {copied ? <><Check className="h-3 w-3" /> Copied</> : <><Copy className="h-3 w-3" /> Copy</>}
+    <div className="da-codeblock">
+      <div className="da-codeblock-header">
+        <span className="da-codeblock-lang">{lang || "text"}</span>
+        <button className="da-codeblock-copy" onClick={() => {
+          navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000);
+        }}>
+          {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <pre className="agent-codeblock-pre"><code>{code}</code></pre>
+      <pre className="da-codeblock-pre"><code>{code}</code></pre>
     </div>
   );
 }
@@ -813,32 +785,18 @@ function dbMsgToChat(m: DeployMessage): ChatMsg[] {
     let toolCalls: any[] = [];
     try { toolCalls = JSON.parse(m.tool_calls || "[]"); } catch {}
     for (const tc of toolCalls) {
-      msgs.push({
-        id: `tc_${tc.id || m.id}`,
-        role: "tool_call",
-        content: `Called ${tc.function?.name || "tool"}`,
-        toolName: tc.function?.name,
-        toolArgs: tc.function?.arguments ? safeParse(tc.function.arguments) : undefined,
-      });
+      msgs.push({ id: `tc_${tc.id || m.id}`, role: "tool_call", content: `Called ${tc.function?.name || "tool"}`,
+        toolName: tc.function?.name, toolArgs: tc.function?.arguments ? safeParse(tc.function.arguments) : undefined });
     }
-    if (m.content) {
-      msgs.push({ id: m.id, role: "assistant", content: m.content });
-    }
+    if (m.content) msgs.push({ id: m.id, role: "assistant", content: m.content });
   } else if (m.role === "tool") {
     let results: any[] = [];
     try { results = JSON.parse(m.tool_results || "[]"); } catch {}
     for (const tr of results) {
-      msgs.push({
-        id: `tr_${tr.id || m.id}`,
-        role: "tool_result",
-        content: tr.result || tr.output || "",
-        toolName: tr.name,
-        toolResult: tr.result || tr.output || "",
-      });
+      msgs.push({ id: `tr_${tr.id || m.id}`, role: "tool_result", content: tr.result || tr.output || "",
+        toolName: tr.name, toolResult: tr.result || tr.output || "" });
     }
-    if (results.length === 0 && m.content) {
-      msgs.push({ id: m.id, role: "tool_result", content: m.content, toolResult: m.content });
-    }
+    if (results.length === 0 && m.content) msgs.push({ id: m.id, role: "tool_result", content: m.content, toolResult: m.content });
   }
   return msgs;
 }
