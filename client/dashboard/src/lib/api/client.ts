@@ -1674,3 +1674,68 @@ export async function deleteObject(projectId: string, bucketId: string, key: str
   return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/storage/buckets/${bucketId}/objects/${encodeURIComponent(key)}`, { method: "DELETE" });
 }
 
+/* ═══════════════════════════════════════════
+   DEPLOY AGENT (AI chat-based deploy)
+   ═══════════════════════════════════════════ */
+
+export interface DeployThread {
+  id: string;
+  project_id: string;
+  user_id: string;
+  workspace: string;
+  title: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+  messages?: DeployMessage[];
+}
+
+export interface DeployMessage {
+  id: string;
+  thread_id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  tool_calls: string;
+  tool_results: string;
+  metadata: string;
+  created_at: string;
+}
+
+export async function createDeployThread(projectId: string, workspace = "", title = "") {
+  return centralApi<DeployThread>(`/api/projects/${projectId}/deploy-agent/threads`, {
+    method: "POST",
+    body: JSON.stringify({ workspace, title }),
+  });
+}
+
+export async function listDeployThreads(projectId: string) {
+  return centralApi<{ threads: DeployThread[]; count: number }>(`/api/projects/${projectId}/deploy-agent/threads`);
+}
+
+export async function getDeployThread(projectId: string, threadId: string) {
+  return centralApi<DeployThread & { messages: DeployMessage[] }>(`/api/projects/${projectId}/deploy-agent/threads/${threadId}`);
+}
+
+export async function deleteDeployThread(projectId: string, threadId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/deploy-agent/threads/${threadId}`, { method: "DELETE" });
+}
+
+export function streamDeployAgent(projectId: string, threadId: string, message: string): {
+  eventSource: AbortController;
+  response: Promise<Response>;
+} {
+  const controller = new AbortController();
+  const token = getToken("nso_api_token");
+  const response = fetch(`${API_BASE}/api/projects/${projectId}/deploy-agent/threads/${threadId}/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ message }),
+    signal: controller.signal,
+  });
+  return { eventSource: controller, response };
+}
+
