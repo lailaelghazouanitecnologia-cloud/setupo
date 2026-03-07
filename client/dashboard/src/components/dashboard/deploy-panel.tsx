@@ -520,8 +520,8 @@ function ThreadRow({ thread, active, onSelect, onDelete }: {
 const MessageRow = memo(function MessageRow({ msg, onRetry }: { msg: ChatMsg; onRetry: (c: string) => void }) {
   if (msg.role === "user") return <UserMsg msg={msg} onRetry={onRetry} />;
   if (msg.role === "assistant") return <AssistantMsg msg={msg} />;
-  if (msg.role === "tool_call") return <ToolPill name={msg.toolName || ""} args={msg.toolArgs} />;
-  if (msg.role === "tool_result") return <ToolResultBlock name={msg.toolName || ""} result={msg.toolResult} />;
+  if (msg.role === "tool_call") return <ToolCallLive name={msg.toolName || ""} args={msg.toolArgs} />;
+  if (msg.role === "tool_result") return <ToolResultCard name={msg.toolName || ""} result={msg.toolResult} />;
   return null;
 });
 
@@ -593,7 +593,7 @@ const StreamingBlock = memo(function StreamingBlock({ text, reasoning, toolCall,
   return (
     <div className="da-msg-assistant group">
       {reasoning && <ReasoningSection content={reasoning} isStreaming />}
-      {toolCall && <ToolPill name={toolCall.name} args={toolCall.args} isStreaming />}
+      {toolCall && <ToolCallLive name={toolCall.name} args={toolCall.args} isStreaming />}
       {text ? (
         <div className="da-assistant-text">
           <ChatMarkdown text={text} />
@@ -658,54 +658,59 @@ const TOOL_NAMES: Record<string, string> = {
   start_ai_app: "Start AI App", advance_ai_app: "Advance AI App",
 };
 
-function ToolPill({ name, args, isStreaming }: {
+/** Tool call — live animated card while executing */
+function ToolCallLive({ name, args, isStreaming }: {
   name: string; args?: any; isStreaming?: boolean;
 }) {
   const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   const parsedArgs = typeof args === "string" ? safeParse(args) : args;
-
   const preview = parsedArgs && typeof parsedArgs === "object"
-    ? String(Object.values(parsedArgs)[0] || "").slice(0, 60) : "";
+    ? String(Object.values(parsedArgs)[0] || "").slice(0, 80) : "";
 
   return (
-    <div className="da-tool-inline">
-      <span className={`da-tool-dot ${isStreaming ? "streaming" : "idle"}`} />
-      <span className="da-tool-name">{displayName}</span>
-      {preview && <span className="da-tool-preview">{preview}</span>}
-      {isStreaming && <Loader2 className="h-3 w-3 animate-spin shrink-0" style={{ color: "var(--da-accent)" }} />}
+    <div className="da-tool-live">
+      <div className="da-tool-live-header">
+        <span className="da-tool-live-dot" />
+        <span className="da-tool-live-name">{displayName}</span>
+        <span className="da-tool-live-status">
+          {isStreaming && <Loader2 className="h-3 w-3 animate-spin" />}
+          <span>{isStreaming ? "Running" : "Queued"}</span>
+        </span>
+      </div>
+      {isStreaming && <div className="da-tool-live-bar" />}
+      {preview && <div className="da-tool-live-args">{preview}</div>}
     </div>
   );
 }
 
-/** Tool result — renders output inline or as a collapsible code block */
-function ToolResultBlock({ name, result }: { name: string; result?: string }) {
+/** Tool result — expandable card showing output */
+function ToolResultCard({ name, result }: { name: string; result?: string }) {
   const [expanded, setExpanded] = useState(false);
   const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   const parsed = result ? safeParse(result) : null;
   const isOk = parsed ? parsed?.ok !== false : true;
+  const status = isOk ? "success" : "error";
 
-  // Extract meaningful output text
   const outputText = typeof parsed === "object"
     ? (parsed?.output || parsed?.stdout || parsed?.result || parsed?.message || "")
     : String(parsed || "");
   const lines = String(outputText).split("\n").filter(Boolean);
   const hasContent = lines.length > 0;
-  const isMultiLine = lines.length > 3;
 
   return (
-    <div className="da-result-block">
-      <div className="da-result-header" onClick={() => isMultiLine && setExpanded(!expanded)} style={{ cursor: isMultiLine ? "pointer" : "default" }}>
-        <span className={`da-tool-dot ${isOk ? "success" : "error"}`} />
-        <span className="da-tool-name">{displayName}</span>
-        <span className="da-result-status" style={{ color: isOk ? "#4ade80" : "#f87171" }}>
+    <div className={`da-tool-result ${status}`}>
+      <div className="da-tool-result-header" onClick={() => hasContent && setExpanded(!expanded)}>
+        <span className={`da-tool-result-dot ${status}`} />
+        <span className="da-tool-result-name">{displayName}</span>
+        <span className={`da-tool-result-badge ${status}`}>
           {isOk ? "Done" : "Failed"}
         </span>
-        {isMultiLine && (
-          <ChevronDown className={`h-3 w-3 opacity-40 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
+        {hasContent && (
+          <ChevronDown className={`h-3 w-3 da-tool-result-chevron ${expanded ? "open" : ""}`} />
         )}
       </div>
-      {hasContent && (expanded || !isMultiLine) && (
-        <pre className="da-result-output">{lines.slice(0, expanded ? undefined : 3).join("\n")}</pre>
+      {expanded && hasContent && (
+        <pre className="da-tool-result-output">{lines.join("\n")}</pre>
       )}
     </div>
   );
