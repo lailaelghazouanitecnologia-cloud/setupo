@@ -2387,7 +2387,6 @@
 
 /* ═══════════════════════════════════════════
    DEPLOY AGENT (da-*)
-   Orange accent: #e8772e (--da-accent)
    ═══════════════════════════════════════════ */
 :root {
   --da-accent: #e8772e;
@@ -2410,14 +2409,14 @@
   display: flex; align-items: center; justify-content: space-between;
   padding: 14px 14px 10px;
 }
-.da-sidebar-title { font-size: var(--font-xs); font-weight: 600; color: var(--da-accent); }
+.da-sidebar-title { font-size: var(--font-xs); font-weight: 600; color: var(--foreground); }
 .da-sidebar-new {
   width: 28px; height: 28px; border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); background: var(--card);
-  color: var(--foreground); cursor: pointer; transition: all 0.15s;
+  color: var(--foreground); cursor: pointer; transition: background 0.15s;
 }
-.da-sidebar-new:hover { background: var(--da-accent-muted); border-color: var(--da-accent); color: var(--da-accent); }
+.da-sidebar-new:hover { background: var(--accent); }
 .da-sidebar-list { flex: 1; overflow-y: auto; }
 .da-sidebar-empty {
   padding: 32px 16px; text-align: center;
@@ -2441,7 +2440,7 @@
   position: relative;
 }
 .da-thread:hover { background: var(--accent); }
-.da-thread.active { background: var(--da-accent-muted); color: var(--foreground); border-left: 2px solid var(--da-accent); }
+.da-thread.active { background: var(--accent); color: var(--foreground); }
 .da-thread-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .da-thread-actions { opacity: 0; transition: opacity 0.1s; position: relative; }
 .da-thread:hover .da-thread-actions { opacity: 1; }
@@ -2489,7 +2488,7 @@
   color: var(--muted-foreground); font-size: var(--font-xxs);
   cursor: pointer; transition: all 0.15s;
 }
-.da-suggestion:hover { background: var(--da-accent-muted); color: var(--da-accent); border-color: var(--da-accent); }
+.da-suggestion:hover { background: var(--accent); color: var(--foreground); }
 .da-input-container { width: 100%; }
 
 /* ── Messages area ── */
@@ -2520,7 +2519,7 @@
   line-height: 1.6; resize: none; outline: none; color: var(--foreground);
   font-family: inherit;
 }
-.da-edit-textarea:focus { border-color: var(--da-accent); }
+.da-edit-textarea:focus { border-color: var(--foreground); }
 .da-edit-actions { display: flex; gap: 6px; justify-content: flex-end; }
 .da-edit-cancel {
   padding: 4px 12px; font-size: var(--font-xxs); border-radius: 8px;
@@ -2529,7 +2528,7 @@
 .da-edit-cancel:hover { background: var(--accent); }
 .da-edit-save {
   padding: 4px 12px; font-size: var(--font-xxs); border-radius: 8px;
-  border: none; background: var(--da-accent); color: #fff;
+  border: none; background: var(--foreground); color: var(--background);
   cursor: pointer; font-weight: 500;
 }
 .da-edit-save:hover { opacity: 0.9; }
@@ -2554,20 +2553,15 @@
   transition: all 0.15s;
 }
 .da-action-btn:hover {
-  color: var(--da-accent);
-  background: var(--da-accent-muted);
+  color: var(--foreground);
+  background: color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
-/* ── Tool pill ── */
-.da-tool-pill {
+/* ── Tool inline (call in progress) ── */
+.da-tool-inline {
   display: inline-flex; align-items: center; gap: 6px;
-  max-width: 100%; border-radius: 9999px; padding: 0 12px; height: 28px;
-  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  background: color-mix(in srgb, var(--muted-foreground) 6%, transparent);
-  cursor: pointer; transition: background 0.15s;
-  font-size: 13px; color: var(--muted-foreground); text-align: left;
+  padding: 4px 0; font-size: 13px; color: var(--muted-foreground);
 }
-.da-tool-pill:hover { background: color-mix(in srgb, var(--muted-foreground) 12%, transparent); }
 .da-tool-dot {
   width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
 }
@@ -2578,29 +2572,34 @@
 @keyframes da-pulse {
   0%, 100% { opacity: 1; } 50% { opacity: 0.4; }
 }
-.da-tool-name { font-weight: 500; color: color-mix(in srgb, var(--foreground) 80%, transparent); white-space: nowrap; }
+.da-tool-name { font-weight: 500; font-size: 13px; color: color-mix(in srgb, var(--foreground) 80%, transparent); white-space: nowrap; }
 .da-tool-preview {
   font-family: var(--font-mono, monospace); font-size: 12px;
-  color: color-mix(in srgb, var(--muted-foreground) 60%, transparent);
+  color: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px;
 }
-.da-tool-status { font-size: 12px; }
 
-/* Tool expanded */
-.da-tool-expanded {
-  margin-top: 6px; margin-left: 12px; padding-left: 12px;
-  border-left: 2px solid var(--da-accent-soft);
-  font-size: 14px;
+/* ── Tool result block ── */
+.da-result-block {
+  margin: 6px 0; border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  background: color-mix(in srgb, var(--muted-foreground) 4%, transparent);
+  overflow: hidden;
 }
-.da-tool-json {
-  margin: 4px 0; border-radius: 6px; padding: 10px;
-  background: #09090b; color: #d4d4d8;
-  font-family: var(--font-mono, monospace); font-size: 12px;
-  overflow-x: auto; max-height: 200px; overflow-y: auto; white-space: pre-wrap;
+.da-result-header {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; font-size: 13px;
 }
-.da-tool-loading {
-  display: flex; align-items: center; gap: 8px;
-  padding: 4px 0; font-size: var(--font-xxs); color: var(--da-accent);
+.da-result-status {
+  font-size: 11px; font-weight: 500; margin-left: auto;
+  font-family: var(--font-mono, monospace);
+}
+.da-result-output {
+  margin: 0; padding: 8px 12px; overflow-x: auto; white-space: pre-wrap;
+  font-family: var(--font-mono, monospace); font-size: 12px; line-height: 1.5;
+  color: var(--muted-foreground);
+  border-top: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+  max-height: 300px; overflow-y: auto;
 }
 
 /* ── Reasoning ── */
@@ -2608,14 +2607,14 @@
   display: flex; align-items: center; gap: 6px;
   cursor: pointer; padding: 4px 0; list-style: none;
   font-size: var(--font-xxs);
-  color: var(--da-accent); opacity: 0.7;
-  transition: opacity 0.15s; user-select: none;
+  color: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+  transition: color 0.15s; user-select: none;
 }
 .da-reasoning-summary::-webkit-details-marker { display: none; }
-.da-reasoning-summary:hover { opacity: 1; }
+.da-reasoning-summary:hover { color: var(--muted-foreground); }
 .da-reasoning-body {
   margin-top: 8px; padding-left: 12px;
-  border-left: 2px solid var(--da-accent-soft);
+  border-left: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   font-size: 13px; color: color-mix(in srgb, var(--muted-foreground) 80%, transparent);
   line-height: 1.6;
 }
@@ -2623,7 +2622,7 @@
 /* ── Connecting / thinking ── */
 .da-connecting {
   display: flex; align-items: center; gap: 8px;
-  padding: 8px; font-size: 14px; color: var(--da-accent);
+  padding: 8px; font-size: 14px; color: var(--muted-foreground);
 }
 .da-dot {
   width: 6px; height: 6px; border-radius: 50%;
@@ -2674,7 +2673,7 @@
   transition: box-shadow 0.2s;
 }
 .da-input-inner:focus-within {
-  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.06), 0 0 0 1px var(--da-accent);
+  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.06), 0 0 0 0.5px color-mix(in srgb, var(--muted-foreground) 22%, transparent);
 }
 .da-input-content { display: flex; flex-direction: column; margin: 12px; gap: 10px; }
 .da-textarea {
@@ -2687,15 +2686,10 @@
 .da-textarea::placeholder { color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
 .da-textarea:disabled { cursor: not-allowed; opacity: 0.5; }
 .da-toolbar {
-  display: flex; align-items: center; justify-content: space-between; width: 100%;
+  display: flex; align-items: center; justify-content: flex-end; width: 100%;
 }
-.da-toolbar-left { display: flex; align-items: center; gap: 4px; }
-.da-model-label {
-  display: inline-flex; align-items: center; height: 28px;
-  padding: 0 8px; border-radius: 6px; font-size: 11px;
-  color: var(--da-accent); opacity: 0.6; white-space: nowrap;
-  font-family: var(--font-mono, monospace);
-}
+.da-toolbar-left { display: none; }
+.da-model-label { display: none; }
 
 /* Send/stop button */
 .da-send-btn {
@@ -2706,7 +2700,7 @@
   background: none;
 }
 .da-send-btn.active {
-  background: var(--da-accent); color: #fff;
+  background: var(--foreground); color: var(--background);
 }
 .da-send-btn.active:hover { opacity: 0.9; }
 .da-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
@@ -2721,7 +2715,7 @@
 .da-md strong { font-weight: 600; color: var(--foreground); }
 .da-md em { font-style: italic; }
 .da-p { margin: 6px 0; line-height: 1.75; }
-.da-h { font-weight: 600; color: var(--da-accent); }
+.da-h { font-weight: 600; color: var(--foreground); }
 .da-h1 { font-size: 18px; margin: 16px 0 6px; }
 .da-h2 { font-size: 16px; margin: 14px 0 6px; }
 .da-h3 { font-size: 15px; margin: 12px 0 4px; }
@@ -2730,10 +2724,9 @@
 .da-ol-list { margin: 6px 0 6px 20px; list-style: decimal; }
 .da-ul li, .da-ol-list li { padding: 2px 0; }
 .da-icode {
-  border-radius: 4px; border: 1px solid color-mix(in srgb, var(--da-accent) 20%, transparent);
-  background: color-mix(in srgb, var(--da-accent) 6%, transparent);
+  border-radius: 4px; border: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  background: color-mix(in srgb, var(--accent) 80%, transparent);
   padding: 1px 5px; font-family: var(--font-mono, monospace); font-size: 12px;
-  color: var(--da-accent);
 }
 .da-link {
   color: var(--da-accent); text-decoration: underline;
@@ -2754,7 +2747,7 @@
 .da-th {
   padding: 6px 12px; text-align: left; font-size: 12px; font-weight: 600;
   border-bottom: 1px solid var(--border);
-  background: var(--da-accent-muted); color: var(--foreground);
+  background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
 }
 .da-td {
   padding: 6px 12px;
@@ -2773,12 +2766,12 @@
   background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
   padding: 5px 12px;
 }
-.da-codeblock-lang { font-size: 11px; font-family: var(--font-mono, monospace); color: var(--da-accent); opacity: 0.7; }
+.da-codeblock-lang { font-size: 11px; font-family: var(--font-mono, monospace); color: var(--muted-foreground); }
 .da-codeblock-copy {
   border: none; background: none; cursor: pointer;
   font-size: 11px; color: var(--muted-foreground); transition: color 0.15s;
 }
-.da-codeblock-copy:hover { color: var(--da-accent); }
+.da-codeblock-copy:hover { color: var(--foreground); }
 .da-codeblock-pre {
   margin: 0; padding: 12px; overflow-x: auto; white-space: pre;
   font-family: var(--font-mono, monospace); font-size: 13px; line-height: 1.6;
