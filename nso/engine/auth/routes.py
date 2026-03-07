@@ -108,6 +108,14 @@ async def login(req: LoginRequest):
             user["role"] = "admin"
         token = users.issue_token(user)
         logger.info("Admin login: %s", req.email)
+
+        # Ensure system "nso" project exists for the admin
+        try:
+            from nso.engine.projects.service import ensure_system_project
+            await ensure_system_project(user["id"])
+        except Exception as e:
+            logger.warning("Failed to bootstrap system project: %s", e)
+
         return LoginResponse(token=token, email=req.email, role="admin")
 
     try:

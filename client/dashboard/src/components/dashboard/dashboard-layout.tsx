@@ -5,7 +5,7 @@ import {
   Mail, Server, Key, Blocks,
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
-  FolderOpen, Plus, Check, Layers,
+  FolderOpen, Plus, Check, Layers, Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -19,6 +19,7 @@ import { DeployPanel } from "./deploy-panel";
 import { BillingPanel } from "./billing-panel";
 import { SettingsPanel } from "./settings-panel";
 import { WorkspacesPanel } from "./workspaces-panel";
+import { AdminPanel } from "./admin-panel";
 import type { DashboardView } from "@/types/dashboard";
 
 /* ═══════════════════════════════════════════
@@ -98,6 +99,7 @@ const viewTitles: Record<DashboardView, string> = {
   addons: "Apps",
   billing: "Billing",
   settings: "Settings",
+  admin: "Admin",
 };
 
 /* ═══════════════════════════════════════════
@@ -369,6 +371,7 @@ export function DashboardLayout() {
   const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
   const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
   const setProjectLoading = useDashboardStore((s) => s.setProjectLoading);
+  const userRole = useDashboardStore((s) => s.userRole);
 
   const [balance, setBalance] = useState(0);
   const [unread, setUnread] = useState(0);
@@ -503,6 +506,18 @@ export function DashboardLayout() {
               <span>{item.label}</span>
             </button>
           ))}
+          {userRole === "admin" && (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "6px 0", opacity: 0.3 }} />
+              <button
+                className={cn("fmenu", activeView === "admin" && "active")}
+                onClick={() => setActiveView("admin")}
+              >
+                <Shield className="h-3.5 w-3.5" />
+                <span>Admin</span>
+              </button>
+            </>
+          )}
         </nav>
 
         {/* Spacer */}
@@ -524,6 +539,7 @@ export function DashboardLayout() {
           {activeView === "addons" && <PanelErrorBoundary name="Apps"><AddonsPanel /></PanelErrorBoundary>}
           {activeView === "billing" && <PanelErrorBoundary name="Billing"><BillingPanel /></PanelErrorBoundary>}
           {activeView === "settings" && <PanelErrorBoundary name="Settings"><SettingsPanel /></PanelErrorBoundary>}
+          {activeView === "admin" && <PanelErrorBoundary name="Admin"><AdminPanel /></PanelErrorBoundary>}
         </div>
       </div>
     </div>

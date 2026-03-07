@@ -99,3 +99,101 @@ async def update_project_settings(project_id: str, new_settings: dict):
         raise NotFoundError("Project", project_id)
     merged = {**project.get("settings", {}), **new_settings}
     await db.update("projects", project_id, {"settings": merged})
+
+
+# ── System project bootstrap ─────────────────────────────────
+
+SYSTEM_PROJECT_NAME = "nso"
+
+# Known NSO infrastructure instances
+_SYSTEM_INSTANCES = [
+    {
+        "label": "nso-main",
+        "ip": "65.20.102.242",
+        "region": "ewr",
+        "plan": "vc2-1c-1gb",
+        "provider": "vultr",
+        "state": "running",
+    },
+    {
+        "label": "nso-test",
+        "ip": "65.20.103.88",
+        "region": "ewr",
+        "plan": "vc2-1c-1gb",
+        "provider": "vultr",
+        "state": "running",
+    },
+]
+
+
+async def ensure_system_project(owner_id: str) -> dict:
+    """Ensure the system 'nso' project exists for the admin.
+
+    Creates the project and pre-registers the known VPS instances
+    if they don't already exist. Returns the project dict.
+    """
+    import secrets as _secrets
+
+    existing = await db.fetch_all("projects", name=SYSTEM_PROJECT_NAME)
+    if existing:
+        proj = existing[0]
+        # Ensure admin owns it
+        if proj.get("owner") != owner_id:
+            await db.update("projects", proj["id"], {"owner": owner_id})
+        await _ensure_system_instances(proj["id"])
+        return proj
+
+    # Create the system project
+    api_key = generate_api_key()
+    project_id = f"proj_{_secrets.token_hex(8)}"
+
+    await db.insert("projects", {
+        "id": project_id,
+        "name": SYSTEM_PROJECT_NAME,
+        "api_key_hash": hash_api_key(api_key),
+        "owner": owner_id,
+        "settings": {"system": True},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    project_dir = settings.project_dir(project_id)
+    (project_dir / "workspaces").mkdir(exist_ok=True)
+
+    await _ensure_system_instances(project_id)
+    logger.info("Created system project 'nso' (%s)", project_id)
+
+    return await db.fetch_one("projects", id=project_id)
+
+
+async def _ensure_system_instances(project_id: str):
+    """Register known VPS instances under the system project if missing."""
+    import secrets as _secrets
+
+    existing = await db.fetch_all("instances", project_id=project_id)
+    existing_ips = {inst.get("ip") for inst in existing}
+
+    for inst_def in _SYSTEM_INSTANCES:
+        if inst_def["ip"] in existing_ips:
+            continue
+        inst_id = f"inst_{_secrets.token_hex(8)}"
+        await db.insert("instances", {
+            "id": inst_id,
+            "project_id": project_id,
+            "type": "system",
+            "provider": inst_def["provider"],
+            "provider_id": "",
+            "label": inst_def["label"],
+            "region": inst_def["region"],
+            "plan": inst_def["plan"],
+            "os_id": 2136,
+            "ip": inst_def["ip"],
+            "domain": "",
+            "state": inst_def["state"],
+            "ssh_key_id": "",
+            "workspace": "",
+            "error": "",
+            "metadata": "{}",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "ready_at": datetime.now(timezone.utc).isoformat(),
+        })
+        logger.info("Registered system instance %s (%s)", inst_def["label"], inst_def["ip"])
