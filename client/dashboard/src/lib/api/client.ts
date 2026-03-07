@@ -1590,3 +1590,87 @@ export async function getLBNginxConfig() {
   return resp.text();
 }
 
+// ── Infrastructure: Database ──────────────────────────────────
+
+export async function listDatabases(projectId: string) {
+  return centralApi<{ databases: any[]; count: number }>(`/api/projects/${projectId}/databases`);
+}
+
+export async function createDatabase(projectId: string, opts: { name: string; instance_id: string; engine?: string; version?: string }) {
+  return centralApi<any>(`/api/projects/${projectId}/databases`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function getDatabase(projectId: string, dbId: string) {
+  return centralApi<any>(`/api/projects/${projectId}/databases/${dbId}`);
+}
+
+export async function deleteDatabase(projectId: string, dbId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/databases/${dbId}`, { method: "DELETE" });
+}
+
+export async function queryDatabase(projectId: string, dbId: string, sql: string) {
+  return centralApi<{ ok: boolean; rows?: any[]; row_count?: number; error?: string }>(`/api/projects/${projectId}/databases/${dbId}/query`, {
+    method: "POST",
+    body: JSON.stringify({ sql }),
+  });
+}
+
+export async function getDatabaseStatus(projectId: string, dbId: string) {
+  return centralApi<{ state: string; size_bytes?: number; size_mb?: number; connections?: number }>(`/api/projects/${projectId}/databases/${dbId}/status`);
+}
+
+// ── Infrastructure: Storage ──────────────────────────────────
+
+export async function listBuckets(projectId: string) {
+  return centralApi<{ buckets: any[]; count: number }>(`/api/projects/${projectId}/storage/buckets`);
+}
+
+export async function createBucket(projectId: string, name: string, publicAccess = false) {
+  return centralApi<any>(`/api/projects/${projectId}/storage/buckets`, {
+    method: "POST",
+    body: JSON.stringify({ name, public_access: publicAccess }),
+  });
+}
+
+export async function deleteBucket(projectId: string, bucketId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/storage/buckets/${bucketId}`, { method: "DELETE" });
+}
+
+export async function listBucketObjects(projectId: string, bucketId: string, prefix = "") {
+  const qs = prefix ? `?prefix=${encodeURIComponent(prefix)}` : "";
+  return centralApi<{ objects: any[]; count: number }>(`/api/projects/${projectId}/storage/buckets/${bucketId}/objects${qs}`);
+}
+
+export async function uploadObject(projectId: string, bucketId: string, file: File, key?: string) {
+  const token = getToken("nso_api_token");
+  const form = new FormData();
+  form.append("file", file);
+  const qs = key ? `?key=${encodeURIComponent(key)}` : `?key=${encodeURIComponent(file.name)}`;
+  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/storage/buckets/${bucketId}/upload${qs}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(parseErrorMessage(text, resp.status));
+  }
+  return resp.json();
+}
+
+export async function downloadObject(projectId: string, bucketId: string, key: string): Promise<Blob> {
+  const token = getToken("nso_api_token");
+  const resp = await fetch(`${API_BASE}/api/projects/${projectId}/storage/buckets/${bucketId}/download/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) throw new Error(`Download failed: ${resp.status}`);
+  return resp.blob();
+}
+
+export async function deleteObject(projectId: string, bucketId: string, key: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/storage/buckets/${bucketId}/objects/${encodeURIComponent(key)}`, { method: "DELETE" });
+}
+

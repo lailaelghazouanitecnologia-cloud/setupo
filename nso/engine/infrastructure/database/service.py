@@ -1,0 +1,288 @@
+import logging
+import secrets
+from datetime import datetime, timezone
+
+import httpx
+
+from nso.shared import db
+from nso.shared.errors import NotFoundError, ConflictError, NsoError
+from nso.config import settings
+
+logger = logging.getLogger("nso.infrastructure.database")
+
+# ── Helpers ──────────────────────────────────────────────────────
+
+AGENT_TIMEOUT = 120.0
+AGENT_LOGIN_TIMEOUT = 10.0
+
+
+def _gen_id() -> str:
+    return f"db_{secrets.token_hex(8)}"
+
+
+def _gen_password() -> str:
+    return secrets.token_urlsafe(24)
+
+
+def _ipv4_client(timeout: float = AGENT_TIMEOUT) -> httpx.AsyncClient:
+    transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
+    return httpx.AsyncClient(timeout=timeout, transport=transport)
+
+
+async def _agent_login(ip: str) -> str:
+    """Login to agent on the given instance IP and return JWT token."""
+    email = settings.ADMIN_EMAIL
+    password = settings.AGENT_ADMIN_PASSWORD or settings.ADMIN_PASSWORD
+    if not password:
+        raise NsoError(500, "AGENT_ADMIN_PASSWORD not configured")
+
+    async with _ipv4_client(AGENT_LOGIN_TIMEOUT) as client:
+        resp = await client.post(
+            f"http://{ip}:8081/auth/login",
+            json={"email": email, "password": password},
+        )
+        if resp.status_code != 200:
+            raise NsoError(502, f"Agent login failed ({resp.status_code})")
+        return resp.json()["token"]
+
+
+async def _agent_exec(ip: str, command: str, timeout: int = 60) -> tuple[str, int]:
+    """Execute a command on an instance via the agent."""
+    token = await _agent_login(ip)
+    async with _ipv4_client(timeout + 10) as client:
+        resp = await client.post(
+            f"http://{ip}:8081/exec/",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"command": command, "timeout": timeout},
+        )
+        if resp.status_code != 200:
+            return f"Agent exec error ({resp.status_code}): {resp.text}", 1
+        data = resp.json()
+        output = data.get("stdout", "") + data.get("stderr", "")
+        return output, data.get("exit_code", 0)
+
+
+# ── Instance resolution ──────────────────────────────────────────
+
+async def _get_instance_ip(instance_id: str) -> str:
+    inst = await db.fetch_one("instances", id=instance_id)
+    if not inst:
+        raise NotFoundError("Instance", instance_id)
+    ip = inst.get("ip")
+    if not ip:
+        raise NsoError(400, f"Instance {instance_id} has no IP assigned")
+    return ip
+
+
+# ── CRUD ─────────────────────────────────────────────────────────
+
+async def create_database(project_id: str, name: str, instance_id: str,
+                          engine: str = "postgresql", version: str = "16") -> dict:
+    """Create a managed database on the given instance."""
+    # Validate instance belongs to project
+    inst = await db.fetch_one("instances", id=instance_id)
+    if not inst or inst.get("project_id") != project_id:
+        raise NotFoundError("Instance", instance_id)
+    if inst.get("state") not in ("running", "ready"):
+        raise NsoError(400, "Instance must be running to create a database")
+
+    # Check for duplicate name
+    existing = await db.fetch_all("managed_databases", project_id=project_id, name=name)
+    if existing:
+        raise ConflictError(f"Database '{name}' already exists in this project")
+
+    db_id = _gen_id()
+    db_user = f"nso_{name.replace('-', '_')[:20]}"
+    db_password = _gen_password()
+    ip = inst.get("ip")
+
+    record = {
+        "id": db_id,
+        "project_id": project_id,
+        "instance_id": instance_id,
+        "name": name,
+        "engine": engine,
+        "version": version,
+        "host": ip,
+        "port": 5432,
+        "db_user": db_user,
+        "password_encrypted": db_password,  # TODO: encrypt at rest
+        "state": "creating",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.insert("managed_databases", record)
+
+    # Provision PostgreSQL on the instance
+    try:
+        await _provision_postgres(ip, name, db_user, db_password, version)
+        await db.update("managed_databases", db_id, {
+            "state": "running",
+            "ready_at": datetime.now(timezone.utc).isoformat(),
+        })
+        record["state"] = "running"
+        logger.info("Created database %s on %s (%s)", name, instance_id, ip)
+    except Exception as e:
+        await db.update("managed_databases", db_id, {
+            "state": "error",
+            "error": str(e)[:500],
+        })
+        record["state"] = "error"
+        record["error"] = str(e)[:500]
+        logger.error("Failed to create database %s: %s", name, e)
+
+    return record
+
+
+async def _provision_postgres(ip: str, db_name: str, db_user: str, db_password: str, version: str):
+    """Install PostgreSQL (if needed) and create database + user on the instance."""
+    # Step 1: Install PostgreSQL
+    install_cmd = (
+        f"export DEBIAN_FRONTEND=noninteractive && "
+        f"which psql >/dev/null 2>&1 || ("
+        f"apt-get update -y && "
+        f"apt-get install -y postgresql postgresql-contrib"
+        f") && systemctl enable postgresql && systemctl start postgresql"
+    )
+    out, code = await _agent_exec(ip, install_cmd, timeout=120)
+    if code != 0:
+        raise NsoError(500, f"PostgreSQL install failed: {out[-300:]}")
+
+    # Step 2: Create user and database
+    # Use single quotes in SQL, escape the password
+    safe_password = db_password.replace("'", "''")
+    create_cmd = (
+        f"sudo -u postgres psql -c "
+        f"\"DO \\$\\$ BEGIN "
+        f"  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{db_user}') THEN "
+        f"    CREATE ROLE {db_user} WITH LOGIN PASSWORD '{safe_password}'; "
+        f"  END IF; "
+        f"END \\$\\$;\" && "
+        f"sudo -u postgres psql -c "
+        f"\"SELECT 1 FROM pg_database WHERE datname = '{db_name}'\" | grep -q 1 || "
+        f"sudo -u postgres createdb -O {db_user} {db_name}"
+    )
+    out, code = await _agent_exec(ip, create_cmd, timeout=30)
+    if code != 0:
+        raise NsoError(500, f"Database creation failed: {out[-300:]}")
+
+    # Step 3: Allow remote connections (listen on all interfaces)
+    pg_conf_cmd = (
+        "PG_CONF=$(find /etc/postgresql -name postgresql.conf -type f | head -1) && "
+        "grep -q \"listen_addresses = '\\*'\" \"$PG_CONF\" || "
+        "(echo \"listen_addresses = '*'\" >> \"$PG_CONF\") && "
+        "PG_HBA=$(find /etc/postgresql -name pg_hba.conf -type f | head -1) && "
+        f"grep -q '{db_user}' \"$PG_HBA\" || "
+        f"(echo 'host {db_name} {db_user} 0.0.0.0/0 scram-sha-256' >> \"$PG_HBA\") && "
+        "systemctl reload postgresql"
+    )
+    out, code = await _agent_exec(ip, pg_conf_cmd, timeout=15)
+    if code != 0:
+        logger.warning("PostgreSQL remote access config may have failed: %s", out[-200:])
+
+
+async def list_databases(project_id: str) -> list[dict]:
+    return await db.fetch_all("managed_databases", project_id=project_id)
+
+
+async def get_database(project_id: str, database_id: str) -> dict:
+    record = await db.fetch_one("managed_databases", id=database_id)
+    if not record or record.get("project_id") != project_id:
+        raise NotFoundError("Database", database_id)
+    return record
+
+
+async def delete_database(project_id: str, database_id: str):
+    record = await get_database(project_id, database_id)
+    ip = await _get_instance_ip(record["instance_id"])
+
+    # Drop DB and user on the instance
+    try:
+        drop_cmd = (
+            f"sudo -u postgres dropdb --if-exists {record['name']} && "
+            f"sudo -u postgres dropuser --if-exists {record['db_user']}"
+        )
+        await _agent_exec(ip, drop_cmd, timeout=15)
+    except Exception as e:
+        logger.warning("Failed to drop database on instance: %s", e)
+
+    await db.delete("managed_databases", database_id)
+    logger.info("Deleted database %s", database_id)
+
+
+async def execute_query(project_id: str, database_id: str, sql: str) -> dict:
+    """Execute SQL on a managed database and return results."""
+    record = await get_database(project_id, database_id)
+    if record["state"] != "running":
+        raise NsoError(400, "Database is not running")
+
+    ip = await _get_instance_ip(record["instance_id"])
+
+    # Escape SQL for shell (use stdin pipe to avoid shell injection)
+    # We pass SQL via stdin to psql for safety
+    cmd = (
+        f"PGPASSWORD='{record['password_encrypted']}' "
+        f"psql -h 127.0.0.1 -p {record['port']} -U {record['db_user']} "
+        f"-d {record['name']} -t -A --csv "
+        f"-c $(echo {_shell_b64(sql)} | base64 -d)"
+    )
+    out, code = await _agent_exec(ip, cmd, timeout=30)
+
+    if code != 0:
+        return {"ok": False, "error": out.strip(), "rows": []}
+
+    # Parse CSV output
+    rows = []
+    lines = out.strip().split("\n") if out.strip() else []
+    if lines:
+        headers = lines[0].split(",") if lines else []
+        for line in lines[1:]:
+            if line.strip():
+                values = line.split(",")
+                rows.append(dict(zip(headers, values)))
+
+    return {"ok": True, "rows": rows, "row_count": len(rows)}
+
+
+def _shell_b64(text: str) -> str:
+    """Base64-encode text for safe shell transport."""
+    import base64
+    return base64.b64encode(text.encode()).decode()
+
+
+async def get_database_status(project_id: str, database_id: str) -> dict:
+    """Get live status of a managed database (size, connections, uptime)."""
+    record = await get_database(project_id, database_id)
+    if record["state"] != "running":
+        return {"state": record["state"], "error": record.get("error", "")}
+
+    ip = await _get_instance_ip(record["instance_id"])
+
+    status_sql = (
+        f"SELECT pg_database_size('{record['name']}') as size_bytes, "
+        f"(SELECT count(*) FROM pg_stat_activity WHERE datname='{record['name']}') as connections"
+    )
+    cmd = (
+        f"PGPASSWORD='{record['password_encrypted']}' "
+        f"psql -h 127.0.0.1 -U {record['db_user']} -d {record['name']} -t -A -F ',' "
+        f"-c \"$(echo {_shell_b64(status_sql)} | base64 -d)\""
+    )
+
+    try:
+        out, code = await _agent_exec(ip, cmd, timeout=10)
+        if code == 0 and out.strip():
+            parts = out.strip().split(",")
+            size_bytes = int(parts[0]) if parts[0].isdigit() else 0
+            connections = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+            # Update cached size
+            size_mb = round(size_bytes / (1024 * 1024), 2)
+            await db.update("managed_databases", database_id, {"size_mb": size_mb})
+            return {
+                "state": "running",
+                "size_bytes": size_bytes,
+                "size_mb": size_mb,
+                "connections": connections,
+            }
+    except Exception as e:
+        logger.warning("Status check failed for %s: %s", database_id, e)
+
+    return {"state": record["state"], "size_mb": record.get("size_mb", 0)}

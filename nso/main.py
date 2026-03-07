@@ -92,8 +92,10 @@ async def lifespan(app: FastAPI):
         from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
         from nso.engine.compute.pool import POOL_MIGRATIONS, seed_plans
         from nso.engine.compute.quota import QUOTA_MIGRATIONS
+        from nso.engine.infrastructure.database.migrations import TABLES as DB_TABLES, INDEXES as DB_INDEXES
+        from nso.engine.infrastructure.storage.migrations import TABLES as STORAGE_TABLES, INDEXES as STORAGE_INDEXES
         conn = await db.get_db()
-        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS + QUOTA_MIGRATIONS:
+        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS + QUOTA_MIGRATIONS + [DB_TABLES, DB_INDEXES, STORAGE_TABLES, STORAGE_INDEXES]:
             await conn.execute(migration)
         await conn.commit()
 
@@ -174,6 +176,8 @@ from nso.engine.build import routes as build_routes
 from nso.engine.deploy_agent import routes as deploy_agent_routes
 from nso.engine.compute import ready_routes
 from nso.engine.compute import pool_routes
+from nso.engine.infrastructure.database import routes as infra_db_routes
+from nso.engine.infrastructure.storage import routes as infra_storage_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
@@ -201,6 +205,8 @@ app.include_router(ai_apps_routes.project_router, prefix="/api/projects/{project
 app.include_router(ready_routes.admin_router, prefix="/api/ready", tags=["ready"])
 app.include_router(ready_routes.project_router, prefix="/api/projects/{project_id}/ready", tags=["ready"])
 app.include_router(pool_routes.router, prefix="/api/compute/pool", tags=["compute-pool"])
+app.include_router(infra_db_routes.router, prefix="/api/projects/{project_id}/databases", tags=["databases"])
+app.include_router(infra_storage_routes.router, prefix="/api/projects/{project_id}/storage", tags=["user-storage"])
 
 if SERVER_MODE in ("admin", "full"):
     from nso.engine.admin import routes as admin_routes

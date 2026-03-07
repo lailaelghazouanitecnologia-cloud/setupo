@@ -1,4 +1,6 @@
-export type DashboardView = "inbox" | "instances" | "projects" | "workspaces" | "deploy" | "secrets" | "addons" | "billing" | "settings" | "admin";
+export type DashboardView = "inbox" | "infrastructure" | "projects" | "workspaces" | "deploy" | "secrets" | "addons" | "billing" | "settings" | "admin";
+
+export type InfrastructureTab = "compute" | "database" | "storage";
 
 export type AddonTab = "connectors" | "plugins" | "marketplace";
 

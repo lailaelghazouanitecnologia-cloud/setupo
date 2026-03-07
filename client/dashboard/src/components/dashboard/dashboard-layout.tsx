@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import type { ProjectInfo, WorkspaceInfo } from "@/stores/dashboard-store";
 import { InboxPanel } from "./inbox-panel";
-import { InstancesPanel } from "./instances-panel";
+import { InfrastructurePanel } from "./infrastructure-panel";
 import { ProjectsPanel } from "./projects-panel";
 import { SecretsPanel } from "./secrets-panel";
 import { AddonsPanel } from "./addons-panel";
@@ -82,7 +82,7 @@ class PanelErrorBoundary extends Component<
    ═══════════════════════════════════════════ */
 const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] = [
   { id: "inbox", label: "Inbox", icon: Mail },
-  { id: "instances", label: "Instances", icon: Server },
+  { id: "infrastructure", label: "Infrastructure", icon: Server },
   { id: "workspaces", label: "Workspaces", icon: FolderOpen },
   { id: "deploy", label: "Deploy", icon: Rocket },
   { id: "secrets", label: "Secrets", icon: Key },
@@ -91,7 +91,7 @@ const navItems: { id: DashboardView; label: string; icon: React.ElementType }[] 
 
 const viewTitles: Record<DashboardView, string> = {
   inbox: "Inbox",
-  instances: "Instances",
+  infrastructure: "Infrastructure",
   projects: "Projects",
   workspaces: "Workspaces",
   deploy: "Deploy",
@@ -531,7 +531,7 @@ export function DashboardLayout() {
       <div className={cn("fmain", sidebarOpen && "shifted")}>
         <div className="fmain-content">
           {activeView === "inbox" && <PanelErrorBoundary name="Inbox"><InboxPanel /></PanelErrorBoundary>}
-          {activeView === "instances" && <PanelErrorBoundary name="Instances"><InstancesPanel /></PanelErrorBoundary>}
+          {activeView === "infrastructure" && <PanelErrorBoundary name="Infrastructure"><InfrastructurePanel /></PanelErrorBoundary>}
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
           {activeView === "workspaces" && <PanelErrorBoundary name="Workspaces"><WorkspacesPanel /></PanelErrorBoundary>}
           {activeView === "deploy" && <PanelErrorBoundary name="Deploy"><DeployPanel /></PanelErrorBoundary>}
