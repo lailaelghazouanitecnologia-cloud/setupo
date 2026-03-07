@@ -5,9 +5,9 @@ import {
   Server, Database, HardDrive, Plus, Trash2,
   RefreshCw, Play, Terminal, Copy, CheckCircle,
   XCircle, Upload, Download, FolderOpen, File,
-  ChevronRight, Eye, EyeOff, AlertTriangle,
+  ChevronRight, Eye, EyeOff, AlertTriangle, Activity,
 } from "lucide-react";
-import { InstancesPanel } from "./instances-panel";
+import { InstancesTab, ServicesTab } from "./instances-panel";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   listDatabases, createDatabase, deleteDatabase,
@@ -16,13 +16,15 @@ import {
   listBucketObjects, uploadObject, downloadObject, deleteObject,
   listInstances,
 } from "@/lib/api/client";
-import type { InfrastructureTab } from "@/types/dashboard";
+
+type InfraTab = "instances" | "services" | "database" | "storage";
 
 export function InfrastructurePanel() {
-  const [tab, setTab] = useState<InfrastructureTab>("compute");
+  const [tab, setTab] = useState<InfraTab>("instances");
 
-  const tabs: { id: InfrastructureTab; label: string; icon: React.ElementType }[] = [
-    { id: "compute", label: "Compute", icon: Server },
+  const tabs: { id: InfraTab; label: string; icon: React.ElementType }[] = [
+    { id: "instances", label: "Instances", icon: Server },
+    { id: "services", label: "Services", icon: Activity },
     { id: "database", label: "Database", icon: Database },
     { id: "storage", label: "Storage", icon: HardDrive },
   ];
@@ -41,7 +43,8 @@ export function InfrastructurePanel() {
           </button>
         ))}
       </div>
-      {tab === "compute" && <InstancesPanel />}
+      {tab === "instances" && <InstancesTab />}
+      {tab === "services" && <ServicesTab />}
       {tab === "database" && <DatabaseTab />}
       {tab === "storage" && <StorageTab />}
     </div>

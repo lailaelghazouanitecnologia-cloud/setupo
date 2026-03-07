@@ -388,7 +388,7 @@ const selectStyle: React.CSSProperties = {
    INSTANCES TAB
    ═══════════════════════════════════════════ */
 
-function InstancesTab() {
+export function InstancesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || null;
   const [loading, setLoading] = useState(true);
@@ -829,7 +829,7 @@ function FilesPanel({ instance }: { instance: Instance }) {
    SERVICES TAB
    ═══════════════════════════════════════════ */
 
-function ServicesTab() {
+export function ServicesTab() {
   const [statuses, setStatuses] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [sysInfo, setSysInfo] = useState<Record<string, string>>({});
