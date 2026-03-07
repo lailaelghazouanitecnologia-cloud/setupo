@@ -20,7 +20,7 @@ Usage:
 """
 
 from nso.shared.agent.agent import Agent
-from nso.shared.agent.run import run_agent_loop, RunEvent, RunResponse
+from nso.shared.agent.run import run_agent_loop, run_dual_agent_loop, RunEvent, RunResponse
 from nso.shared.agent.cancel import RunCancellation, CancellationManager, get_cancellation_manager
 from nso.shared.agent.approval import (
     ApprovalManager, ApprovalPolicy, RequireApproval, AuditOnly,
@@ -39,7 +39,7 @@ from nso.shared.agent.tools import (
 
 __all__ = [
     "Agent",
-    "run_agent_loop", "RunEvent", "RunResponse",
+    "run_agent_loop", "run_dual_agent_loop", "RunEvent", "RunResponse",
     "RunCancellation", "CancellationManager", "get_cancellation_manager",
     "ApprovalManager", "ApprovalPolicy", "RequireApproval", "AuditOnly",
     "ApprovalRequest", "ApprovalResult",

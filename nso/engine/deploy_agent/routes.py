@@ -22,32 +22,66 @@ from nso.shared import db
 from nso.shared.deps import require_project, require_user, AuthContext
 from nso.shared.agent import Agent, RunEvent, OpenAILike
 from nso.shared.agent.tools import ToolRegistry
-from nso.shared.agent.run import run_agent_loop
+from nso.shared.agent.run import run_agent_loop, run_dual_agent_loop
 from nso.shared.agent.model import Message
 from nso.engine.deploy_agent.tools import create_tools, DeployContext
 
 logger = logging.getLogger("nso.routes.deploy_agent")
 router = APIRouter()
 
-# ── LLM config ──
-# Supports any OpenAI-compatible API (Groq, OpenRouter, OpenAI, etc.)
-DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
-DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
-# Note: openai/gpt-oss-20b does NOT support function calling on Groq.
-# Use llama-3.3-70b-versatile, llama-3.1-70b-versatile, or mixtral-8x7b-32768.
+# ── LLM config — Dual-model: Supervisor + Worker ──
+#
+# Supervisor: must support function calling (tools). Executes tools, gathers data.
+# Worker: generates the final response. Can be any model (no tool support needed).
+#
+# If WORKER env vars are not set, falls back to single-model mode using supervisor only.
+
+# Supervisor (tool-capable)
+SUPERVISOR_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
+SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
+SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
+
+# Worker (response generation — optional, enables dual-model mode)
+WORKER_API_KEY = os.environ.get("DEPLOY_AGENT_WORKER_API_KEY", "")
+WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "")
+WORKER_MODEL = os.environ.get("DEPLOY_AGENT_WORKER_MODEL", "")
+
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "15"))
 
+# Dual-mode is active when worker env vars are configured
+DUAL_MODE = bool(WORKER_API_KEY and WORKER_API_URL and WORKER_MODEL)
 
-def _get_model() -> OpenAILike:
-    """Build the LLM model from env config."""
+
+def _get_supervisor() -> OpenAILike:
+    """Supervisor model — handles tools and orchestration."""
     return OpenAILike(
-        id=DEPLOY_AGENT_MODEL,
-        api_key=DEPLOY_AGENT_API_KEY,
-        base_url=DEPLOY_AGENT_API_URL,
+        id=SUPERVISOR_MODEL,
+        api_key=SUPERVISOR_API_KEY,
+        base_url=SUPERVISOR_API_URL,
         provider="groq",
     )
 
+
+def _get_worker() -> OpenAILike:
+    """Worker model — generates final response (no tools needed)."""
+    return OpenAILike(
+        id=WORKER_MODEL,
+        api_key=WORKER_API_KEY,
+        base_url=WORKER_API_URL,
+        provider="worker",
+    )
+
+
+SUPERVISOR_PROMPT = """You are the NSO Deploy Agent Supervisor. Your job is to understand the user's request and execute the right tools to gather data.
+
+IMPORTANT RULES:
+- Focus on EXECUTING TOOLS to gather information. Do NOT write long responses.
+- If the user asks a question that requires platform data, call the appropriate tool.
+- If no tools are needed (e.g. greeting, simple question), respond briefly.
+- After executing tools, stop. The Worker model will compose the final response.
+- Be efficient: call multiple tools in one step if possible.
+- Never expose internal details, tool names, or system architecture to users.
+"""
 
 SYSTEM_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps users build, deploy, and manage their projects on NSO (a cloud deployment platform).
 
@@ -118,6 +152,22 @@ All secrets are injected as environment variables during deploy.
 - Say what you're doing, then do it
 - Ask specific questions when you need more info
 - Always respond in the same language the user writes in
+"""
+
+WORKER_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps users build, deploy, and manage their projects on NSO.
+
+You will receive the user's message and data gathered by platform tools. Your job is to compose a clear, helpful response.
+
+Rules:
+- Use the tool results provided to give an accurate, detailed answer
+- Use markdown for formatting (code blocks, lists, bold, etc.)
+- Be concise and direct — answer what was asked
+- If something failed, explain what went wrong and suggest fixes
+- After a deploy, share the live domain
+- Always respond in the same language the user writes in
+- Never expose internal tool names, function names, or system details
+- Show file contents in code blocks with the right language tag
+- SECURITY: Never echo back full credentials
 """
 
 
@@ -265,14 +315,32 @@ async def stream_message(
         all_tool_results = []
 
         try:
-            async for event in run_agent_loop(
-                model=_get_model(),
-                messages=messages,
-                system_prompt=SYSTEM_PROMPT,
-                registry=registry,
-                max_steps=DEPLOY_AGENT_MAX_STEPS,
-                run_id=run_id,
-            ):
+            if DUAL_MODE:
+                # Dual-model: supervisor handles tools, worker writes response
+                logger.info("Dual-model mode: supervisor=%s worker=%s", SUPERVISOR_MODEL, WORKER_MODEL)
+                event_stream = run_dual_agent_loop(
+                    supervisor=_get_supervisor(),
+                    worker=_get_worker(),
+                    messages=messages,
+                    supervisor_prompt=SUPERVISOR_PROMPT,
+                    worker_prompt=WORKER_PROMPT,
+                    registry=registry,
+                    max_steps=DEPLOY_AGENT_MAX_STEPS,
+                    run_id=run_id,
+                )
+            else:
+                # Single-model: supervisor does everything
+                logger.info("Single-model mode: %s", SUPERVISOR_MODEL)
+                event_stream = run_agent_loop(
+                    model=_get_supervisor(),
+                    messages=messages,
+                    system_prompt=SYSTEM_PROMPT,
+                    registry=registry,
+                    max_steps=DEPLOY_AGENT_MAX_STEPS,
+                    run_id=run_id,
+                )
+
+            async for event in event_stream:
                 yield event.to_sse()
 
                 # Accumulate for DB persistence
