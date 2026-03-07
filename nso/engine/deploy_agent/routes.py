@@ -34,6 +34,8 @@ router = APIRouter()
 DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
 DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
 DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
+# Note: openai/gpt-oss-20b does NOT support function calling on Groq.
+# Use llama-3.3-70b-versatile, llama-3.1-70b-versatile, or mixtral-8x7b-32768.
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "15"))
 
 

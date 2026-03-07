@@ -627,9 +627,9 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
             </div>
             <div className="da-toolbar-right">
               {/* Model indicator */}
-              <button type="button" className="da-model-indicator" title="Deploy Agent Model">
+              <button type="button" className="da-model-indicator" title="Deploy Agent">
                 <Sparkles className="h-3 w-3" />
-                <span>deploy-agent</span>
+                <span>Deploy Agent</span>
               </button>
               {/* Send / Stop */}
               {streaming ? (
@@ -1099,11 +1099,89 @@ function CopyBtn({ text }: { text: string }) {
 }
 
 /* ═══════════════════════════════════════════
-   CHAT MARKDOWN — react-markdown + remark-gfm
+   TOKENIZER + RENDERER — multi-format message rendering
+   Handles: markdown, HTML, code blocks, plain text
    ═══════════════════════════════════════════ */
 
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+/** Token types for the message tokenizer */
+type TokenType = "markdown" | "html" | "code" | "text";
+interface ContentToken { type: TokenType; content: string; lang?: string }
+
+/**
+ * Tokenize a message string into segments of different render types.
+ * Detects HTML blocks, fenced code blocks, and markdown.
+ */
+function tokenizeContent(text: string): ContentToken[] {
+  if (!text) return [];
+  const tokens: ContentToken[] = [];
+
+  // Check if the entire content is HTML (starts with a tag, has closing tags)
+  const trimmed = text.trim();
+  if (/^<(!DOCTYPE|html|div|section|article|main|nav|header|footer|form|table|ul|ol|dl|details|figure)\b/i.test(trimmed)
+    && /<\/\w+>\s*$/i.test(trimmed)) {
+    tokens.push({ type: "html", content: text });
+    return tokens;
+  }
+
+  // Split into segments: fenced code blocks vs the rest
+  const fencedCodeRegex = /```(\w*)\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = fencedCodeRegex.exec(text)) !== null) {
+    // Text before the code block
+    if (match.index > lastIndex) {
+      const before = text.slice(lastIndex, match.index);
+      tokens.push(..._tokenizeSegment(before));
+    }
+    // The code block itself
+    tokens.push({ type: "code", content: match[2], lang: match[1] || "text" });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Remaining text after last code block
+  if (lastIndex < text.length) {
+    tokens.push(..._tokenizeSegment(text.slice(lastIndex)));
+  }
+
+  return tokens.length ? tokens : [{ type: "text", content: text }];
+}
+
+/** Tokenize a non-code segment — detect inline HTML blocks */
+function _tokenizeSegment(text: string): ContentToken[] {
+  if (!text.trim()) return [];
+  // Check for standalone HTML blocks (e.g. <div>...</div>, <table>...</table>)
+  const htmlBlockRegex = /(<(?:div|section|article|table|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b[^>]*>[\s\S]*?<\/\1>)/gi;
+  const parts = text.split(htmlBlockRegex);
+  const tokens: ContentToken[] = [];
+  for (const part of parts) {
+    if (!part.trim()) continue;
+    if (/^<(?:div|section|article|table|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b/i.test(part.trim())) {
+      tokens.push({ type: "html", content: part });
+    } else {
+      tokens.push({ type: "markdown", content: part });
+    }
+  }
+  return tokens;
+}
+
+/** Render an HTML token safely inside a sandboxed container */
+function HtmlRenderer({ html }: { html: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ref.current) return;
+    // Sanitize: strip script tags and event handlers
+    const sanitized = html
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
+      .replace(/\bon\w+\s*=\s*"[^"]*"/gi, "")
+      .replace(/\bon\w+\s*=\s*'[^']*'/gi, "");
+    ref.current.innerHTML = sanitized;
+  }, [html]);
+  return <div ref={ref} className="da-html-render" />;
+}
 
 function CodeBlock({ code, lang }: { code: string; lang: string }) {
   const [copied, setCopied] = useState(false);
@@ -1160,12 +1238,26 @@ const mdComponents: Components = {
   hr() { return <hr className="da-hr" />; },
 };
 
+/** Main content renderer — tokenizes then renders each segment */
 const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
+  const tokens = useMemo(() => tokenizeContent(text), [text]);
   return (
     <div className="da-md">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-        {text}
-      </ReactMarkdown>
+      {tokens.map((token, i) => {
+        switch (token.type) {
+          case "html":
+            return <HtmlRenderer key={i} html={token.content} />;
+          case "code":
+            return <CodeBlock key={i} code={token.content} lang={token.lang || "text"} />;
+          case "markdown":
+          default:
+            return (
+              <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={mdComponents}>
+                {token.content}
+              </ReactMarkdown>
+            );
+        }
+      })}
     </div>
   );
 });
