@@ -1019,14 +1019,28 @@ const TOOL_NAMES: Record<string, string> = {
   start_ai_app: "Start AI App", advance_ai_app: "Advance AI App",
 };
 
-/** Tool call in progress — inline with dot + name + preview */
+/** Tool call in progress — inline with dot + name + args preview */
 function ToolInline({ name, args, isStreaming }: {
   name: string; args?: any; isStreaming?: boolean;
 }) {
   const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   const parsedArgs = typeof args === "string" ? safeParse(args) : args;
-  const preview = parsedArgs && typeof parsedArgs === "object"
-    ? String(Object.values(parsedArgs)[0] || "").slice(0, 60) : "";
+
+  // Build a meaningful preview from args
+  const preview = useMemo(() => {
+    if (!parsedArgs || typeof parsedArgs !== "object") return "";
+    const parts: string[] = [];
+    if (parsedArgs.workspace) parts.push(parsedArgs.workspace);
+    if (parsedArgs.instance_id) parts.push(parsedArgs.instance_id);
+    if (parsedArgs.file_path) parts.push(parsedArgs.file_path);
+    if (parsedArgs.connector_id) parts.push(parsedArgs.connector_id);
+    if (parsedArgs.key) parts.push(parsedArgs.key);
+    if (parts.length === 0) {
+      const first = Object.values(parsedArgs)[0];
+      if (first && typeof first === "string") parts.push(first.slice(0, 60));
+    }
+    return parts.join(" · ");
+  }, [parsedArgs]);
 
   return (
     <div className="da-tool-inline">
@@ -1038,12 +1052,74 @@ function ToolInline({ name, args, isStreaming }: {
   );
 }
 
+/** Deploy result card — shown for run_ship results */
+function DeployResultCard({ data }: { data: any }) {
+  const isOk = data?.ok;
+  return (
+    <div className="da-deploy-card">
+      <div className="da-deploy-card-header">
+        {isOk ? (
+          <CheckCircle2 className="h-4 w-4" style={{ color: "#4ade80" }} />
+        ) : (
+          <XCircle className="h-4 w-4" style={{ color: "#f87171" }} />
+        )}
+        <span className="da-deploy-card-title">
+          {isOk ? "Deployed successfully" : "Deploy failed"}
+        </span>
+      </div>
+      {isOk && (
+        <div className="da-deploy-card-body">
+          {data.domain && (
+            <div className="da-deploy-card-row">
+              <Globe className="h-3.5 w-3.5" />
+              <a
+                href={`https://${data.domain}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="da-deploy-card-link"
+              >
+                {data.domain}
+              </a>
+            </div>
+          )}
+          {data.workspace && (
+            <div className="da-deploy-card-row">
+              <Package className="h-3.5 w-3.5" />
+              <span>{data.workspace}</span>
+              {data.version && <span className="da-deploy-card-meta">v{data.version}</span>}
+              {data.branch && data.branch !== "main" && (
+                <span className="da-deploy-card-meta">{data.branch}</span>
+              )}
+            </div>
+          )}
+          {data.instance_id && (
+            <div className="da-deploy-card-row">
+              <Server className="h-3.5 w-3.5" />
+              <span className="da-deploy-card-meta">{data.instance_id}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {!isOk && data.error && (
+        <div className="da-deploy-card-body">
+          <p style={{ color: "#f87171", fontSize: 13, margin: 0 }}>{data.error}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Tool result — expandable block with status, uses FileTokenView for file reads */
 function ToolResultBlock({ name, result }: { name: string; result?: string }) {
   const [expanded, setExpanded] = useState(false);
   const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   const parsed = result ? safeParse(result) : null;
-  const isOk = parsed ? parsed?.ok !== false : true;
+  const isOk = parsed ? parsed?.ok !== false && !parsed?.error : true;
+
+  // Deploy result → special card
+  if (name === "run_ship" && parsed && typeof parsed === "object") {
+    return <DeployResultCard data={parsed} />;
+  }
 
   // File content → render with FileTokenView
   const fileData = useMemo((): FileEntry | null => {
@@ -1069,27 +1145,73 @@ function ToolResultBlock({ name, result }: { name: string; result?: string }) {
     );
   }
 
-  const outputText = typeof parsed === "object"
-    ? (parsed?.output || parsed?.stdout || parsed?.result || parsed?.message || "")
-    : String(parsed || "");
-  const lines = String(outputText).split("\n").filter(Boolean);
-  const hasContent = lines.length > 0;
-  const isMultiLine = lines.length > 3;
+  // Build summary lines for structured results
+  const summaryLines = useMemo(() => {
+    if (!parsed || typeof parsed !== "object") return [];
+    const lines: string[] = [];
+
+    // Workspace/instance lists
+    if (parsed.workspaces && Array.isArray(parsed.workspaces)) {
+      for (const ws of parsed.workspaces.slice(0, 10)) {
+        lines.push(`${ws.name || ws}${ws.stack ? ` (${ws.stack})` : ""}${ws.path ? ` — ${ws.path}` : ""}`);
+      }
+    }
+    if (parsed.instances && Array.isArray(parsed.instances)) {
+      for (const inst of parsed.instances.slice(0, 10)) {
+        lines.push(`${inst.label || inst.id} — ${inst.state || "unknown"}${inst.ip ? ` (${inst.ip})` : ""}`);
+      }
+    }
+    if (parsed.secrets && typeof parsed.secrets === "object" && !Array.isArray(parsed.secrets)) {
+      for (const [bucket, keys] of Object.entries(parsed.secrets)) {
+        const keyList = Array.isArray(keys) ? keys : [];
+        lines.push(`${bucket}: ${keyList.join(", ")}`);
+      }
+    }
+    if (parsed.connectors && Array.isArray(parsed.connectors)) {
+      for (const c of parsed.connectors) {
+        lines.push(`${c.name || c.connector_id} — ${c.configured ? "configured" : "not configured"}`);
+      }
+    }
+
+    // Generic output fields
+    if (lines.length === 0) {
+      const output = parsed.output || parsed.stdout || parsed.result || parsed.message || "";
+      if (output) lines.push(...String(output).split("\n").filter(Boolean));
+    }
+
+    // Fallback: show key fields
+    if (lines.length === 0) {
+      for (const [k, v] of Object.entries(parsed)) {
+        if (k === "ok" || k === "error") continue;
+        if (typeof v === "string" || typeof v === "number" || typeof v === "boolean") {
+          lines.push(`${k}: ${v}`);
+        }
+      }
+    }
+
+    return lines;
+  }, [parsed]);
+
+  const hasContent = summaryLines.length > 0;
+  const isMultiLine = summaryLines.length > 3;
 
   return (
     <div className="da-result-block">
       <div className="da-result-header" onClick={() => hasContent && setExpanded(!expanded)} style={{ cursor: hasContent ? "pointer" : "default" }}>
         <span className={`da-tool-dot ${isOk ? "success" : "error"}`} />
         <span className="da-tool-name">{displayName}</span>
+        {parsed?.error && (
+          <span className="da-result-error-hint">{String(parsed.error).slice(0, 80)}</span>
+        )}
         <span className="da-result-status" style={{ color: isOk ? "#4ade80" : "#f87171" }}>
           {isOk ? "Done" : "Failed"}
         </span>
-        {hasContent && (
+        {hasContent && isMultiLine && (
           <ChevronDown className={`h-3 w-3 opacity-40 shrink-0 transition-transform ${expanded ? "rotate-180" : ""}`} />
         )}
       </div>
       {hasContent && (expanded || !isMultiLine) && (
-        <pre className="da-result-output">{lines.slice(0, expanded ? undefined : 3).join("\n")}</pre>
+        <pre className="da-result-output">{summaryLines.slice(0, expanded ? undefined : 5).join("\n")}</pre>
       )}
     </div>
   );

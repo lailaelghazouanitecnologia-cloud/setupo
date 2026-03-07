@@ -574,6 +574,48 @@
 }
 .da-codeblock-pre code { font-family: inherit; white-space: pre; }
 
+/* ── Deploy result card ── */
+.da-deploy-card {
+  margin: 8px 0; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, #4ade80 25%, var(--border));
+  background: color-mix(in srgb, #4ade80 4%, transparent);
+  overflow: hidden;
+}
+.da-deploy-card-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; font-weight: 600; font-size: 14px;
+  color: var(--foreground);
+}
+.da-deploy-card-title { flex: 1; }
+.da-deploy-card-body {
+  padding: 0 14px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.da-deploy-card-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--foreground);
+}
+.da-deploy-card-row svg { color: var(--muted-foreground); flex-shrink: 0; }
+.da-deploy-card-link {
+  color: #3b82f6; text-decoration: underline;
+  text-underline-offset: 2px; font-weight: 500;
+}
+.da-deploy-card-link:hover { opacity: 0.8; }
+.da-deploy-card-meta {
+  font-size: 11px; color: var(--muted-foreground);
+  font-family: var(--font-mono, monospace);
+  background: color-mix(in srgb, var(--muted-foreground) 10%, transparent);
+  padding: 1px 6px; border-radius: 4px;
+}
+
+/* Tool result error hint */
+.da-result-error-hint {
+  font-size: 11px; color: #f87171;
+  font-family: var(--font-mono, monospace);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 300px; flex: 1;
+}
+
 /* ── HTML renderer ── */
 .da-html-render {
   margin: 8px 0; padding: 16px;
