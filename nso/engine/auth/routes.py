@@ -1,7 +1,7 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from pydantic import BaseModel
 
 from nso.shared.auth.resolve import LoginRequest, LoginResponse, verify_password, load_admin_token
@@ -92,9 +92,14 @@ async def register(req: RegisterRequest):
 
 
 @router.post("/login", response_model=LoginResponse)
-async def login(req: LoginRequest):
+async def login(req: LoginRequest, request: Request):
     admin = verify_password(req.email, req.password)
     if admin:
+        # Admin login only allowed from sonfazt.nso.dev
+        is_admin_host = getattr(request.state, "is_admin_host", False)
+        if not is_admin_host:
+            raise HTTPException(403, "Admin login is only available via sonfazt.nso.dev")
+
         # Ensure admin user exists in DB so user-scoped endpoints work
         user = await users.get_user_by_email(req.email)
         if not user:

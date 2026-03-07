@@ -24,13 +24,18 @@ class AdminHostMiddleware(BaseHTTPMiddleware):
     ADMIN_HOSTS = {"sonfazt.nso.dev", "localhost", "127.0.0.1"}
 
     async def dispatch(self, request: Request, call_next):
-        if request.url.path.startswith("/api/admin"):
-            host = request.headers.get("host", "").split(":")[0]
-            if host not in self.ADMIN_HOSTS:
-                return JSONResponse(
-                    status_code=403,
-                    content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
-                )
+        host = request.headers.get("host", "").split(":")[0]
+        is_admin_host = host in self.ADMIN_HOSTS
+
+        # Block /api/admin/* from non-admin hosts
+        if request.url.path.startswith("/api/admin") and not is_admin_host:
+            return JSONResponse(
+                status_code=403,
+                content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
+            )
+
+        # Tag request so login route knows if this is an admin-allowed host
+        request.state.is_admin_host = is_admin_host
         return await call_next(request)
 
 
