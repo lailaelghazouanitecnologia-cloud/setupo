@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import shlex
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
@@ -204,7 +205,8 @@ class DeployPipeline:
         # Packages
         packages = system.get("packages", [])
         if packages and isinstance(packages, list):
-            pkg_list = " ".join(packages)
+            safe_pkgs = [shlex.quote(p) for p in packages]
+            pkg_list = " ".join(safe_pkgs)
             out, code = await _run_cmd(
                 f"DEBIAN_FRONTEND=noninteractive apt-get install -y {pkg_list}",
                 timeout=300,
@@ -227,12 +229,12 @@ class DeployPipeline:
                 home = user.get("home", f"/home/{name}")
                 groups = user.get("groups", [])
 
-                cmd = f"id {name} 2>/dev/null || useradd -m -s {shell} -d {home} {name}"
+                cmd = f"id {shlex.quote(name)} 2>/dev/null || useradd -m -s {shlex.quote(shell)} -d {shlex.quote(home)} {shlex.quote(name)}"
                 await _run_cmd(cmd)
 
                 if groups and isinstance(groups, list):
                     for g in groups:
-                        await _run_cmd(f"usermod -aG {g} {name} 2>/dev/null || true")
+                        await _run_cmd(f"usermod -aG {shlex.quote(g)} {shlex.quote(name)} 2>/dev/null || true")
                 messages.append(f"User: {name}")
 
         # Firewall rules
@@ -247,9 +249,9 @@ class DeployPipeline:
                 action = rule.get("action", "allow")
 
                 if from_addr:
-                    cmd = f"ufw {action} from {from_addr} to any port {port} proto {proto}"
+                    cmd = f"ufw {shlex.quote(action)} from {shlex.quote(from_addr)} to any port {shlex.quote(str(port))} proto {shlex.quote(proto)}"
                 else:
-                    cmd = f"ufw {action} {port}/{proto}"
+                    cmd = f"ufw {shlex.quote(action)} {shlex.quote(str(port))}/{shlex.quote(proto)}"
                 await _run_cmd(cmd)
                 messages.append(f"Firewall: {action} {port}/{proto}")
 
@@ -257,10 +259,10 @@ class DeployPipeline:
         services = system.get("services", {})
         if isinstance(services, dict):
             for svc in services.get("enable", []):
-                await _run_cmd(f"systemctl enable --now {svc} 2>/dev/null || true")
+                await _run_cmd(f"systemctl enable --now {shlex.quote(svc)} 2>/dev/null || true")
                 messages.append(f"Enabled: {svc}")
             for svc in services.get("disable", []):
-                await _run_cmd(f"systemctl disable --now {svc} 2>/dev/null || true")
+                await _run_cmd(f"systemctl disable --now {shlex.quote(svc)} 2>/dev/null || true")
 
         self.result.log_phase("system", True, "; ".join(messages), _elapsed(t0))
 

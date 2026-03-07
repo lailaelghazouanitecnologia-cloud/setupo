@@ -1,4 +1,5 @@
 import asyncio
+import fcntl
 import hashlib
 import hmac as hmac_mod
 import json
@@ -111,8 +112,19 @@ def _load_state() -> dict:
 
 
 def _save_state(state: dict):
+    """Atomically write deploy state with file locking."""
     DEPLOY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    DEPLOY_STATE_FILE.write_text(json.dumps(state, indent=2))
+    tmp = DEPLOY_STATE_FILE.with_suffix(".tmp")
+    try:
+        with open(tmp, "w") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            json.dump(state, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, DEPLOY_STATE_FILE)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _list_snapshots(target_dir: str = "/opt/app") -> list[str]:
@@ -593,6 +605,24 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
             results["ok"] = False
         return ok
 
+    # 0. Create snapshot of current production code before updating
+    snapshot_name = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    snap_dir = SNAPSHOTS_DIR / "platform" / snapshot_name
+    try:
+        snap_dir.parent.mkdir(parents=True, exist_ok=True)
+        for subdir in ["nso", "vm"]:
+            src = Path(f"/opt/nso/{subdir}")
+            if src.exists():
+                shutil.copytree(src, snap_dir / subdir, symlinks=True)
+        _step("snapshot", f"Created at {snap_dir}", 0)
+        # Prune old platform snapshots (keep last 3)
+        all_snaps = sorted(snap_dir.parent.iterdir(), key=lambda p: p.name)
+        for old in all_snaps[:-3]:
+            shutil.rmtree(old, ignore_errors=True)
+    except Exception as e:
+        _step("snapshot", f"Warning: snapshot failed: {e}", 0)
+        logger.warning("Platform snapshot failed: %s", e)
+
     # 1. Git pull
     out, code = await _run(f"git fetch origin {req.branch} && git reset --hard origin/{req.branch}")
     _step("git_pull", out, code)
@@ -645,14 +675,33 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
         out, code = await _restart_service(svc)
         _step(f"restart_{svc}", out, code)
 
-    # 7. Health check
+    # 7. Health check — auto-rollback on failure
     await asyncio.sleep(2)
+    health_ok = False
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get("http://127.0.0.1:8000/api/health")
-            _step("health_api", resp.text, 0 if resp.status_code == 200 else 1)
+            health_ok = resp.status_code == 200
+            _step("health_api", resp.text, 0 if health_ok else 1)
     except Exception as e:
         _step("health_api", str(e), 1)
+
+    # Auto-rollback if health check failed and we have a snapshot
+    if not health_ok and snap_dir.exists():
+        logger.warning("Health check failed — rolling back platform update from %s", snapshot_name)
+        try:
+            for subdir in ["nso", "vm"]:
+                src = snap_dir / subdir
+                dst = Path(f"/opt/nso/{subdir}")
+                if src.exists():
+                    shutil.rmtree(dst, ignore_errors=True)
+                    shutil.copytree(src, dst, symlinks=True)
+            for svc in req.restart_services:
+                await _restart_service(svc)
+            _step("rollback", f"Restored from {snapshot_name}", 0)
+        except Exception as e:
+            _step("rollback", f"Rollback failed: {e}", 1)
+            logger.error("Platform rollback failed: %s", e)
 
     results["timestamp"] = datetime.now(timezone.utc).isoformat()
     return results

@@ -295,16 +295,19 @@ if [ -n "$CF_API_TOKEN" ] && [ "$CF_API_TOKEN" != "__CF_API_TOKEN__" ]; then
   sleep 10
 fi
 
-# ── 12. SSL with certbot ─────────────────────────────────────
+# ── 12. SSL with certbot (single SAN cert for all domains) ────
 echo "Configuring SSL..."
-certbot --nginx -d "${NSO_DOMAIN}" --non-interactive --agree-tos -m "${NSO_ADMIN_EMAIL}" || {
-  echo "Certbot failed for ${NSO_DOMAIN} — will retry in 60s"
+certbot --nginx \
+  -d "${NSO_DOMAIN}" \
+  -d "sonfazt.${NSO_DOMAIN}" \
+  --non-interactive --agree-tos -m "${NSO_ADMIN_EMAIL}" || {
+  echo "Certbot failed — will retry in 60s"
   sleep 60
-  certbot --nginx -d "${NSO_DOMAIN}" --non-interactive --agree-tos -m "${NSO_ADMIN_EMAIL}" || echo "Certbot failed — SSL not configured"
+  certbot --nginx \
+    -d "${NSO_DOMAIN}" \
+    -d "sonfazt.${NSO_DOMAIN}" \
+    --non-interactive --agree-tos -m "${NSO_ADMIN_EMAIL}" || echo "Certbot failed — SSL not configured"
 }
-
-# Try admin subdomain SSL too
-certbot --nginx -d "sonfazt.${NSO_DOMAIN}" --non-interactive --agree-tos -m "${NSO_ADMIN_EMAIL}" || echo "Certbot for admin subdomain skipped"
 
 # ── 13. Verify services ─────────────────────────────────────
 echo ""

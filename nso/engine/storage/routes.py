@@ -373,6 +373,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
 
     # ── Auto-assign deploy domain ──
     deploy_domain = ""
+    dns_error = None
     inst = await db.fetch_one("instances", id=instance_id)
     inst_ip = inst.get("ip", "") if inst else ""
 
@@ -437,7 +438,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
             logger.info("Deploy domain %s → %s", deploy_domain, inst_ip)
         except Exception as exc:
             logger.warning("Failed to create deploy domain %s: %s", deploy_domain, exc)
-            deploy_domain = f"{deploy_domain} (DNS failed)"
+            dns_error = str(exc)
 
     return {
         "ok": True, "action": "ship", "workspace": name,
@@ -445,6 +446,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
         "hash": manifest.hash, "r2_key": r2_key, "size": len(zar_bytes),
         "instance_id": instance_id, "snapshot": result.get("snapshot", ""),
         "domain": deploy_domain,
+        "dns_error": dns_error,
         "pipeline": result.get("pipeline", False),
         "phases": result.get("phases", []),
         "build": build_info,
