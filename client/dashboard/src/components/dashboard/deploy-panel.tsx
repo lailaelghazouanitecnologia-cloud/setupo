@@ -506,8 +506,8 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
             ) : (
               <button
                 onClick={onSend}
-                disabled={!input.trim() && attachments.length === 0}
-                className={`da-send-btn ${input.trim() || attachments.length > 0 ? "active" : ""}`}
+                disabled={false}
+                className="da-send-btn active"
                 title="Send"
               >
                 <ArrowUp className="h-4 w-4" />
