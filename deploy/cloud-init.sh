@@ -35,6 +35,16 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 echo "Node $(node --version), npm $(npm --version)"
 
+# ── 1b. Swap (prevents OOM during npm build on 1GB VPS) ─────────
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+  echo "Swap enabled: $(swapon --show)"
+fi
+
 # ── 2. Firewall ─────────────────────────────────────────────────
 ufw default deny incoming
 ufw default allow outgoing

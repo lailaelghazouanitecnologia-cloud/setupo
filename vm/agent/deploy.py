@@ -574,7 +574,7 @@ async def _handoff_to_supervisor(config: dict, working_dir: str, version: str):
 class PlatformUpdateRequest(BaseModel):
     branch: str = "main"
     rebuild_dashboard: bool = True
-    rebuild_admin: bool = False
+    rebuild_admin: bool = True
     restart_services: list[str] = Field(default_factory=lambda: ["nso", "nso-agent"])
 
 
@@ -622,6 +622,15 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
     except Exception as e:
         _step("snapshot", f"Warning: snapshot failed: {e}", 0)
         logger.warning("Platform snapshot failed: %s", e)
+
+    # 0b. Ensure swap exists (prevents OOM during npm build on 1GB VPS)
+    out, code = await _run(
+        "test -f /swapfile || (fallocate -l 2G /swapfile && chmod 600 /swapfile && "
+        "mkswap /swapfile && swapon /swapfile && "
+        "grep -q swapfile /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab)",
+        cwd="/tmp"
+    )
+    _step("ensure_swap", out, code)
 
     # 1. Git pull
     out, code = await _run(f"git fetch origin {req.branch} && git reset --hard origin/{req.branch}")
