@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback, memo } from "react";
+import React, { useState, useEffect, useRef, useCallback, memo, useMemo } from "react";
 import {
   Rocket, ArrowUp, Square, Loader2,
   MessageSquare, Plus, Trash2, ChevronDown,
@@ -10,6 +10,7 @@ import {
   ChevronRight, FolderClosed,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import { FileTokenView, type FileEntry } from "./file-token-view";
 import {
   createDeployThread, listDeployThreads, getDeployThread,
   deleteDeployThread, streamDeployAgent,
@@ -915,12 +916,36 @@ function ToolInline({ name, args, isStreaming }: {
   );
 }
 
-/** Tool result — expandable block with status */
+/** Tool result — expandable block with status, uses FileTokenView for file reads */
 function ToolResultBlock({ name, result }: { name: string; result?: string }) {
   const [expanded, setExpanded] = useState(false);
   const displayName = TOOL_NAMES[name] || name.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
   const parsed = result ? safeParse(result) : null;
   const isOk = parsed ? parsed?.ok !== false : true;
+
+  // File content → render with FileTokenView
+  const fileData = useMemo((): FileEntry | null => {
+    if (!parsed || typeof parsed !== "object") return null;
+    if (name === "read_workspace_file" && parsed.content) {
+      const filename = parsed.path || parsed.file || "file";
+      const shortName = filename.split("/").pop() || filename;
+      return { name: shortName, path: filename, content: parsed.content };
+    }
+    if (name === "write_workspace_file" && parsed.content) {
+      const filename = parsed.path || parsed.file || "file";
+      const shortName = filename.split("/").pop() || filename;
+      return { name: shortName, path: filename, content: parsed.content };
+    }
+    return null;
+  }, [parsed, name]);
+
+  if (fileData) {
+    return (
+      <div className="my-2">
+        <FileTokenView files={[fileData]} title={displayName} />
+      </div>
+    );
+  }
 
   const outputText = typeof parsed === "object"
     ? (parsed?.output || parsed?.stdout || parsed?.result || parsed?.message || "")

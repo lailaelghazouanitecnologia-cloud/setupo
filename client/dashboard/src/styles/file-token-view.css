@@ -1,0 +1,143 @@
+/* ═══════════════════════════════════════════
+   FILE TOKEN VIEW (ftv-*)
+   Tokenized file renderer with orange/blue syntax
+   ═══════════════════════════════════════════ */
+:root {
+  --ftv-orange: #e8772e;
+  --ftv-orange-light: #f0944a;
+  --ftv-orange-soft: #d4875a;
+  --ftv-blue: #60a5fa;
+  --ftv-blue-light: #93c5fd;
+  --ftv-comment: color-mix(in srgb, var(--muted-foreground) 50%, transparent);
+  --ftv-operator: color-mix(in srgb, var(--muted-foreground) 70%, transparent);
+  --ftv-punctuation: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+
+.ftv-container {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background: var(--background);
+  overflow: hidden;
+}
+
+/* ── Header with gradient ── */
+.ftv-header {
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--ftv-orange) 12%, transparent));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+}
+.ftv-header-content {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+}
+.ftv-header-title {
+  font-size: 13px; font-weight: 600;
+  color: var(--foreground);
+}
+.ftv-header-stats {
+  display: flex; align-items: center; gap: 12px;
+}
+.ftv-stat {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 500;
+  color: var(--ftv-orange);
+  font-family: var(--font-mono, monospace);
+}
+.ftv-stat-lines {
+  font-size: 11px;
+  color: var(--muted-foreground);
+  font-family: var(--font-mono, monospace);
+}
+
+/* ── File blocks ── */
+.ftv-files {
+  display: flex; flex-direction: column;
+}
+.ftv-file {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+}
+.ftv-file:last-child { border-bottom: none; }
+
+/* File title bar — gradient alpha→orange left to right */
+.ftv-file-title {
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 8px 14px;
+  border: none; cursor: pointer;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--ftv-orange) 6%, transparent));
+  color: var(--foreground);
+  font-size: 12px; font-family: var(--font-mono, monospace);
+  transition: background 0.15s;
+}
+.ftv-file-title:hover {
+  background: linear-gradient(to right, color-mix(in srgb, var(--ftv-orange) 4%, transparent), color-mix(in srgb, var(--ftv-orange) 12%, transparent));
+}
+.ftv-file.expanded .ftv-file-title {
+  background: linear-gradient(to right, color-mix(in srgb, var(--ftv-orange) 5%, transparent), color-mix(in srgb, var(--ftv-orange) 15%, transparent));
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 30%, transparent);
+}
+.ftv-file-title-left {
+  display: flex; align-items: center; gap: 6px;
+}
+.ftv-chevron {
+  color: var(--ftv-orange); opacity: 0.6;
+}
+.ftv-filename {
+  font-weight: 500;
+}
+.ftv-file-meta {
+  display: flex; align-items: center; gap: 10px;
+}
+.ftv-token-badge {
+  font-size: 10px; font-weight: 600;
+  padding: 1px 8px; border-radius: 9999px;
+  background: color-mix(in srgb, var(--ftv-orange) 15%, transparent);
+  color: var(--ftv-orange);
+  letter-spacing: 0.02em;
+}
+.ftv-line-count {
+  font-size: 10px;
+  color: var(--muted-foreground); opacity: 0.6;
+}
+
+/* ── Code area ── */
+.ftv-code-wrap {
+  overflow-x: auto;
+  max-height: 500px; overflow-y: auto;
+  background: color-mix(in srgb, var(--muted-foreground) 2%, transparent);
+}
+.ftv-code {
+  margin: 0; padding: 8px 0;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px; line-height: 1.6;
+  tab-size: 4;
+}
+.ftv-line {
+  display: flex; padding: 0 14px 0 0;
+  min-height: 19px;
+}
+.ftv-line:hover {
+  background: color-mix(in srgb, var(--ftv-orange) 4%, transparent);
+}
+.ftv-line-num {
+  display: inline-block; width: 48px;
+  text-align: right; padding-right: 16px;
+  color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  user-select: none; flex-shrink: 0;
+  font-size: 11px;
+}
+.ftv-line-content {
+  flex: 1; white-space: pre;
+}
+
+/* ── Token colors ── */
+.ftv-tok { }
+.ftv-tok-keyword   { color: var(--ftv-orange); font-weight: 600; }
+.ftv-tok-builtin   { color: var(--ftv-orange-light); }
+.ftv-tok-function  { color: var(--ftv-orange); }
+.ftv-tok-decorator { color: var(--ftv-orange-soft); font-style: italic; }
+.ftv-tok-string    { color: var(--ftv-blue); }
+.ftv-tok-type      { color: var(--ftv-blue); font-weight: 500; }
+.ftv-tok-number    { color: var(--ftv-blue-light); }
+.ftv-tok-comment   { color: var(--ftv-comment); font-style: italic; }
+.ftv-tok-operator  { color: var(--ftv-operator); }
+.ftv-tok-punctuation { color: var(--ftv-punctuation); }
+.ftv-tok-plain     { color: color-mix(in srgb, var(--foreground) 85%, transparent); }
