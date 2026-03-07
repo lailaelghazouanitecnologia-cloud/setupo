@@ -812,7 +812,6 @@
   .admin-filter-btn:hover { color: var(--foreground); background: var(--accent); }
   .admin-filter-btn:disabled { opacity: 0.4; cursor: default; }
   .admin-filter-btn svg { width: 12px; height: 12px; }
-}
 
   /* ═══════════════════════════════════════
      TOAST NOTIFICATIONS
