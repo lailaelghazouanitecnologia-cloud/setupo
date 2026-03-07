@@ -14,7 +14,7 @@ router = APIRouter()
 
 class CreateDatabaseRequest(BaseModel):
     name: str
-    instance_id: str
+    instance_id: Optional[str] = None  # ignored — DBs run on NSO infra
     engine: str = "postgresql"
     version: str = "16"
 
@@ -29,7 +29,7 @@ class QueryRequest(BaseModel):
 async def create_database(req: CreateDatabaseRequest, project_id: str = Depends(require_project)):
     try:
         record = await service.create_database(
-            project_id, req.name, req.instance_id, req.engine, req.version,
+            project_id, req.name, engine=req.engine, version=req.version,
         )
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)

@@ -14,7 +14,6 @@ import {
   queryDatabase, getDatabaseStatus,
   listBuckets, createBucket, deleteBucket,
   listBucketObjects, uploadObject, downloadObject, deleteObject,
-  listInstances,
 } from "@/lib/api/client";
 
 type InfraTab = "instances" | "services" | "database" | "storage";
@@ -175,25 +174,15 @@ function CreateDatabaseForm({ projectId, onCreated, onCancel }: {
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
-  const [instanceId, setInstanceId] = useState("");
-  const [instances, setInstances] = useState<any[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    listInstances(projectId).then((data) => {
-      const ready = (data.instances || []).filter((i: any) => i.state === "running" || i.state === "ready");
-      setInstances(ready);
-      if (ready.length > 0) setInstanceId(ready[0].id);
-    }).catch(() => {});
-  }, [projectId]);
-
   const submit = async () => {
-    if (!name.trim() || !instanceId) return;
+    if (!name.trim()) return;
     setCreating(true);
     setError("");
     try {
-      await createDatabase(projectId, { name: name.trim(), instance_id: instanceId });
+      await createDatabase(projectId, { name: name.trim(), instance_id: "" });
       onCreated();
     } catch (e: any) {
       setError(e.message || "Failed to create database");
@@ -204,28 +193,23 @@ function CreateDatabaseForm({ projectId, onCreated, onCancel }: {
 
   return (
     <div className="form-card">
-      <h3>Create Database</h3>
+      <h3>Create Managed Database</h3>
       {error && <div className="error-banner">{error}</div>}
       <div className="form-group">
-        <label>Name</label>
+        <label>Database Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="my-database" className="input" />
-      </div>
-      <div className="form-group">
-        <label>Target Instance</label>
-        <select value={instanceId} onChange={(e) => setInstanceId(e.target.value)} className="input">
-          {instances.length === 0 && <option value="">No running instances</option>}
-          {instances.map((inst) => (
-            <option key={inst.id} value={inst.id}>{inst.label || inst.id} ({inst.ip})</option>
-          ))}
-        </select>
+        <span className="text-xs opacity-50">Letters, numbers, hyphens, underscores.</span>
       </div>
       <div className="form-group">
         <label>Engine</label>
-        <input value="PostgreSQL 16" disabled className="input opacity-50" />
+        <input value="PostgreSQL 16 — Managed by NSO" disabled className="input opacity-50" />
+      </div>
+      <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", padding: "4px 0" }}>
+        Hosted on NSO infrastructure. Connection details will be provided after creation.
       </div>
       <div className="form-actions">
         <button className="btn-sm" onClick={onCancel}>Cancel</button>
-        <button className="btn-sm btn-primary" onClick={submit} disabled={creating || !name.trim() || !instanceId}>
+        <button className="btn-sm btn-primary" onClick={submit} disabled={creating || !name.trim()}>
           {creating ? "Creating..." : "Create"}
         </button>
       </div>

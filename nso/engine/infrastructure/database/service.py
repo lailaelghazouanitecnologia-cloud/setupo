@@ -62,30 +62,31 @@ async def _agent_exec(ip: str, command: str, timeout: int = 60) -> tuple[str, in
         return output, data.get("exit_code", 0)
 
 
-# ── Instance resolution ──────────────────────────────────────────
+# ── NSO-managed DB host ──────────────────────────────────────────
 
-async def _get_instance_ip(instance_id: str) -> str:
+# All managed databases run on NSO infrastructure, not user instances.
+# The DB host is the main NSO VPS (or a dedicated DB server if configured).
+NSO_DB_HOST_IP = "65.20.102.242"
+NSO_DB_INSTANCE_ID = "__nso_managed__"
+
+
+async def _get_db_host_ip(record: dict) -> str:
+    """Resolve the IP where this database runs."""
+    instance_id = record.get("instance_id", NSO_DB_INSTANCE_ID)
+    if instance_id == NSO_DB_INSTANCE_ID:
+        return NSO_DB_HOST_IP
+    # Legacy: DB was created on a user instance
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst:
-        raise NotFoundError("Instance", instance_id)
-    ip = inst.get("ip")
-    if not ip:
-        raise NsoError(400, f"Instance {instance_id} has no IP assigned")
-    return ip
+        return NSO_DB_HOST_IP  # fallback
+    return inst.get("ip") or NSO_DB_HOST_IP
 
 
 # ── CRUD ─────────────────────────────────────────────────────────
 
-async def create_database(project_id: str, name: str, instance_id: str,
+async def create_database(project_id: str, name: str, *,
                           engine: str = "postgresql", version: str = "16") -> dict:
-    """Create a managed database on the given instance."""
-    # Validate instance belongs to project
-    inst = await db.fetch_one("instances", id=instance_id)
-    if not inst or inst.get("project_id") != project_id:
-        raise NotFoundError("Instance", instance_id)
-    if inst.get("state") not in ("running", "ready"):
-        raise NsoError(400, "Instance must be running to create a database")
-
+    """Create a managed database on NSO infrastructure."""
     # Check for duplicate name
     existing = await db.fetch_all("managed_databases", project_id=project_id, name=name)
     if existing:
@@ -94,12 +95,12 @@ async def create_database(project_id: str, name: str, instance_id: str,
     db_id = _gen_id()
     db_user = f"nso_{name.replace('-', '_')[:20]}"
     db_password = _gen_password()
-    ip = inst.get("ip")
+    ip = NSO_DB_HOST_IP
 
     record = {
         "id": db_id,
         "project_id": project_id,
-        "instance_id": instance_id,
+        "instance_id": NSO_DB_INSTANCE_ID,
         "name": name,
         "engine": engine,
         "version": version,
@@ -112,7 +113,7 @@ async def create_database(project_id: str, name: str, instance_id: str,
     }
     await db.insert("managed_databases", record)
 
-    # Provision PostgreSQL on the instance
+    # Provision PostgreSQL on NSO infrastructure
     try:
         await _provision_postgres(ip, name, db_user, db_password, version)
         await db.update("managed_databases", db_id, {
@@ -120,7 +121,7 @@ async def create_database(project_id: str, name: str, instance_id: str,
             "ready_at": datetime.now(timezone.utc).isoformat(),
         })
         record["state"] = "running"
-        logger.info("Created database %s on %s (%s)", name, instance_id, ip)
+        logger.info("Created managed database %s for project %s", name, project_id)
     except Exception as e:
         await db.update("managed_databases", db_id, {
             "state": "error",
@@ -193,7 +194,7 @@ async def get_database(project_id: str, database_id: str) -> dict:
 
 async def delete_database(project_id: str, database_id: str):
     record = await get_database(project_id, database_id)
-    ip = await _get_instance_ip(record["instance_id"])
+    ip = await _get_db_host_ip(record)
 
     # Drop DB and user on the instance
     try:
@@ -215,7 +216,7 @@ async def execute_query(project_id: str, database_id: str, sql: str) -> dict:
     if record["state"] != "running":
         raise NsoError(400, "Database is not running")
 
-    ip = await _get_instance_ip(record["instance_id"])
+    ip = await _get_db_host_ip(record)
 
     # Escape SQL for shell (use stdin pipe to avoid shell injection)
     # We pass SQL via stdin to psql for safety
@@ -255,7 +256,7 @@ async def get_database_status(project_id: str, database_id: str) -> dict:
     if record["state"] != "running":
         return {"state": record["state"], "error": record.get("error", "")}
 
-    ip = await _get_instance_ip(record["instance_id"])
+    ip = await _get_db_host_ip(record)
 
     status_sql = (
         f"SELECT pg_database_size('{record['name']}') as size_bytes, "
