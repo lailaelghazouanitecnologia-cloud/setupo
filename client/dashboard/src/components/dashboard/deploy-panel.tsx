@@ -7,7 +7,8 @@ import {
   CheckCircle2, XCircle, AlertTriangle, Copy, Check,
   RotateCcw, Pencil, MoreHorizontal, X,
   Paperclip, FolderOpen, FileText, Package, GitBranch,
-  ChevronRight, FolderClosed,
+  ChevronRight, FolderClosed, Image, FileCode, Upload,
+  Sparkles, Globe, Server, Wrench,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { FileTokenView, type FileEntry } from "./file-token-view";
@@ -334,8 +335,9 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
               <h2 className="da-welcome-title">What can I help you deploy?</h2>
               <div className="da-welcome-suggestions">
                 {SUGGESTIONS.map((s) => (
-                  <button key={s} className="da-suggestion" onClick={() => sendMessage(s)}>
-                    {s}
+                  <button key={s.text} className="da-suggestion" onClick={() => sendMessage(s.text)}>
+                    <s.icon className="h-3.5 w-3.5 da-suggestion-icon" />
+                    <span>{s.text}</span>
                   </button>
                 ))}
               </div>
@@ -412,15 +414,30 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
 }
 
 const SUGGESTIONS = [
-  "Deploy my app to production",
-  "Analyze my workspace",
-  "Show my instances",
-  "Generate a deploy config",
+  { text: "Deploy my app to production", icon: Rocket },
+  { text: "Analyze my project structure", icon: Wrench },
+  { text: "List my instances and status", icon: Server },
+  { text: "Set up a custom domain", icon: Globe },
 ];
 
 /* ═══════════════════════════════════════════
    CHAT INPUT BOX — with attachments + filesystem
    ═══════════════════════════════════════════ */
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getFileIcon(mime: string, name: string): React.ElementType {
+  if (mime.startsWith("image/")) return Image;
+  const ext = name.split(".").pop()?.toLowerCase() || "";
+  if (["js", "ts", "tsx", "jsx", "py", "go", "rs", "java", "json", "yaml", "toml", "css", "html", "xml"].includes(ext)) return FileCode;
+  return FileText;
+}
 
 function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop, projectId, attachments, onAddAttachment, onRemoveAttachment }: {
   input: string;
@@ -437,9 +454,12 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
 }) {
   const [showPicker, setShowPicker] = useState<"zar" | null>(null);
   const [pickerMenu, setPickerMenu] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<{ id: string; file: File; preview?: string }[]>([]);
   const pickerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
   // Close picker on outside click
   useEffect(() => {
@@ -454,25 +474,58 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
     return () => document.removeEventListener("mousedown", handler);
   }, [showPicker, pickerMenu]);
 
-  const handleLocalFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      onAddAttachment({
-        id: `local_${f.name}_${Date.now()}_${i}`,
-        type: "file",
-        label: f.name,
-        path: f.webkitRelativePath || f.name,
-      });
+  // Process files (local or dropped)
+  const processFiles = useCallback((fileList: FileList | File[]) => {
+    const files = Array.from(fileList);
+    for (const f of files) {
+      if (f.size > MAX_FILE_SIZE) continue;
+      const id = `file_${f.name}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+      onAddAttachment({ id, type: "file", label: `${f.name} (${formatFileSize(f.size)})`, path: f.name });
+      // Generate preview for images
+      if (f.type.startsWith("image/")) {
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          setUploadedFiles((prev) => [...prev, { id, file: f, preview: ev.target?.result as string }]);
+        };
+        reader.readAsDataURL(f);
+      } else {
+        setUploadedFiles((prev) => [...prev, { id, file: f }]);
+      }
     }
+  }, [onAddAttachment]);
+
+  const handleRemoveFile = useCallback((id: string) => {
+    onRemoveAttachment(id);
+    setUploadedFiles((prev) => prev.filter((f) => f.id !== id));
+  }, [onRemoveAttachment]);
+
+  // Drag and drop handlers
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes("Files")) setDragging(true);
+  }, []);
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setDragging(false);
+  }, []);
+  const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); e.stopPropagation(); }, []);
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault(); e.stopPropagation();
+    dragCounterRef.current = 0;
+    setDragging(false);
+    if (e.dataTransfer.files.length > 0) processFiles(e.dataTransfer.files);
+  }, [processFiles]);
+
+  const handleLocalFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) processFiles(e.target.files);
     e.target.value = "";
   };
 
   const handleLocalFolder = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    // Extract folder name from first file's relative path
     const first = files[0];
     const folderName = first.webkitRelativePath?.split("/")[0] || "folder";
     onAddAttachment({
@@ -491,19 +544,54 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
     file: FileText,
   };
 
+  // Find uploaded file data for preview
+  const getUploadPreview = (id: string) => uploadedFiles.find((f) => f.id === id);
+
   return (
-    <div className="da-input-box" ref={pickerRef}>
+    <div
+      className="da-input-box"
+      ref={pickerRef}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag overlay */}
+      {dragging && (
+        <div className="da-drag-overlay">
+          <Upload className="h-6 w-6" />
+          <span>Drop files here</span>
+        </div>
+      )}
+
       <div className="da-input-inner">
+        {/* File previews (images) */}
+        {uploadedFiles.some((f) => f.preview) && (
+          <div className="da-file-previews">
+            {uploadedFiles.filter((f) => f.preview).map((f) => (
+              <div key={f.id} className="da-file-preview">
+                <img src={f.preview} alt={f.file.name} className="da-file-preview-img" />
+                <button className="da-file-preview-x" onClick={() => handleRemoveFile(f.id)}>
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Attachment chips */}
         {attachments.length > 0 && (
           <div className="da-attach-chips">
             {attachments.map((a) => {
-              const Icon = ATTACH_ICON[a.type] || FileText;
+              const uploaded = getUploadPreview(a.id);
+              const Icon = uploaded ? getFileIcon(uploaded.file.type, uploaded.file.name) : (ATTACH_ICON[a.type] || FileText);
+              // Skip image previews (shown above)
+              if (uploaded?.preview) return null;
               return (
                 <span key={a.id} className="da-attach-chip">
                   <Icon className="h-3 w-3 shrink-0" />
                   <span className="da-attach-chip-label">{a.label}</span>
-                  <button className="da-attach-chip-x" onClick={() => onRemoveAttachment(a.id)}>
+                  <button className="da-attach-chip-x" onClick={() => handleRemoveFile(a.id)}>
                     <X className="h-2.5 w-2.5" />
                   </button>
                 </span>
@@ -513,46 +601,57 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
         )}
 
         <div className="da-input-content">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            onChange={onInputChange}
-            onKeyDown={onKeyDown}
-            placeholder="Message deploy agent..."
-            disabled={streaming}
-            className="da-textarea"
-            rows={1}
-          />
+          <div className="da-textarea-wrap">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={onInputChange}
+              onKeyDown={onKeyDown}
+              placeholder="Message deploy agent..."
+              disabled={streaming}
+              className="da-textarea"
+              rows={1}
+            />
+          </div>
           <div className="da-toolbar">
             <div className="da-toolbar-left">
               <button
                 className="da-attach-btn"
                 onClick={() => setPickerMenu(!pickerMenu)}
                 title="Attach"
+                disabled={streaming}
               >
-                <Paperclip className="h-4 w-4" />
+                <Plus className="h-4 w-4" />
               </button>
               <ConnectorPicker projectId={projectId} />
             </div>
-            {streaming ? (
-              <button onClick={onStop} className="da-send-btn active" title="Stop">
-                <Square className="h-3.5 w-3.5" />
+            <div className="da-toolbar-right">
+              {/* Model indicator */}
+              <button type="button" className="da-model-indicator" title="Deploy Agent Model">
+                <Sparkles className="h-3 w-3" />
+                <span>deploy-agent</span>
               </button>
-            ) : (
-              <button
-                onClick={onSend}
-                disabled={false}
-                className="da-send-btn active"
-                title="Send"
-              >
-                <ArrowUp className="h-4 w-4" />
-              </button>
-            )}
+              {/* Send / Stop */}
+              {streaming ? (
+                <button onClick={onStop} className="da-send-btn active" title="Stop">
+                  <Square className="h-3.5 w-3.5" />
+                </button>
+              ) : (
+                <button
+                  onClick={onSend}
+                  disabled={!input.trim() && attachments.length === 0}
+                  className={`da-send-btn ${input.trim() || attachments.length > 0 ? "active" : ""}`}
+                  title="Send"
+                >
+                  <ArrowUp className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Hidden file inputs for local file/folder selection */}
+      {/* Hidden file inputs */}
       <input ref={fileInputRef} type="file" multiple hidden onChange={handleLocalFiles} />
       <input ref={folderInputRef} type="file" hidden onChange={handleLocalFolder}
         {...{ webkitdirectory: "", directory: "" } as any} />
@@ -560,11 +659,11 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
       {/* Attach menu dropdown */}
       {pickerMenu && !showPicker && (
         <div className="da-attach-menu">
-          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); folderInputRef.current?.click(); }}>
-            <FolderClosed className="h-3.5 w-3.5" /> Folder
-          </button>
           <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); fileInputRef.current?.click(); }}>
             <FileText className="h-3.5 w-3.5" /> File
+          </button>
+          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); folderInputRef.current?.click(); }}>
+            <FolderClosed className="h-3.5 w-3.5" /> Folder
           </button>
           <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("zar"); }}>
             <Package className="h-3.5 w-3.5" /> .zar Package

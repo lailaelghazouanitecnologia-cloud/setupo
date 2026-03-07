@@ -97,12 +97,14 @@
   display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
 }
 .da-suggestion {
-  padding: 6px 12px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px;
   border: 1px solid var(--border); background: var(--background);
   color: var(--muted-foreground); font-size: var(--font-xxs);
   cursor: pointer; transition: all 0.15s;
 }
-.da-suggestion:hover { background: var(--accent); color: var(--foreground); }
+.da-suggestion:hover { background: var(--accent); color: var(--foreground); border-color: color-mix(in srgb, var(--muted-foreground) 20%, transparent); }
+.da-suggestion-icon { color: var(--da-accent); flex-shrink: 0; }
 .da-input-container { width: 100%; }
 
 /* ── Messages area ── */
@@ -282,37 +284,78 @@
 .da-input-box { width: 100%; position: relative; }
 .da-input-inner {
   display: flex; flex-direction: column;
-  background: var(--background); border-radius: 12px;
-  border: 1px solid color-mix(in srgb, var(--muted-foreground) 15%, transparent);
-  position: relative; z-index: 10;
-  transition: border-color 0.2s;
+  background: var(--background); border-radius: 20px;
+  border: none; position: relative; z-index: 10;
+  transition: box-shadow 0.2s;
+  box-shadow:
+    0 0.25rem 1.25rem rgba(0,0,0,0.035),
+    0 0 0 0.5px rgba(128,128,128,0.12);
 }
 .da-input-inner:focus-within {
-  border-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  box-shadow:
+    0 0.25rem 1.25rem rgba(0,0,0,0.06),
+    0 0 0 0.5px rgba(128,128,128,0.22);
 }
+
+/* Drag-and-drop overlay */
+.da-drag-overlay {
+  position: absolute; inset: 0; z-index: 30;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  background: color-mix(in srgb, var(--da-accent) 8%, var(--background));
+  border: 2px dashed var(--da-accent);
+  border-radius: 20px;
+  color: var(--da-accent); font-size: 14px; font-weight: 500;
+  pointer-events: none;
+}
+
+/* File previews (images) */
+.da-file-previews {
+  display: flex; flex-wrap: wrap; gap: 8px;
+  padding: 12px 14px 0;
+}
+.da-file-preview {
+  position: relative; width: 72px; height: 72px;
+  border-radius: 10px; overflow: hidden;
+  border: 1px solid var(--border);
+}
+.da-file-preview-img {
+  width: 100%; height: 100%; object-fit: cover;
+}
+.da-file-preview-x {
+  position: absolute; top: 4px; right: 4px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(0,0,0,0.6); color: #fff;
+  border: none; cursor: pointer; opacity: 0;
+  transition: opacity 0.15s;
+}
+.da-file-preview:hover .da-file-preview-x { opacity: 1; }
 
 /* Attachment chips row */
 .da-attach-chips {
   display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 10px 12px 0 12px;
+  padding: 10px 14px 0;
 }
 .da-attach-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 10px; border-radius: 6px;
-  background: var(--accent); border: 1px solid var(--border);
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 5px 10px; border-radius: 8px;
+  background: color-mix(in srgb, var(--muted-foreground) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   font-size: 12px; color: var(--foreground);
+  transition: background 0.15s;
 }
+.da-attach-chip:hover { background: var(--accent); }
 .da-attach-chip-label {
-  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .da-attach-chip-x {
   display: inline-flex; align-items: center; justify-content: center;
   width: 14px; height: 14px; border-radius: 50%;
   border: none; background: none; cursor: pointer;
-  color: var(--muted-foreground); transition: color 0.15s;
+  color: var(--muted-foreground); transition: all 0.15s;
   margin-left: 2px;
 }
-.da-attach-chip-x:hover { color: var(--foreground); }
+.da-attach-chip-x:hover { color: var(--foreground); background: color-mix(in srgb, var(--muted-foreground) 15%, transparent); }
 
 /* Textarea area */
 .da-input-content {
@@ -320,35 +363,51 @@
   padding: 12px 14px 8px;
   gap: 0;
 }
+.da-textarea-wrap {
+  width: 100%; overflow-y: auto; max-height: 384px; min-height: 24px;
+  padding-left: 2px; padding-top: 2px;
+}
 .da-textarea {
   display: block; outline: none !important; resize: none; width: 100%;
   background: transparent; color: var(--foreground);
-  font-size: 14px; line-height: 1.5; font-family: inherit;
-  border: none; overflow-y: hidden; min-height: 24px; max-height: 200px;
+  font-size: 14px; line-height: 1.6; font-family: inherit;
+  border: none; overflow: hidden; min-height: 24px;
   padding: 0; margin: 0;
 }
 .da-textarea::placeholder { color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
 .da-textarea:disabled { cursor: not-allowed; opacity: 0.5; }
 
-/* Bottom toolbar: attach left, send right */
+/* Bottom toolbar: attach left, model+send right */
 .da-toolbar {
   display: flex; align-items: center; justify-content: space-between;
-  padding-top: 8px;
+  padding-top: 6px;
 }
 .da-toolbar-left { display: flex; align-items: center; gap: 2px; }
+.da-toolbar-right { display: flex; align-items: center; gap: 4px; }
 
-/* Attach button */
+/* Attach button (plus icon) */
 .da-attach-btn {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 8px;
+  width: 28px; height: 28px; border-radius: 7px;
   border: none; background: none; cursor: pointer;
   color: var(--muted-foreground); transition: all 0.15s;
 }
 .da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
+.da-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Model indicator */
+.da-model-indicator {
+  display: inline-flex; align-items: center; gap: 4px;
+  height: 28px; padding: 0 8px; border-radius: 7px;
+  border: none; background: none; cursor: default;
+  color: var(--muted-foreground); font-size: 11px;
+  white-space: nowrap; user-select: none;
+  transition: background 0.15s;
+}
 
 /* Send / stop button */
 .da-send-btn {
-  width: 30px; height: 30px; border-radius: 8px;
+  width: 28px; height: 28px; border-radius: 7px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; cursor: pointer; transition: all 0.15s;
   color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
@@ -358,7 +417,7 @@
   background: #2dd4bf; color: #000;
 }
 .da-send-btn.active:hover { opacity: 0.9; }
-.da-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.da-send-btn:disabled { opacity: 0.2; cursor: not-allowed; }
 
 /* ── Attach menu ── */
 .da-attach-menu {
