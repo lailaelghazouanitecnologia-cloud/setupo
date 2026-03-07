@@ -6,11 +6,14 @@ import {
   MessageSquare, Plus, Trash2, ChevronDown,
   CheckCircle2, XCircle, AlertTriangle, Copy, Check,
   RotateCcw, Pencil, MoreHorizontal, X,
+  Paperclip, FolderOpen, FileText, Package, GitBranch,
+  ChevronRight, FolderClosed, File,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   createDeployThread, listDeployThreads, getDeployThread,
   deleteDeployThread, streamDeployAgent,
+  listWorkspaces, getWorkspaceFiles, zarVersions,
   type DeployThread, type DeployMessage,
 } from "@/lib/api/client";
 
@@ -65,6 +68,14 @@ interface ChatMsg {
   timestamp?: string;
 }
 
+interface Attachment {
+  id: string;
+  type: "workspace" | "zar" | "folder" | "file";
+  label: string;
+  path?: string;
+  workspace?: string;
+}
+
 /* ═══════════════════════════════════════════
    AGENT CHAT
    ═══════════════════════════════════════════ */
@@ -80,6 +91,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   const [activeToolCall, setActiveToolCall] = useState<{ name: string; args?: any } | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -146,9 +158,27 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
     setStreaming(false);
   };
 
+  const addAttachment = useCallback((att: Attachment) => {
+    setAttachments((prev) => prev.some((a) => a.id === att.id) ? prev : [...prev, att]);
+  }, []);
+  const removeAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   const sendMessage = async (override?: string) => {
-    const content = (override || input).trim();
+    let content = (override || input).trim();
     if (!content || streaming) return;
+    // Prepend attachment context
+    if (attachments.length > 0) {
+      const ctx = attachments.map((a) => {
+        if (a.type === "workspace") return `[workspace: ${a.label}]`;
+        if (a.type === "zar") return `[zar: ${a.label}]`;
+        if (a.type === "folder") return `[folder: ${a.workspace}/${a.path}]`;
+        return `[file: ${a.workspace}/${a.path}]`;
+      }).join(" ");
+      content = `${ctx}\n${content}`;
+      setAttachments([]);
+    }
     if (!activeThreadId) {
       try {
         const t = await createDeployThread(projectId);
@@ -307,6 +337,10 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
                   onKeyDown={handleKeyDown}
                   onSend={() => sendMessage()}
                   onStop={stopStreaming}
+                  projectId={projectId}
+                  attachments={attachments}
+                  onAddAttachment={addAttachment}
+                  onRemoveAttachment={removeAttachment}
                 />
               </div>
             </div>
@@ -352,6 +386,10 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
                 onKeyDown={handleKeyDown}
                 onSend={() => sendMessage()}
                 onStop={stopStreaming}
+                projectId={projectId}
+                attachments={attachments}
+                onAddAttachment={addAttachment}
+                onRemoveAttachment={removeAttachment}
               />
             </div>
           </>
@@ -369,10 +407,10 @@ const SUGGESTIONS = [
 ];
 
 /* ═══════════════════════════════════════════
-   CHAT INPUT BOX (chatagent-style)
+   CHAT INPUT BOX — with attachments + filesystem
    ═══════════════════════════════════════════ */
 
-function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop }: {
+function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop, projectId, attachments, onAddAttachment, onRemoveAttachment }: {
   input: string;
   streaming: boolean;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -380,10 +418,56 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
   onKeyDown: (e: React.KeyboardEvent) => void;
   onSend: () => void;
   onStop: () => void;
+  projectId: string;
+  attachments: Attachment[];
+  onAddAttachment: (a: Attachment) => void;
+  onRemoveAttachment: (id: string) => void;
 }) {
+  const [showPicker, setShowPicker] = useState<"workspace" | "zar" | "files" | null>(null);
+  const [pickerMenu, setPickerMenu] = useState(false);
+  const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Close picker on outside click
+  useEffect(() => {
+    if (!showPicker && !pickerMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+        setShowPicker(null);
+        setPickerMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showPicker, pickerMenu]);
+
+  const ATTACH_ICON: Record<string, React.ElementType> = {
+    workspace: FolderOpen,
+    zar: Package,
+    folder: FolderClosed,
+    file: FileText,
+  };
+
   return (
-    <div className="da-input-box">
+    <div className="da-input-box" ref={pickerRef}>
       <div className="da-input-inner">
+        {/* Attachment chips */}
+        {attachments.length > 0 && (
+          <div className="da-attach-chips">
+            {attachments.map((a) => {
+              const Icon = ATTACH_ICON[a.type] || FileText;
+              return (
+                <span key={a.id} className="da-attach-chip">
+                  <Icon className="h-3 w-3 shrink-0" />
+                  <span className="da-attach-chip-label">{a.label}</span>
+                  <button className="da-attach-chip-x" onClick={() => onRemoveAttachment(a.id)}>
+                    <X className="h-2.5 w-2.5" />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+
         <div className="da-input-content">
           <textarea
             ref={textareaRef}
@@ -397,7 +481,13 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
           />
           <div className="da-toolbar">
             <div className="da-toolbar-left">
-              <span className="da-model-label">gpt-oss-20b</span>
+              <button
+                className="da-attach-btn"
+                onClick={() => setPickerMenu(!pickerMenu)}
+                title="Attach"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
             </div>
             {streaming ? (
               <button onClick={onStop} className="da-send-btn active" title="Stop">
@@ -406,8 +496,8 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
             ) : (
               <button
                 onClick={onSend}
-                disabled={!input.trim()}
-                className={`da-send-btn ${input.trim() ? "active" : ""}`}
+                disabled={!input.trim() && attachments.length === 0}
+                className={`da-send-btn ${input.trim() || attachments.length > 0 ? "active" : ""}`}
                 title="Send"
               >
                 <ArrowUp className="h-4 w-4" />
@@ -416,9 +506,317 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
           </div>
         </div>
       </div>
+
+      {/* Attach menu dropdown */}
+      {pickerMenu && !showPicker && (
+        <div className="da-attach-menu">
+          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("workspace"); }}>
+            <FolderOpen className="h-3.5 w-3.5" /> Workspace
+          </button>
+          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("zar"); }}>
+            <Package className="h-3.5 w-3.5" /> .zar Package
+          </button>
+          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("files"); }}>
+            <FileText className="h-3.5 w-3.5" /> Files & Folders
+          </button>
+        </div>
+      )}
+
+      {/* Pickers */}
+      {showPicker === "workspace" && (
+        <WorkspacePicker
+          projectId={projectId}
+          onSelect={(ws) => {
+            onAddAttachment({ id: `ws_${ws.name}`, type: "workspace", label: ws.name, workspace: ws.name });
+            setShowPicker(null);
+          }}
+          onClose={() => setShowPicker(null)}
+        />
+      )}
+      {showPicker === "zar" && (
+        <ZarPicker
+          projectId={projectId}
+          onSelect={(ws, branch, ver) => {
+            onAddAttachment({ id: `zar_${ws}_${branch}_${ver}`, type: "zar", label: `${ws}@${branch}/${ver}`, workspace: ws });
+            setShowPicker(null);
+          }}
+          onClose={() => setShowPicker(null)}
+        />
+      )}
+      {showPicker === "files" && (
+        <FileBrowser
+          projectId={projectId}
+          onSelectFile={(ws, path) => {
+            onAddAttachment({ id: `file_${ws}_${path}`, type: "file", label: path.split("/").pop() || path, path, workspace: ws });
+            setShowPicker(null);
+          }}
+          onSelectFolder={(ws, path) => {
+            onAddAttachment({ id: `dir_${ws}_${path}`, type: "folder", label: path.split("/").pop() || path, path, workspace: ws });
+            setShowPicker(null);
+          }}
+          onClose={() => setShowPicker(null)}
+        />
+      )}
+
       <div className="da-disclaimer">AI can make mistakes. Double-check responses.</div>
     </div>
   );
+}
+
+/* ═══════════════════════════════════════════
+   WORKSPACE PICKER
+   ═══════════════════════════════════════════ */
+
+function WorkspacePicker({ projectId, onSelect, onClose }: {
+  projectId: string;
+  onSelect: (ws: { name: string; stack?: string }) => void;
+  onClose: () => void;
+}) {
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    listWorkspaces(projectId)
+      .then((r) => setWorkspaces(r.workspaces || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  return (
+    <div className="da-picker">
+      <div className="da-picker-header">
+        <span className="da-picker-title">Select Workspace</span>
+        <button className="da-picker-close" onClick={onClose}><X className="h-3.5 w-3.5" /></button>
+      </div>
+      <div className="da-picker-body">
+        {loading ? (
+          <div className="da-picker-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+        ) : workspaces.length === 0 ? (
+          <div className="da-picker-empty">No workspaces found</div>
+        ) : (
+          workspaces.map((ws) => (
+            <button key={ws.name} className="da-picker-item" onClick={() => onSelect(ws)}>
+              <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+              <span className="da-picker-item-name">{ws.name}</span>
+              {ws.stack && <span className="da-picker-item-meta">{ws.stack}</span>}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   ZAR PICKER
+   ═══════════════════════════════════════════ */
+
+function ZarPicker({ projectId, onSelect, onClose }: {
+  projectId: string;
+  onSelect: (ws: string, branch: string, version: string) => void;
+  onClose: () => void;
+}) {
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [selectedWs, setSelectedWs] = useState<string | null>(null);
+  const [versions, setVersions] = useState<{ versions: string[]; branches: Record<string, string> }>({ versions: [], branches: {} });
+  const [loading, setLoading] = useState(true);
+  const [loadingVer, setLoadingVer] = useState(false);
+
+  useEffect(() => {
+    listWorkspaces(projectId)
+      .then((r) => setWorkspaces(r.workspaces || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!selectedWs) return;
+    setLoadingVer(true);
+    zarVersions(projectId, selectedWs)
+      .then((r) => setVersions({ versions: r.versions || [], branches: r.branches || {} }))
+      .catch(() => setVersions({ versions: [], branches: {} }))
+      .finally(() => setLoadingVer(false));
+  }, [selectedWs, projectId]);
+
+  return (
+    <div className="da-picker">
+      <div className="da-picker-header">
+        <span className="da-picker-title">{selectedWs ? `${selectedWs} — versions` : "Select workspace"}</span>
+        <button className="da-picker-close" onClick={selectedWs ? () => setSelectedWs(null) : onClose}>
+          {selectedWs ? <ChevronRight className="h-3.5 w-3.5 rotate-180" /> : <X className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+      <div className="da-picker-body">
+        {loading ? (
+          <div className="da-picker-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+        ) : !selectedWs ? (
+          workspaces.length === 0 ? (
+            <div className="da-picker-empty">No workspaces</div>
+          ) : (
+            workspaces.map((ws) => (
+              <button key={ws.name} className="da-picker-item" onClick={() => setSelectedWs(ws.name)}>
+                <Package className="h-3.5 w-3.5 shrink-0" />
+                <span className="da-picker-item-name">{ws.name}</span>
+                <ChevronRight className="h-3 w-3 opacity-30 ml-auto" />
+              </button>
+            ))
+          )
+        ) : loadingVer ? (
+          <div className="da-picker-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading versions...</div>
+        ) : versions.versions.length === 0 ? (
+          <div className="da-picker-empty">No versions published</div>
+        ) : (
+          versions.versions.map((v) => (
+            <button key={v} className="da-picker-item" onClick={() => onSelect(selectedWs, "main", v)}>
+              <GitBranch className="h-3.5 w-3.5 shrink-0" />
+              <span className="da-picker-item-name">{v}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   FILE BROWSER
+   ═══════════════════════════════════════════ */
+
+function FileBrowser({ projectId, onSelectFile, onSelectFolder, onClose }: {
+  projectId: string;
+  onSelectFile: (workspace: string, path: string) => void;
+  onSelectFolder: (workspace: string, path: string) => void;
+  onClose: () => void;
+}) {
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [selectedWs, setSelectedWs] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState(".");
+  const [items, setItems] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+
+  useEffect(() => {
+    listWorkspaces(projectId)
+      .then((r) => setWorkspaces(r.workspaces || []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!selectedWs) return;
+    setLoadingFiles(true);
+    getWorkspaceFiles(projectId, selectedWs, currentPath)
+      .then((r) => setItems(r.items || []))
+      .catch(() => setItems([]))
+      .finally(() => setLoadingFiles(false));
+  }, [selectedWs, currentPath, projectId]);
+
+  const navigateTo = (path: string) => setCurrentPath(path);
+  const goUp = () => {
+    if (currentPath === ".") { setSelectedWs(null); return; }
+    const parts = currentPath.split("/");
+    parts.pop();
+    setCurrentPath(parts.length === 0 ? "." : parts.join("/"));
+  };
+
+  const breadcrumbs = currentPath === "." ? [] : currentPath.split("/");
+
+  return (
+    <div className="da-picker da-picker-wide">
+      <div className="da-picker-header">
+        <span className="da-picker-title">
+          {selectedWs ? (
+            <>
+              <button className="da-picker-breadcrumb" onClick={() => { setSelectedWs(null); setCurrentPath("."); }}>
+                Workspaces
+              </button>
+              <ChevronRight className="h-3 w-3 opacity-30" />
+              <button className="da-picker-breadcrumb" onClick={() => setCurrentPath(".")}>
+                {selectedWs}
+              </button>
+              {breadcrumbs.map((seg, i) => (
+                <React.Fragment key={i}>
+                  <ChevronRight className="h-3 w-3 opacity-30" />
+                  <button
+                    className="da-picker-breadcrumb"
+                    onClick={() => navigateTo(breadcrumbs.slice(0, i + 1).join("/"))}
+                  >
+                    {seg}
+                  </button>
+                </React.Fragment>
+              ))}
+            </>
+          ) : "Select workspace"}
+        </span>
+        <button className="da-picker-close" onClick={onClose}><X className="h-3.5 w-3.5" /></button>
+      </div>
+      <div className="da-picker-body">
+        {loading ? (
+          <div className="da-picker-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading...</div>
+        ) : !selectedWs ? (
+          workspaces.length === 0 ? (
+            <div className="da-picker-empty">No workspaces</div>
+          ) : (
+            workspaces.map((ws) => (
+              <button key={ws.name} className="da-picker-item" onClick={() => { setSelectedWs(ws.name); setCurrentPath("."); }}>
+                <FolderOpen className="h-3.5 w-3.5 shrink-0" />
+                <span className="da-picker-item-name">{ws.name}</span>
+                <ChevronRight className="h-3 w-3 opacity-30 ml-auto" />
+              </button>
+            ))
+          )
+        ) : loadingFiles ? (
+          <div className="da-picker-loading"><Loader2 className="h-4 w-4 animate-spin" /> Loading files...</div>
+        ) : (
+          <>
+            {currentPath !== "." && (
+              <button className="da-picker-item" onClick={goUp}>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 rotate-180" />
+                <span className="da-picker-item-name" style={{ opacity: 0.6 }}>..</span>
+              </button>
+            )}
+            {/* Attach current folder button */}
+            {selectedWs && (
+              <button
+                className="da-picker-item da-picker-item-action"
+                onClick={() => onSelectFolder(selectedWs, currentPath === "." ? "" : currentPath)}
+              >
+                <FolderClosed className="h-3.5 w-3.5 shrink-0" />
+                <span className="da-picker-item-name">Attach this folder</span>
+              </button>
+            )}
+            {items.map((item) => {
+              const isDir = item.type === "directory" || item.is_dir;
+              const fullPath = currentPath === "." ? item.name : `${currentPath}/${item.name}`;
+              return (
+                <button
+                  key={item.name}
+                  className="da-picker-item"
+                  onClick={() => isDir ? navigateTo(fullPath) : onSelectFile(selectedWs!, fullPath)}
+                >
+                  {isDir ? <FolderClosed className="h-3.5 w-3.5 shrink-0" /> : <File className="h-3.5 w-3.5 shrink-0" />}
+                  <span className="da-picker-item-name">{item.name}</span>
+                  {isDir && <ChevronRight className="h-3 w-3 opacity-30 ml-auto" />}
+                  {!isDir && item.size != null && (
+                    <span className="da-picker-item-meta">{formatSize(item.size)}</span>
+                  )}
+                </button>
+              );
+            })}
+            {items.length === 0 && (
+              <div className="da-picker-empty">Empty directory</div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 /* ═══════════════════════════════════════════
