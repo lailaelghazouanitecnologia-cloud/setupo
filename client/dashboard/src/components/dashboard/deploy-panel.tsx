@@ -181,12 +181,22 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
     }
     if (!activeThreadId) {
       try {
-        const t = await createDeployThread(projectId);
+        // Use first message (without attachment tags) as thread title
+        const rawText = (override || input).trim();
+        const title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
+        const t = await createDeployThread(projectId, "", title);
         setThreads((prev) => [t, ...prev]);
         setActiveThreadId(t.id);
         await doStream(t.id, content);
       } catch (e: any) { setError(e.message || "Failed to create thread"); }
       return;
+    }
+    // Update thread title if it's still empty (created via + button)
+    const currentThread = threads.find((t) => t.id === activeThreadId);
+    if (currentThread && (!currentThread.title || currentThread.title === "New deploy")) {
+      const rawText = (override || input).trim();
+      const title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
+      setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, title } : t));
     }
     await doStream(activeThreadId, content);
   };
