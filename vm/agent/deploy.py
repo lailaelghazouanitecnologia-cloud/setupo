@@ -684,16 +684,21 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
         out, code = await _restart_service(svc)
         _step(f"restart_{svc}", out, code)
 
-    # 7. Health check — auto-rollback on failure
-    await asyncio.sleep(2)
+    # 7. Health check with retries (services need time to boot)
     health_ok = False
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get("http://127.0.0.1:8000/api/health")
-            health_ok = resp.status_code == 200
-            _step("health_api", resp.text, 0 if health_ok else 1)
-    except Exception as e:
-        _step("health_api", str(e), 1)
+    for attempt in range(4):
+        await asyncio.sleep(3)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get("http://127.0.0.1:8000/api/health")
+                if resp.status_code == 200:
+                    health_ok = True
+                    _step("health_api", resp.text, 0)
+                    break
+        except Exception:
+            pass
+    if not health_ok:
+        _step("health_api", f"Failed after {attempt + 1} attempts", 1)
 
     # Auto-rollback if health check failed and we have a snapshot
     if not health_ok and snap_dir.exists():
@@ -703,8 +708,9 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
                 src = snap_dir / subdir
                 dst = Path(f"/opt/nso/{subdir}")
                 if src.exists():
-                    shutil.rmtree(dst, ignore_errors=True)
-                    shutil.copytree(src, dst, symlinks=True)
+                    if dst.exists():
+                        shutil.rmtree(dst, ignore_errors=True)
+                    shutil.copytree(src, dst, symlinks=True, dirs_exist_ok=True)
             for svc in req.restart_services:
                 await _restart_service(svc)
             _step("rollback", f"Restored from {snapshot_name}", 0)
