@@ -135,7 +135,28 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       .catch(() => {});
   }, [activeThreadId, projectId]);
 
+  // Auto-delete empty threads when switching away
+  const cleanupEmptyThread = useCallback(async (threadId: string | null) => {
+    if (!threadId) return;
+    try {
+      const data = await getDeployThread(projectId, threadId);
+      if (!data.messages || data.messages.length === 0) {
+        await deleteDeployThread(projectId, threadId);
+        setThreads((prev) => prev.filter((t) => t.id !== threadId));
+      }
+    } catch {}
+  }, [projectId]);
+
+  const selectThread = useCallback(async (id: string) => {
+    if (id === activeThreadId) return;
+    // Cleanup previous empty thread
+    await cleanupEmptyThread(activeThreadId);
+    setActiveThreadId(id);
+  }, [activeThreadId, cleanupEmptyThread]);
+
   const createThread = async () => {
+    // Cleanup current empty thread before creating new one
+    await cleanupEmptyThread(activeThreadId);
     try {
       const t = await createDeployThread(projectId);
       setThreads((prev) => [t, ...prev]);
@@ -321,7 +342,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       <ThreadSidebar
         threads={threads}
         activeThreadId={activeThreadId}
-        onSelect={setActiveThreadId}
+        onSelect={selectThread}
         onCreate={createThread}
         onDelete={deleteThread}
       />
@@ -1107,65 +1128,56 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 /** Token types for the message tokenizer */
-type TokenType = "markdown" | "html" | "code" | "text";
-interface ContentToken { type: TokenType; content: string; lang?: string }
+type TokenType = "markdown" | "html";
+interface ContentToken { type: TokenType; content: string }
 
 /**
- * Tokenize a message string into segments of different render types.
- * Detects HTML blocks, fenced code blocks, and markdown.
+ * Tokenize a message into markdown and HTML segments.
+ * ReactMarkdown handles code blocks, tables, lists, etc. natively.
+ * This tokenizer ONLY extracts standalone HTML blocks for special rendering.
  */
 function tokenizeContent(text: string): ContentToken[] {
   if (!text) return [];
-  const tokens: ContentToken[] = [];
 
-  // Check if the entire content is HTML (starts with a tag, has closing tags)
+  // Check if the entire content is an HTML document
   const trimmed = text.trim();
-  if (/^<(!DOCTYPE|html|div|section|article|main|nav|header|footer|form|table|ul|ol|dl|details|figure)\b/i.test(trimmed)
-    && /<\/\w+>\s*$/i.test(trimmed)) {
-    tokens.push({ type: "html", content: text });
-    return tokens;
+  if (/^<(!DOCTYPE|html)\b/i.test(trimmed)) {
+    return [{ type: "html", content: text }];
   }
 
-  // Split into segments: fenced code blocks vs the rest
-  const fencedCodeRegex = /```(\w*)\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  // Look for standalone HTML block elements (not inside code fences)
+  // First, protect code fences by replacing them with placeholders
+  const codeFences: string[] = [];
+  const protected_ = text.replace(/```[\s\S]*?```/g, (match) => {
+    codeFences.push(match);
+    return `\x00CODEFENCE${codeFences.length - 1}\x00`;
+  });
 
-  while ((match = fencedCodeRegex.exec(text)) !== null) {
-    // Text before the code block
-    if (match.index > lastIndex) {
-      const before = text.slice(lastIndex, match.index);
-      tokens.push(..._tokenizeSegment(before));
-    }
-    // The code block itself
-    tokens.push({ type: "code", content: match[2], lang: match[1] || "text" });
-    lastIndex = match.index + match[0].length;
+  // Split on HTML block-level elements
+  const htmlBlockRegex = /(<(?:div|section|article|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b[^>]*>[\s\S]*?<\/(?:div|section|article|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)>)/gi;
+
+  if (!htmlBlockRegex.test(protected_)) {
+    // No HTML blocks — everything is markdown
+    return [{ type: "markdown", content: text }];
   }
 
-  // Remaining text after last code block
-  if (lastIndex < text.length) {
-    tokens.push(..._tokenizeSegment(text.slice(lastIndex)));
-  }
-
-  return tokens.length ? tokens : [{ type: "text", content: text }];
-}
-
-/** Tokenize a non-code segment — detect inline HTML blocks */
-function _tokenizeSegment(text: string): ContentToken[] {
-  if (!text.trim()) return [];
-  // Check for standalone HTML blocks (e.g. <div>...</div>, <table>...</table>)
-  const htmlBlockRegex = /(<(?:div|section|article|table|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b[^>]*>[\s\S]*?<\/\1>)/gi;
-  const parts = text.split(htmlBlockRegex);
+  // Reset regex
+  htmlBlockRegex.lastIndex = 0;
+  const parts = protected_.split(htmlBlockRegex);
   const tokens: ContentToken[] = [];
+
   for (const part of parts) {
     if (!part.trim()) continue;
-    if (/^<(?:div|section|article|table|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b/i.test(part.trim())) {
-      tokens.push({ type: "html", content: part });
+    // Restore code fences
+    const restored = part.replace(/\x00CODEFENCE(\d+)\x00/g, (_, i) => codeFences[parseInt(i)]);
+    if (/^<(?:div|section|article|form|nav|header|footer|details|figure|iframe|video|audio|canvas|svg)\b/i.test(part.trim())) {
+      tokens.push({ type: "html", content: restored });
     } else {
-      tokens.push({ type: "markdown", content: part });
+      tokens.push({ type: "markdown", content: restored });
     }
   }
-  return tokens;
+
+  return tokens.length ? tokens : [{ type: "markdown", content: text }];
 }
 
 /** Render an HTML token safely inside a sandboxed container */
@@ -1243,21 +1255,15 @@ const ChatMarkdown = memo(function ChatMarkdown({ text }: { text: string }) {
   const tokens = useMemo(() => tokenizeContent(text), [text]);
   return (
     <div className="da-md">
-      {tokens.map((token, i) => {
-        switch (token.type) {
-          case "html":
-            return <HtmlRenderer key={i} html={token.content} />;
-          case "code":
-            return <CodeBlock key={i} code={token.content} lang={token.lang || "text"} />;
-          case "markdown":
-          default:
-            return (
-              <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {token.content}
-              </ReactMarkdown>
-            );
-        }
-      })}
+      {tokens.map((token, i) =>
+        token.type === "html" ? (
+          <HtmlRenderer key={i} html={token.content} />
+        ) : (
+          <ReactMarkdown key={i} remarkPlugins={[remarkGfm]} components={mdComponents}>
+            {token.content}
+          </ReactMarkdown>
+        )
+      )}
     </div>
   );
 });
