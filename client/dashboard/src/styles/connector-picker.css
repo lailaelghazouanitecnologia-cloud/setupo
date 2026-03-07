@@ -1,0 +1,324 @@
+/* ═══════════════════════════════════════════
+   CONNECTOR PICKER (cp-*)
+   Dropdown + Setup Modal for deploy agent connectors
+   ═══════════════════════════════════════════ */
+
+.cp-root {
+  position: relative;
+}
+
+/* ── Trigger button ── */
+.cp-trigger {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 6px;
+  border: none; background: none; cursor: pointer;
+  color: var(--muted-foreground); transition: all 0.15s;
+}
+.cp-trigger:hover { color: var(--foreground); background: var(--accent); }
+.cp-trigger.active {
+  color: var(--da-accent); background: var(--da-accent-muted);
+}
+
+/* ── Dropdown ── */
+.cp-dropdown {
+  position: absolute; bottom: 100%; left: 0;
+  min-width: 260px; max-width: 340px;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; z-index: 30; margin-bottom: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  display: flex; flex-direction: column;
+  max-height: 360px;
+}
+
+.cp-list {
+  flex: 1; overflow-y: auto; padding: 4px;
+  position: relative;
+}
+.cp-list-loading {
+  display: flex; align-items: center; gap: 8px;
+  padding: 16px; font-size: 13px; color: var(--muted-foreground);
+}
+
+/* ── Connector item ── */
+.cp-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 8px 6px 4px; height: 36px;
+  border-radius: 6px; cursor: pointer;
+  transition: background 0.1s;
+}
+.cp-item:hover { background: var(--accent); }
+
+.cp-item-left {
+  display: flex; align-items: center; gap: 4px;
+  overflow: hidden; min-width: 0;
+}
+.cp-item-icon {
+  width: 28px; height: 28px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; color: var(--foreground);
+}
+.cp-item-name {
+  font-size: 14px; line-height: 20px;
+  color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cp-item-action {
+  flex-shrink: 0; font-size: 14px; line-height: 20px;
+  color: var(--muted-foreground);
+}
+
+/* ── Toggle switch ── */
+.cp-toggle {
+  background: none; border: none; cursor: pointer; padding: 0;
+  display: flex; align-items: center;
+}
+.cp-toggle-track {
+  width: 26px; height: 16px; border-radius: 8px;
+  padding: 0 1px;
+  background: var(--border); transition: background 0.2s;
+  display: flex; align-items: center;
+}
+.cp-toggle-track.on {
+  background: var(--da-accent);
+}
+.cp-toggle-thumb {
+  display: block; width: 14px; height: 14px;
+  border-radius: 50%; background: white;
+  transition: transform 0.2s;
+  transform: translateX(0);
+}
+.cp-toggle-track.on .cp-toggle-thumb {
+  transform: translateX(10px);
+}
+
+/* ── Sub-item (repos, channels) ── */
+.cp-subitem {
+  display: flex; align-items: center; gap: 4px;
+  padding: 6px 8px 6px 4px; height: 36px;
+  border-radius: 6px; cursor: pointer;
+  transition: background 0.1s;
+}
+.cp-subitem:hover { background: var(--accent); }
+.cp-subitem-icon {
+  width: 28px; display: flex; align-items: center; justify-content: center;
+  color: var(--foreground);
+}
+.cp-subitem-name {
+  flex: 1; font-size: 14px; color: var(--foreground);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.cp-subitem-arrow {
+  flex-shrink: 0; color: var(--muted-foreground); opacity: 0.5;
+}
+
+/* ── Footer ── */
+.cp-footer {
+  border-top: 1px solid var(--border);
+  padding: 4px;
+}
+.cp-footer-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px; border-radius: 6px; cursor: pointer;
+  transition: background 0.1s;
+}
+.cp-footer-item:hover { background: var(--accent); }
+.cp-footer-icon {
+  width: 20px; height: 20px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--foreground);
+}
+.cp-footer-label {
+  font-size: 14px; color: var(--foreground);
+}
+
+/* ═══════════════════════════════════════════
+   SETUP MODAL
+   ═══════════════════════════════════════════ */
+
+.cp-modal-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.5);
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(2px);
+}
+.cp-modal {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 100%; max-width: 460px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+
+.cp-modal-header {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: 12px 16px 0;
+}
+.cp-modal-close {
+  background: none; border: none; cursor: pointer;
+  color: var(--foreground); padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.15s;
+}
+.cp-modal-close:hover { opacity: 0.6; }
+
+/* ── Hero ── */
+.cp-modal-body {
+  display: flex; flex-direction: column; gap: 24px;
+  padding: 0 24px 16px;
+  align-items: center;
+}
+.cp-modal-hero {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; text-align: center; max-width: 380px;
+}
+.cp-modal-icon-box {
+  width: 64px; height: 64px;
+  border-radius: 10px; border: 1px solid var(--border);
+  background: var(--background);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--foreground);
+}
+.cp-modal-title {
+  font-size: 20px; font-weight: 600; letter-spacing: -0.02em;
+  color: var(--foreground);
+}
+.cp-modal-desc {
+  font-size: 14px; line-height: 20px;
+  color: var(--muted-foreground);
+}
+
+/* ── Steps indicator ── */
+.cp-steps {
+  display: flex; align-items: center; gap: 8px;
+}
+.cp-step {
+  display: flex; align-items: center; gap: 4px;
+}
+.cp-step-done {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #4ade80; color: white;
+  display: flex; align-items: center; justify-content: center;
+}
+.cp-step-active {
+  color: var(--da-accent);
+}
+.cp-step-pending {
+  color: var(--muted-foreground); opacity: 0.4;
+}
+.cp-step-label {
+  font-size: 13px; color: var(--muted-foreground);
+}
+.cp-step-label.active {
+  color: var(--foreground);
+}
+.cp-step-line {
+  width: 16px; height: 1px;
+  background: var(--muted-foreground); opacity: 0.3;
+}
+
+/* ── Form ── */
+.cp-form {
+  display: flex; flex-direction: column; gap: 12px;
+  width: 100%;
+}
+.cp-field {
+  display: flex; flex-direction: column; gap: 4px;
+}
+.cp-field-label {
+  font-size: 12px; font-weight: 500;
+  color: var(--muted-foreground);
+  text-transform: uppercase; letter-spacing: 0.04em;
+}
+.cp-field-input-wrap {
+  display: flex; align-items: center;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: var(--background);
+  transition: border-color 0.15s;
+}
+.cp-field-input-wrap:focus-within {
+  border-color: var(--da-accent);
+}
+.cp-field-input {
+  flex: 1; padding: 8px 12px;
+  border: none; background: transparent;
+  font-size: 14px; color: var(--foreground);
+  outline: none; font-family: var(--font-mono, monospace);
+}
+.cp-field-input::placeholder {
+  color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+.cp-field-eye {
+  display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px;
+  background: none; border: none; cursor: pointer;
+  color: var(--muted-foreground); transition: color 0.15s;
+}
+.cp-field-eye:hover { color: var(--foreground); }
+
+.cp-form-error {
+  font-size: 13px; color: #ef4444;
+  padding: 6px 0;
+}
+
+.cp-form-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+  padding-top: 8px;
+}
+
+/* ── Buttons ── */
+.cp-btn-secondary {
+  height: 36px; min-width: 72px; padding: 0 12px;
+  border-radius: 6px; font-size: 14px; font-weight: 500;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--foreground); cursor: pointer;
+  transition: background 0.15s;
+}
+.cp-btn-secondary:hover { background: var(--accent); }
+
+.cp-btn-primary {
+  height: 36px; min-width: 72px; padding: 0 12px;
+  border-radius: 6px; font-size: 14px; font-weight: 500;
+  border: none; background: var(--foreground); color: var(--background);
+  cursor: pointer; transition: opacity 0.15s;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.cp-btn-primary:hover { opacity: 0.9; }
+.cp-btn-primary:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+
+/* ── Test result ── */
+.cp-test {
+  display: flex; flex-direction: column; gap: 16px; width: 100%;
+}
+.cp-test-loading {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 14px; color: var(--muted-foreground);
+  padding: 16px 0; justify-content: center;
+}
+.cp-test-result {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 16px; border-radius: 6px;
+  font-size: 14px;
+}
+.cp-test-result.ok {
+  background: color-mix(in srgb, #4ade80 10%, transparent);
+  color: #4ade80;
+  border: 1px solid color-mix(in srgb, #4ade80 20%, transparent);
+}
+.cp-test-result.fail {
+  background: color-mix(in srgb, #ef4444 10%, transparent);
+  color: #ef4444;
+  border: 1px solid color-mix(in srgb, #ef4444 20%, transparent);
+}
+
+/* ── Details toggle ── */
+.cp-details-toggle {
+  display: flex; align-items: center; justify-content: center;
+  gap: 4px; width: 100%; padding: 8px 0 12px;
+  background: none; border: none; cursor: pointer;
+  font-size: 13px; color: var(--muted-foreground);
+  transition: color 0.15s;
+}
+.cp-details-toggle:hover { color: var(--foreground); }

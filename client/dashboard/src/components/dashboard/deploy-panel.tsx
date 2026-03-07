@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { FileTokenView, type FileEntry } from "./file-token-view";
+import { ConnectorPicker } from "./connector-picker";
 import {
   createDeployThread, listDeployThreads, getDeployThread,
   deleteDeployThread, streamDeployAgent,
@@ -531,6 +532,7 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
               >
                 <Paperclip className="h-4 w-4" />
               </button>
+              <ConnectorPicker projectId={projectId} />
             </div>
             {streaming ? (
               <button onClick={onStop} className="da-send-btn active" title="Stop">
