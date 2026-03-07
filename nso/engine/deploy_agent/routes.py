@@ -252,7 +252,7 @@ async def stream_message(
     auth: AuthContext = Depends(require_user),
 ):
     """Send a message to the deploy agent and stream the response via SSE."""
-    if not DEPLOY_AGENT_API_KEY:
+    if not SUPERVISOR_API_KEY:
         raise HTTPException(503, "Deploy agent not configured. Set DEPLOY_AGENT_API_KEY.")
 
     thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
