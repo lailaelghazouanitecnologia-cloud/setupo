@@ -97,6 +97,13 @@ async def run_agent_loop(
     tool_schemas = registry.schemas if registry.has_tools() else None
     final_text = ""
 
+    if tool_schemas:
+        logger.debug("Tool schemas (%d tools): %s", len(tool_schemas), [t.get("function", {}).get("name", "MISSING") for t in tool_schemas])
+        for ts in tool_schemas:
+            fn = ts.get("function", {})
+            if not fn.get("name"):
+                logger.error("Tool schema missing name! Schema: %s", json.dumps(ts)[:500])
+
     for step in range(1, max_steps + 1):
         # Check cancellation
         if cancel_token and cancel_token.is_cancelled:

@@ -382,7 +382,7 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
             return json.dumps({"error": f"Cannot write file: {e}"})
 
     async def run_validation(workspace: str = "", checks: str = "") -> str:
-        """Run validation checks on a workspace. If validate.toml exists in the workspace it runs those checks. Otherwise you can pass inline checks as a JSON array like: [{"name":"health","type":"http","url":"https://domain/health","expect_status":200}]"""
+        """Run validation checks on a workspace using validate.toml or inline checks JSON array."""
         from nso.engine.validator import service as validator_service
 
         # Build context
@@ -450,16 +450,7 @@ def create_tools(ctx: DeployContext) -> list[tuple]:
     # ── Connector management tools ──
 
     async def setup_connector(connector_id: str, config_json: str) -> str:
-        """Install and configure a connector (github, s3, slack) with credentials.
-
-        The config_json must be a JSON object with the required fields:
-        - github: {"token": "ghp_xxx"}
-        - s3: {"endpoint": "https://...", "access_key": "...", "secret_key": "...", "bucket": "..."}
-        - slack: {"bot_token": "xoxb-xxx"} or {"webhook_url": "https://hooks.slack.com/..."}
-
-        This will install the connector if not already installed, update its config,
-        sync credentials to project secrets, and test the connection.
-        """
+        """Install and configure a connector with credentials. connector_id must be github, s3, or slack. config_json is a JSON object with the credentials."""
         try:
             config = json.loads(config_json) if isinstance(config_json, str) else config_json
         except json.JSONDecodeError:
