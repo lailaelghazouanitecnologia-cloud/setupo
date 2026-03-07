@@ -94,11 +94,8 @@ async def register(req: RegisterRequest):
 @router.post("/login", response_model=LoginResponse)
 async def login(req: LoginRequest, request: Request):
     admin = verify_password(req.email, req.password)
-    if admin:
-        # Admin login only allowed from sonfazt.nso.dev
-        is_admin_host = getattr(request.state, "is_admin_host", False)
-        if not is_admin_host:
-            raise HTTPException(403, "Admin login is only available via sonfazt.nso.dev")
+    is_admin_host = getattr(request.state, "is_admin_host", False)
+    if admin and is_admin_host:
 
         # Ensure admin user exists in DB so user-scoped endpoints work
         user = await users.get_user_by_email(req.email)
@@ -129,6 +126,15 @@ async def login(req: LoginRequest, request: Request):
         raise HTTPException(401, "Invalid email or password")
 
     token = users.issue_token(user)
+
+    # Bootstrap system project for admin users logging in from any host
+    if user.get("role") == "admin":
+        try:
+            from nso.engine.projects.service import ensure_system_project
+            await ensure_system_project(user["id"])
+        except Exception as e:
+            logger.warning("Failed to bootstrap system project: %s", e)
+
     return LoginResponse(token=token, email=user["email"], role=user["role"])
 
 
