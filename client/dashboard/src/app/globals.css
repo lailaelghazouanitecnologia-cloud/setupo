@@ -2664,37 +2664,79 @@
 .da-input-bottom {
   position: sticky; bottom: 0; z-index: 5;
   max-width: 768px; width: 100%; margin: 0 auto;
-  padding: 16px 8px 0;
+  padding: 16px 16px 0;
 }
 .da-input-box { width: 100%; position: relative; }
 .da-input-inner {
+  display: flex; flex-direction: column;
   background: var(--background); border-radius: 12px;
-  border: none; position: relative; z-index: 10; cursor: text;
-  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.035), 0 0 0 0.5px color-mix(in srgb, var(--muted-foreground) 12%, transparent);
-  transition: box-shadow 0.2s;
+  border: 1px solid color-mix(in srgb, var(--muted-foreground) 15%, transparent);
+  position: relative; z-index: 10;
+  transition: border-color 0.2s;
 }
 .da-input-inner:focus-within {
-  box-shadow: 0 0.25rem 1.25rem rgba(0,0,0,0.06), 0 0 0 0.5px color-mix(in srgb, var(--muted-foreground) 22%, transparent);
+  border-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
 }
-.da-input-content { display: flex; flex-direction: column; margin: 12px; gap: 10px; }
+
+/* Attachment chips row */
+.da-attach-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px 12px 0 12px;
+}
+.da-attach-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 10px; border-radius: 6px;
+  background: var(--accent); border: 1px solid var(--border);
+  font-size: 12px; color: var(--foreground);
+}
+.da-attach-chip-label {
+  max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.da-attach-chip-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 14px; height: 14px; border-radius: 50%;
+  border: none; background: none; cursor: pointer;
+  color: var(--muted-foreground); transition: color 0.15s;
+  margin-left: 2px;
+}
+.da-attach-chip-x:hover { color: var(--foreground); }
+
+/* Textarea area */
+.da-input-content {
+  display: flex; flex-direction: column;
+  padding: 12px 14px 8px;
+  gap: 0;
+}
 .da-textarea {
   display: block; outline: none !important; resize: none; width: 100%;
   background: transparent; color: var(--foreground);
-  font-size: 14px; line-height: 1.6; font-family: inherit;
-  border: none; overflow: hidden; min-height: 24px; max-height: 200px;
-  padding-left: 4px;
+  font-size: 14px; line-height: 1.5; font-family: inherit;
+  border: none; overflow-y: hidden; min-height: 24px; max-height: 200px;
+  padding: 0; margin: 0;
 }
 .da-textarea::placeholder { color: color-mix(in srgb, var(--muted-foreground) 40%, transparent); }
 .da-textarea:disabled { cursor: not-allowed; opacity: 0.5; }
-.da-toolbar {
-  display: flex; align-items: center; justify-content: space-between; width: 100%;
-}
-.da-toolbar-left { display: flex; align-items: center; gap: 4px; }
 
-/* Send/stop button */
+/* Bottom toolbar: attach left, send right */
+.da-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 8px;
+}
+.da-toolbar-left { display: flex; align-items: center; gap: 2px; }
+
+/* Attach button */
+.da-attach-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  border: none; background: none; cursor: pointer;
+  color: var(--muted-foreground); transition: all 0.15s;
+}
+.da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
+
+/* Send / stop button */
 .da-send-btn {
-  width: 28px; height: 28px; border-radius: 6px;
-  display: flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
   border: none; cursor: pointer; transition: all 0.15s;
   color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
   background: none;
@@ -2705,48 +2747,17 @@
 .da-send-btn.active:hover { opacity: 0.9; }
 .da-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-/* ── Attach button ── */
-.da-attach-btn {
-  display: flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 6px;
-  border: none; background: none; cursor: pointer;
-  color: var(--muted-foreground); transition: all 0.15s;
-}
-.da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
-
-/* ── Attachment chips ── */
-.da-attach-chips {
-  display: flex; flex-wrap: wrap; gap: 6px;
-  padding: 10px 12px 0;
-}
-.da-attach-chip {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 8px; border-radius: 6px;
-  background: var(--accent); border: 1px solid var(--border);
-  font-size: 12px; color: var(--foreground);
-}
-.da-attach-chip-label {
-  max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.da-attach-chip-x {
-  display: flex; align-items: center; justify-content: center;
-  width: 14px; height: 14px; border-radius: 50%;
-  border: none; background: none; cursor: pointer;
-  color: var(--muted-foreground); transition: color 0.15s;
-}
-.da-attach-chip-x:hover { color: var(--foreground); }
-
 /* ── Attach menu ── */
 .da-attach-menu {
-  position: absolute; bottom: 100%; left: 12px;
+  position: absolute; bottom: 100%; left: 0;
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 8px; padding: 4px; min-width: 160px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-  z-index: 20; margin-bottom: 4px;
+  border-radius: 10px; padding: 4px; min-width: 180px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+  z-index: 20; margin-bottom: 6px;
 }
 .da-attach-menu-item {
-  display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 12px; border-radius: 6px;
+  display: flex; align-items: center; gap: 10px;
+  width: 100%; padding: 9px 14px; border-radius: 8px;
   border: none; background: none; cursor: pointer;
   font-size: 13px; color: var(--foreground); transition: background 0.1s;
 }
@@ -2756,12 +2767,12 @@
 .da-picker {
   position: absolute; bottom: 100%; left: 0; right: 0;
   background: var(--card); border: 1px solid var(--border);
-  border-radius: 10px; z-index: 20; margin-bottom: 4px;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  border-radius: 10px; z-index: 20; margin-bottom: 6px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
   max-height: 320px; display: flex; flex-direction: column;
   overflow: hidden;
 }
-.da-picker-wide { min-height: 200px; }
+.da-picker-wide { min-height: 220px; }
 .da-picker-header {
   display: flex; align-items: center; justify-content: space-between;
   padding: 10px 14px; border-bottom: 1px solid var(--border);
@@ -2772,7 +2783,7 @@
   font-size: 13px; font-weight: 500; color: var(--foreground);
 }
 .da-picker-close {
-  display: flex; align-items: center; justify-content: center;
+  display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 6px;
   border: none; background: none; cursor: pointer;
   color: var(--muted-foreground); transition: all 0.15s;
@@ -2783,15 +2794,15 @@
 }
 .da-picker-loading {
   display: flex; align-items: center; gap: 8px;
-  padding: 16px; font-size: 13px; color: var(--muted-foreground);
+  padding: 20px 16px; font-size: 13px; color: var(--muted-foreground);
 }
 .da-picker-empty {
-  padding: 16px; font-size: 13px; color: var(--muted-foreground);
+  padding: 20px 16px; font-size: 13px; color: var(--muted-foreground);
   text-align: center;
 }
 .da-picker-item {
   display: flex; align-items: center; gap: 8px;
-  width: 100%; padding: 8px 12px; border-radius: 6px;
+  width: 100%; padding: 9px 12px; border-radius: 8px;
   border: none; background: none; cursor: pointer;
   font-size: 13px; color: var(--foreground); transition: background 0.1s;
   text-align: left;
@@ -2800,7 +2811,7 @@
 .da-picker-item-action {
   color: var(--da-accent); font-weight: 500;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
-  border-radius: 6px 6px 0 0;
+  border-radius: 8px 8px 0 0; margin-bottom: 2px;
 }
 .da-picker-item-name {
   flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
