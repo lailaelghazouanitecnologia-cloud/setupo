@@ -2742,7 +2742,7 @@
   background: none;
 }
 .da-send-btn.active {
-  background: var(--foreground); color: var(--background);
+  background: #2dd4bf; color: #000;
 }
 .da-send-btn.active:hover { opacity: 0.9; }
 .da-send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
