@@ -18,18 +18,27 @@ router = APIRouter()
 
 
 async def _ensure_catalog_seeded():
-    """Seed default catalog entries if empty."""
+    """Seed default catalog entries and remove stale ones."""
     existing = await db.fetch_all("addon_catalog")
-    if existing:
-        return
 
-    now = datetime.now(timezone.utc).isoformat()
     all_defaults = (
         [(e, "connector") for e in DEFAULT_CONNECTORS]
         + [(e, "plugin") for e in DEFAULT_PLUGINS]
         + [(e, "marketplace") for e in DEFAULT_MARKETPLACE]
     )
+    valid_keys = {(e["addon_id"], t) for e, t in all_defaults}
 
+    # Remove catalog entries that are no longer in defaults
+    for entry in existing:
+        key = (entry["addon_id"], entry["addon_type"])
+        if key not in valid_keys and entry.get("author") == "nso":
+            await db.delete("addon_catalog", entry["id"])
+            logger.info("Removed stale catalog entry: %s (%s)", entry["addon_id"], entry["addon_type"])
+
+    if existing:
+        return
+
+    now = datetime.now(timezone.utc).isoformat()
     for entry, addon_type in all_defaults:
         await db.insert("addon_catalog", {
             "id": f"cat_{token_gen.token_hex(8)}",

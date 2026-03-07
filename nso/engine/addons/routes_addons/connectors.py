@@ -34,10 +34,8 @@ async def _get_config(project_id: str, connector_id: str) -> dict:
 
 _REQUIRED = {
     "github": ["token"],
-    "supabase": ["url", "anon_key"],
     "s3": ["endpoint", "access_key", "secret_key", "bucket"],
     "slack": ["bot_token"],
-    "docker-registry": ["registry_url"],
 }
 
 _ALTERNATIVES = {
@@ -112,19 +110,6 @@ async def _test_github(config: dict) -> dict:
     return {"ok": False, "message": f"GitHub API error ({resp.status_code})"}
 
 
-async def _test_supabase(config: dict) -> dict:
-    url = config.get("url", "").rstrip("/")
-    key = config.get("anon_key", "")
-    if not url or not key:
-        return {"ok": False, "message": "url and anon_key are required"}
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        resp = await c.get(f"{url}/rest/v1/", headers={"apikey": key, "Authorization": f"Bearer {key}"})
-    if resp.status_code in (200, 204):
-        return {"ok": True, "message": "Supabase connection verified", "url": url}
-    if resp.status_code == 401:
-        return {"ok": False, "message": "Invalid anon_key"}
-    return {"ok": False, "message": f"Supabase status {resp.status_code}"}
-
 
 async def _test_s3(config: dict) -> dict:
     endpoint = config.get("endpoint", "").rstrip("/")
@@ -165,30 +150,9 @@ async def _test_slack(config: dict) -> dict:
     return {"ok": False, "message": "bot_token or webhook_url required"}
 
 
-async def _test_docker_registry(config: dict) -> dict:
-    url = config.get("registry_url", "").rstrip("/")
-    if not url:
-        return {"ok": False, "message": "registry_url is required"}
-    if not url.startswith("http"):
-        url = f"https://{url}"
-    username = config.get("username", "")
-    password = config.get("password", "")
-    auth = (username, password) if username and password else None
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        try:
-            resp = await c.get(f"{url}/v2/", auth=auth)
-        except httpx.ConnectError:
-            return {"ok": False, "message": f"Cannot connect to {url}"}
-    if resp.status_code == 200:
-        return {"ok": True, "message": f"Registry at {url} accessible"}
-    if resp.status_code == 401:
-        return {"ok": False, "message": "Invalid credentials" if username else "Authentication required"}
-    return {"ok": False, "message": f"Registry status {resp.status_code}"}
-
 
 _TESTERS = {
-    "github": _test_github, "supabase": _test_supabase, "s3": _test_s3,
-    "slack": _test_slack, "docker-registry": _test_docker_registry,
+    "github": _test_github, "s3": _test_s3, "slack": _test_slack,
 }
 
 
@@ -472,140 +436,3 @@ async def s3_delete_file(key: str = Query(...), project_id: str = Depends(requir
         await r2.close()
 
 
-# ═══════════════════════════════════════════════════════════════
-#  SUPABASE ACTIONS
-# ═══════════════════════════════════════════════════════════════
-
-@router.get("/supabase/tables")
-async def supabase_list_tables(project_id: str = Depends(require_project)):
-    """List tables in the connected Supabase project."""
-    config = await _get_config(project_id, "supabase")
-    url = config.get("url", "").rstrip("/")
-    key = config.get("anon_key", "")
-    service_key = config.get("service_role_key", key)
-    if not url or not key:
-        raise HTTPException(400, "url and anon_key required")
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        # Use PostgREST schema introspection
-        resp = await c.get(f"{url}/rest/v1/", headers={
-            "apikey": service_key, "Authorization": f"Bearer {service_key}",
-        })
-    if resp.status_code == 200:
-        # OpenAPI spec — extract table names from paths
-        try:
-            spec = resp.json()
-            paths = spec.get("paths", {})
-            tables = [p.lstrip("/") for p in paths if p != "/"]
-            return {"tables": tables, "count": len(tables)}
-        except Exception:
-            return {"tables": [], "message": "Connected but could not parse schema"}
-    raise HTTPException(resp.status_code, f"Supabase error: {resp.text[:200]}")
-
-
-class SupabaseQueryRequest(BaseModel):
-    table: str
-    select: str = "*"
-    filters: dict = {}
-    limit: int = 50
-    order: str = ""
-
-
-@router.post("/supabase/query")
-async def supabase_query(req: SupabaseQueryRequest, project_id: str = Depends(require_project)):
-    """Query a Supabase table via PostgREST."""
-    config = await _get_config(project_id, "supabase")
-    url = config.get("url", "").rstrip("/")
-    key = config.get("anon_key", "")
-    service_key = config.get("service_role_key", key)
-    if not url or not key:
-        raise HTTPException(400, "url and anon_key required")
-
-    params = {"select": req.select, "limit": req.limit}
-    if req.order:
-        params["order"] = req.order
-    for col, val in req.filters.items():
-        params[col] = f"eq.{val}"
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        resp = await c.get(f"{url}/rest/v1/{req.table}", params=params, headers={
-            "apikey": service_key, "Authorization": f"Bearer {service_key}",
-            "Accept": "application/json",
-        })
-    if resp.status_code != 200:
-        raise HTTPException(resp.status_code, f"Supabase query error: {resp.text[:200]}")
-    rows = resp.json()
-    return {"rows": rows, "count": len(rows)}
-
-
-class SupabaseInsertRequest(BaseModel):
-    table: str
-    data: dict
-
-
-@router.post("/supabase/insert")
-async def supabase_insert(req: SupabaseInsertRequest, project_id: str = Depends(require_project)):
-    """Insert a row into a Supabase table."""
-    config = await _get_config(project_id, "supabase")
-    url = config.get("url", "").rstrip("/")
-    key = config.get("anon_key", "")
-    service_key = config.get("service_role_key", key)
-    if not url or not key:
-        raise HTTPException(400, "url and anon_key required")
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        resp = await c.post(f"{url}/rest/v1/{req.table}", json=req.data, headers={
-            "apikey": service_key, "Authorization": f"Bearer {service_key}",
-            "Content-Type": "application/json", "Prefer": "return=representation",
-        })
-    if resp.status_code not in (200, 201):
-        raise HTTPException(resp.status_code, f"Insert error: {resp.text[:200]}")
-    return {"ok": True, "inserted": resp.json()}
-
-
-# ═══════════════════════════════════════════════════════════════
-#  DOCKER REGISTRY ACTIONS
-# ═══════════════════════════════════════════════════════════════
-
-@router.get("/docker-registry/repositories")
-async def docker_list_repositories(project_id: str = Depends(require_project)):
-    """List repositories in the connected Docker Registry."""
-    config = await _get_config(project_id, "docker-registry")
-    url = config.get("registry_url", "").rstrip("/")
-    if not url:
-        raise HTTPException(400, "registry_url not configured")
-    if not url.startswith("http"):
-        url = f"https://{url}"
-    username = config.get("username", "")
-    password = config.get("password", "")
-    auth = (username, password) if username and password else None
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        resp = await c.get(f"{url}/v2/_catalog", auth=auth)
-    if resp.status_code != 200:
-        raise HTTPException(resp.status_code, f"Registry error: {resp.text[:200]}")
-    data = resp.json()
-    return {"repositories": data.get("repositories", []), "count": len(data.get("repositories", []))}
-
-
-@router.get("/docker-registry/tags/{repository:path}")
-async def docker_list_tags(repository: str, project_id: str = Depends(require_project)):
-    """List tags for a repository in the Docker Registry."""
-    config = await _get_config(project_id, "docker-registry")
-    url = config.get("registry_url", "").rstrip("/")
-    if not url:
-        raise HTTPException(400, "registry_url not configured")
-    if not url.startswith("http"):
-        url = f"https://{url}"
-    username = config.get("username", "")
-    password = config.get("password", "")
-    auth = (username, password) if username and password else None
-
-    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
-        resp = await c.get(f"{url}/v2/{repository}/tags/list", auth=auth)
-    if resp.status_code == 404:
-        raise HTTPException(404, f"Repository '{repository}' not found")
-    if resp.status_code != 200:
-        raise HTTPException(resp.status_code, f"Registry error: {resp.text[:200]}")
-    data = resp.json()
-    return {"repository": repository, "tags": data.get("tags", [])}

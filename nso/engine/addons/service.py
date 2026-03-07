@@ -13,14 +13,6 @@ DEFAULT_CONNECTORS = [
         "addon_type": "connector",
     },
     {
-        "addon_id": "supabase",
-        "name": "Supabase",
-        "description": "Managed Postgres database, auth, and realtime subscriptions.",
-        "category": "database",
-        "icon": "database",
-        "addon_type": "connector",
-    },
-    {
         "addon_id": "s3",
         "name": "Amazon S3",
         "description": "External S3-compatible object storage for files and assets.",
@@ -36,17 +28,9 @@ DEFAULT_CONNECTORS = [
         "icon": "message-square",
         "addon_type": "connector",
     },
-    {
-        "addon_id": "docker-registry",
-        "name": "Docker Registry",
-        "description": "Pull and deploy container images from Docker Hub or private registries.",
-        "category": "containers",
-        "icon": "container",
-        "addon_type": "connector",
-    },
 ]
 
-# Default plugins — feature extensions (migrated from old plugin system)
+# Default plugins — feature extensions
 DEFAULT_PLUGINS = [
     {
         "addon_id": "storage",
@@ -65,14 +49,6 @@ DEFAULT_PLUGINS = [
         "description": "System metrics, alerts, and uptime tracking for your instances.",
         "category": "observability",
         "icon": "activity",
-        "addon_type": "plugin",
-    },
-    {
-        "addon_id": "backups",
-        "name": "Backups",
-        "description": "Automated snapshot and restore for workspaces and deployments.",
-        "category": "data",
-        "icon": "archive",
         "addon_type": "plugin",
     },
     {
@@ -101,25 +77,8 @@ DEFAULT_PLUGINS = [
     },
 ]
 
-# Default marketplace apps — admin-curated applications
-# These are showcase apps offered by the platform to users.
-# config_schema doubles as metadata for the marketplace presentation.
+# Default marketplace apps — functional apps with full backend implementation
 DEFAULT_MARKETPLACE = [
-    {
-        "addon_id": "analytics-dashboard",
-        "name": "Analytics Dashboard",
-        "description": "Real-time visitor analytics and performance metrics for your deployed apps. Track page views, unique visitors, referrers, and geographic distribution.",
-        "category": "analytics",
-        "icon": "bar-chart",
-        "addon_type": "marketplace",
-        "author": "nso",
-        "config_schema": {
-            "tagline": "Understand your traffic",
-            "pricing": "free",
-            "highlights": ["Real-time visitors", "Geographic heatmap", "Referrer tracking", "Export CSV"],
-            "featured": True,
-        },
-    },
     {
         "addon_id": "uptime-monitor",
         "name": "Uptime Monitor",
@@ -138,7 +97,7 @@ DEFAULT_MARKETPLACE = [
     {
         "addon_id": "ssl-manager",
         "name": "SSL Manager",
-        "description": "Automatic Let's Encrypt certificate provisioning and renewal. Zero-config HTTPS for all your domains with wildcard support.",
+        "description": "Automatic SSL certificate monitoring and expiration alerts. Zero-config HTTPS tracking for all your domains.",
         "category": "security",
         "icon": "shield",
         "addon_type": "marketplace",
@@ -146,38 +105,8 @@ DEFAULT_MARKETPLACE = [
         "config_schema": {
             "tagline": "HTTPS everywhere",
             "pricing": "free",
-            "highlights": ["Auto-renewal", "Wildcard certs", "Zero config", "Let's Encrypt"],
-            "featured": False,
-        },
-    },
-    {
-        "addon_id": "database-viewer",
-        "name": "Database Viewer",
-        "description": "Browse and query SQLite and Postgres databases directly from the dashboard. Visual table explorer, SQL editor, and export tools.",
-        "category": "tools",
-        "icon": "table",
-        "addon_type": "marketplace",
-        "author": "nso",
-        "config_schema": {
-            "tagline": "Explore your data",
-            "pricing": "free",
-            "highlights": ["Visual table browser", "SQL editor", "Export to CSV/JSON", "Query history"],
-            "featured": False,
-        },
-    },
-    {
-        "addon_id": "email-service",
-        "name": "Email Service",
-        "description": "Transactional email sending with templates, delivery tracking, and bounce handling. Send from your own domain.",
-        "category": "messaging",
-        "icon": "mail",
-        "addon_type": "marketplace",
-        "author": "nso",
-        "config_schema": {
-            "tagline": "Reliable email delivery",
-            "pricing": "free",
-            "highlights": ["Custom templates", "Delivery tracking", "Bounce handling", "Domain verification"],
-            "featured": False,
+            "highlights": ["Auto-check", "Expiration alerts", "Zero config", "Certificate details"],
+            "featured": True,
         },
     },
     {
@@ -192,7 +121,7 @@ DEFAULT_MARKETPLACE = [
             "tagline": "Automate everything",
             "pricing": "free",
             "highlights": ["Visual scheduler", "Retry logic", "Execution logs", "Failure alerts"],
-            "featured": False,
+            "featured": True,
         },
     },
 ]

@@ -58,7 +58,7 @@ SYSTEM_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps u
 - Check deployment status and health
 - List projects and servers
 - Run validation and tests
-- Discover and run AI-powered apps on the platform
+- Run validation and tests on your deployments
 
 ## Deploy workflow:
 1. **Analyze** your project structure
