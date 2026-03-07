@@ -3,16 +3,20 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   FolderOpen, Plus, RefreshCw, Trash2,
-  File, Folder, ChevronRight, ChevronDown,
+  File, Folder, ChevronRight,
   ArrowLeft, FileText, Code, Image,
-  GitBranch, Package,
+  GitBranch, Package, Copy, Check,
 } from "lucide-react";
 import {
   listWorkspaces, createWorkspace, deleteWorkspace as apiDeleteWorkspace,
   getWorkspaceFiles, readWorkspaceFile, zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
-import { formatSize } from "@/lib/format";
+import { formatSize, timeAgo } from "@/lib/format";
+
+/* ═══════════════════════════════════════════
+   TYPES
+   ═══════════════════════════════════════════ */
 
 interface Workspace {
   id: string;
@@ -33,18 +37,36 @@ interface FileItem {
   modified?: number;
 }
 
+/* ═══════════════════════════════════════════
+   FILE ICON HELPER
+   ═══════════════════════════════════════════ */
 
+const EXT_COLORS: Record<string, string> = {
+  ts: "#3b82f6", tsx: "#3b82f6", js: "#eab308", jsx: "#eab308",
+  py: "#22c55e", rs: "#f97316", go: "#06b6d4",
+  java: "#ef4444", c: "#8b5cf6", cpp: "#8b5cf6", h: "#8b5cf6",
+};
+const IMG_EXTS = new Set(["png", "jpg", "jpeg", "gif", "svg", "webp", "ico"]);
+const TEXT_EXTS = new Set(["md", "txt", "toml", "yaml", "yml", "json", "xml", "html", "css"]);
 
-function fileIcon(name: string) {
+function FileIcon({ name }: { name: string }) {
   const ext = name.split(".").pop()?.toLowerCase() || "";
-  if (["ts", "tsx", "js", "jsx", "py", "rs", "go", "java", "c", "cpp", "h"].includes(ext))
-    return <Code className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} />;
-  if (["png", "jpg", "jpeg", "gif", "svg", "ico", "webp"].includes(ext))
-    return <Image className="h-3.5 w-3.5" style={{ color: "#e879a0" }} />;
-  if (["md", "txt", "toml", "yaml", "yml", "json", "xml", "html", "css"].includes(ext))
-    return <FileText className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />;
-  return <File className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />;
+  if (EXT_COLORS[ext]) return <Code className="ws-file-icon" style={{ color: EXT_COLORS[ext] }} />;
+  if (IMG_EXTS.has(ext)) return <Image className="ws-file-icon" style={{ color: "#e879a0" }} />;
+  if (TEXT_EXTS.has(ext)) return <FileText className="ws-file-icon" style={{ color: "var(--muted-foreground)" }} />;
+  return <File className="ws-file-icon" style={{ color: "var(--muted-foreground)" }} />;
 }
+
+const STACK_LABELS: Record<string, { label: string; color: string }> = {
+  node: { label: "Node.js", color: "#22c55e" },
+  python: { label: "Python", color: "#3b82f6" },
+  static: { label: "Static", color: "#8b5cf6" },
+  custom: { label: "Custom", color: "var(--muted-foreground)" },
+};
+
+/* ═══════════════════════════════════════════
+   MAIN PANEL
+   ═══════════════════════════════════════════ */
 
 export function WorkspacesPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
@@ -58,17 +80,17 @@ export function WorkspacesPanel() {
   const [newName, setNewName] = useState("");
   const [newStack, setNewStack] = useState("node");
 
-  // Tab state
   const [tab, setTab] = useState<"files" | "versions">("files");
 
-  // File browser state
+  // File browser
   const [browsePath, setBrowsePath] = useState(".");
   const [files, setFiles] = useState<FileItem[]>([]);
   const [filesLoading, setFilesLoading] = useState(false);
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [viewingFile, setViewingFile] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
-  // Versions state
+  // Versions
   const [versions, setVersions] = useState<string[]>([]);
   const [branches, setBranches] = useState<Record<string, string>>({});
   const [versionsLoading, setVersionsLoading] = useState(false);
@@ -79,17 +101,12 @@ export function WorkspacesPanel() {
     try {
       const res = await listWorkspaces(activeProject.id);
       setWorkspaces(res.workspaces || []);
-    } catch {
-      setWorkspaces([]);
-    }
+    } catch { setWorkspaces([]); }
     setLoading(false);
   }, [activeProject, setWorkspaces]);
 
-  useEffect(() => {
-    fetchWorkspaces();
-  }, [fetchWorkspaces]);
+  useEffect(() => { fetchWorkspaces(); }, [fetchWorkspaces]);
 
-  // Load files when workspace or path changes
   const fetchFiles = useCallback(async () => {
     if (!activeProject || !activeWorkspace) return;
     setFilesLoading(true);
@@ -102,9 +119,7 @@ export function WorkspacesPanel() {
         return a.name.localeCompare(b.name);
       });
       setFiles(items);
-    } catch {
-      setFiles([]);
-    }
+    } catch { setFiles([]); }
     setFilesLoading(false);
   }, [activeProject, activeWorkspace, browsePath]);
 
@@ -112,7 +127,6 @@ export function WorkspacesPanel() {
     if (tab === "files") fetchFiles();
   }, [fetchFiles, tab]);
 
-  // Load versions when workspace changes or versions tab selected
   const fetchVersions = useCallback(async () => {
     if (!activeProject || !activeWorkspace) return;
     setVersionsLoading(true);
@@ -120,10 +134,7 @@ export function WorkspacesPanel() {
       const res = await zarVersions(activeProject.id, activeWorkspace.name);
       setVersions(res.versions || []);
       setBranches(res.branches || {});
-    } catch {
-      setVersions([]);
-      setBranches({});
-    }
+    } catch { setVersions([]); setBranches({}); }
     setVersionsLoading(false);
   }, [activeProject, activeWorkspace]);
 
@@ -139,9 +150,7 @@ export function WorkspacesPanel() {
       setNewName("");
       setCreating(false);
       fetchWorkspaces();
-    } catch (e: any) {
-      alert(e.message || "Failed to create workspace");
-    }
+    } catch (e: any) { alert(e.message || "Failed to create workspace"); }
   };
 
   const handleDelete = async (ws: Workspace) => {
@@ -150,16 +159,11 @@ export function WorkspacesPanel() {
       await apiDeleteWorkspace(activeProject.id, ws.name);
       if (activeWorkspace?.id === ws.id) setActiveWorkspace(null);
       fetchWorkspaces();
-    } catch (e: any) {
-      alert(e.message || "Failed to delete workspace");
-    }
+    } catch (e: any) { alert(e.message || "Failed to delete workspace"); }
   };
 
   const handleOpenFile = async (item: FileItem) => {
-    if (item.type === "dir") {
-      setBrowsePath(item.path);
-      return;
-    }
+    if (item.type === "dir") { setBrowsePath(item.path); return; }
     if (!activeProject || !activeWorkspace) return;
     try {
       const res = await readWorkspaceFile(activeProject.id, activeWorkspace.name, item.path);
@@ -178,219 +182,200 @@ export function WorkspacesPanel() {
     setBrowsePath(parts.length === 0 ? "." : parts.join("/"));
   };
 
+  const copyFileContent = () => {
+    if (fileContent) {
+      navigator.clipboard.writeText(fileContent);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
   if (!activeProject) {
     return (
-      <div className="panel-empty">
-        <FolderOpen className="h-8 w-8" style={{ opacity: 0.3 }} />
-        <p>Select a project to view workspaces</p>
+      <div className="ws-empty-root">
+        <FolderOpen className="ws-empty-icon" />
+        <p className="ws-empty-title">Select a project</p>
+        <p className="ws-empty-sub">Choose a project from the sidebar to view workspaces</p>
       </div>
     );
   }
 
   return (
-    <div style={{
-      display: "flex", gap: 0,
-      height: "calc(100vh - 100px)",
-      border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden",
-      background: "var(--card)",
-    }}>
-      {/* Sidebar: workspace list */}
-      <div style={{
-        width: 220, minWidth: 220, borderRight: "1px solid var(--border)",
-        display: "flex", flexDirection: "column", overflow: "hidden",
-      }}>
-        <div style={{
-          padding: "12px 12px 8px", display: "flex", alignItems: "center",
-          justifyContent: "space-between", borderBottom: "1px solid var(--border)",
-        }}>
-          <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", opacity: 0.6 }}>Workspaces</span>
-          <div style={{ display: "flex", gap: 4 }}>
-            <button className="ibtn" onClick={fetchWorkspaces} title="Refresh">
+    <div className="ws-layout">
+      {/* ── Sidebar: workspace list ── */}
+      <aside className="ws-sidebar">
+        <div className="ws-sidebar-header">
+          <span className="ws-sidebar-label">Workspaces</span>
+          <div className="ws-sidebar-actions">
+            <button className="ws-icon-btn" onClick={fetchWorkspaces} title="Refresh">
               <RefreshCw className="h-3 w-3" />
             </button>
-            <button className="ibtn" onClick={() => setCreating(!creating)} title="New workspace">
+            <button className="ws-icon-btn" onClick={() => setCreating(!creating)} title="New workspace">
               <Plus className="h-3 w-3" />
             </button>
           </div>
         </div>
 
         {creating && (
-          <div style={{ padding: 8, borderBottom: "1px solid var(--border)" }}>
+          <div className="ws-create-form">
             <input
-              style={{
-                width: "100%", padding: "4px 8px", fontSize: 12,
-                background: "var(--input)", border: "1px solid var(--border)",
-                borderRadius: 4, color: "var(--foreground)", marginBottom: 4,
-              }}
-              placeholder="Name..."
+              className="ws-create-input"
+              placeholder="workspace-name"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               autoFocus
             />
             <select
+              className="ws-create-select"
               value={newStack}
               onChange={(e) => setNewStack(e.target.value)}
-              style={{
-                width: "100%", padding: "4px 8px", fontSize: 11,
-                background: "var(--input)", border: "1px solid var(--border)",
-                borderRadius: 4, color: "var(--foreground)", marginBottom: 4,
-              }}
             >
               <option value="node">Node.js</option>
               <option value="python">Python</option>
               <option value="static">Static</option>
               <option value="custom">Custom</option>
             </select>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button className="btn btn-sm" onClick={handleCreate}>Create</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
+            <div className="ws-create-actions">
+              <button className="ws-btn ws-btn-primary" onClick={handleCreate}>Create</button>
+              <button className="ws-btn ws-btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
             </div>
           </div>
         )}
 
-        <div style={{ flex: 1, overflow: "auto" }}>
+        <div className="ws-sidebar-list">
           {loading ? (
-            <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>Loading...</div>
+            <div className="ws-sidebar-loading">Loading...</div>
           ) : workspaces.length === 0 ? (
-            <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>No workspaces</div>
+            <div className="ws-sidebar-empty">
+              <FolderOpen className="h-5 w-5" style={{ opacity: 0.2 }} />
+              <p>No workspaces yet</p>
+            </div>
           ) : (
-            workspaces.map((ws: any) => (
-              <button
-                key={ws.id}
-                onClick={() => { setActiveWorkspace(ws); setBrowsePath("."); }}
-                style={{
-                  display: "flex", alignItems: "center", gap: 8, width: "100%",
-                  padding: "8px 12px", border: "none", cursor: "pointer",
-                  background: activeWorkspace?.id === ws.id ? "var(--accent)" : "transparent",
-                  color: "var(--foreground)", fontSize: 12, textAlign: "left",
-                  borderBottom: "1px solid var(--border)",
-                }}
-              >
-                <FolderOpen className="h-3.5 w-3.5" style={{ opacity: 0.6, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ws.name}</div>
-                  <div style={{ fontSize: 10, opacity: 0.5 }}>{ws.stack || ws.ws_type || "custom"}</div>
-                </div>
+            workspaces.map((ws: any) => {
+              const stack = STACK_LABELS[ws.stack || ws.ws_type] || STACK_LABELS.custom;
+              return (
                 <button
-                  className="ibtn"
-                  onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
-                  title="Delete"
-                  style={{ opacity: 0.3 }}
+                  key={ws.id}
+                  className={`ws-sidebar-item ${activeWorkspace?.id === ws.id ? "active" : ""}`}
+                  onClick={() => { setActiveWorkspace(ws); setBrowsePath("."); }}
                 >
-                  <Trash2 className="h-3 w-3" />
+                  <div className="ws-sidebar-item-icon">
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </div>
+                  <div className="ws-sidebar-item-info">
+                    <span className="ws-sidebar-item-name">{ws.name}</span>
+                    <span className="ws-sidebar-item-meta">
+                      <span className="ws-stack-dot" style={{ background: stack.color }} />
+                      {stack.label}
+                    </span>
+                  </div>
+                  <button
+                    className="ws-sidebar-item-delete"
+                    onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
+                    title="Delete"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </button>
-              </button>
-            ))
+              );
+            })
           )}
         </div>
-      </div>
+      </aside>
 
-      {/* Main: file browser + versions */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* ── Main: file browser + versions ── */}
+      <main className="ws-main">
         {!activeWorkspace ? (
-          <div className="panel-empty">
-            <FolderOpen className="h-8 w-8" style={{ opacity: 0.3 }} />
-            <p>Select a workspace to browse files</p>
+          <div className="ws-empty-root">
+            <FolderOpen className="ws-empty-icon" />
+            <p className="ws-empty-title">Select a workspace</p>
+            <p className="ws-empty-sub">Choose a workspace to browse files and versions</p>
           </div>
         ) : (
           <>
-            {/* Tabs: Files | Versions */}
-            <div style={{
-              display: "flex", borderBottom: "1px solid var(--border)",
-              gap: 0,
-            }}>
-              {(["files", "versions"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTab(t)}
-                  style={{
-                    padding: "8px 16px", border: "none", cursor: "pointer",
-                    background: "transparent", color: "var(--foreground)",
-                    fontSize: 12, fontWeight: tab === t ? 600 : 400,
-                    borderBottom: tab === t ? "2px solid var(--accent)" : "2px solid transparent",
-                    opacity: tab === t ? 1 : 0.5,
-                    display: "flex", alignItems: "center", gap: 6,
-                  }}
-                >
-                  {t === "files" ? <FolderOpen className="h-3 w-3" /> : <Package className="h-3 w-3" />}
-                  {t === "files" ? "Files" : "Versions"}
-                </button>
-              ))}
+            {/* Tab bar */}
+            <div className="ws-tabs">
+              <button className={`ws-tab ${tab === "files" ? "active" : ""}`} onClick={() => setTab("files")}>
+                <FolderOpen className="h-3.5 w-3.5" /> Files
+              </button>
+              <button className={`ws-tab ${tab === "versions" ? "active" : ""}`} onClick={() => setTab("versions")}>
+                <Package className="h-3.5 w-3.5" /> Versions
+              </button>
             </div>
 
             {tab === "files" && viewingFile ? (
-              /* File viewer */
-              <>
-                <div style={{
-                  padding: "8px 12px", borderBottom: "1px solid var(--border)",
-                  display: "flex", alignItems: "center", gap: 8, fontSize: 12,
-                }}>
-                  <button className="ibtn" onClick={() => { setViewingFile(null); setFileContent(null); }}>
+              /* ── File viewer ── */
+              <div className="ws-file-viewer">
+                <div className="ws-file-viewer-header">
+                  <button className="ws-icon-btn" onClick={() => { setViewingFile(null); setFileContent(null); }}>
                     <ArrowLeft className="h-3.5 w-3.5" />
                   </button>
-                  <span style={{ opacity: 0.5 }}>{activeWorkspace.name} /</span>
-                  <span style={{ fontWeight: 500 }}>{viewingFile}</span>
+                  <div className="ws-breadcrumb">
+                    <span className="ws-breadcrumb-muted">{activeWorkspace.name} /</span>
+                    <span className="ws-breadcrumb-current">{viewingFile}</span>
+                  </div>
+                  <button className="ws-icon-btn" onClick={copyFileContent} title="Copy content" style={{ marginLeft: "auto" }}>
+                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-                <pre style={{
-                  flex: 1, overflow: "auto", padding: 16, margin: 0,
-                  fontSize: 12, lineHeight: 1.6, fontFamily: "var(--font-mono, monospace)",
-                  whiteSpace: "pre-wrap", wordBreak: "break-all",
-                  background: "var(--card)", color: "var(--foreground)",
-                }}>
-                  {fileContent}
-                </pre>
-              </>
+                <div className="ws-file-viewer-content">
+                  <pre className="ws-file-pre"><code>{fileContent}</code></pre>
+                </div>
+              </div>
             ) : tab === "files" ? (
-              /* Directory listing */
-              <>
-                <div style={{
-                  padding: "8px 12px", borderBottom: "1px solid var(--border)",
-                  display: "flex", alignItems: "center", gap: 8, fontSize: 12,
-                }}>
+              /* ── Directory listing ── */
+              <div className="ws-files">
+                <div className="ws-files-header">
                   {browsePath !== "." && (
-                    <button className="ibtn" onClick={navigateUp}>
+                    <button className="ws-icon-btn" onClick={navigateUp}>
                       <ArrowLeft className="h-3.5 w-3.5" />
                     </button>
                   )}
-                  <span style={{ fontWeight: 500 }}>{activeWorkspace.name}</span>
-                  {browsePath !== "." && (
-                    <span style={{ opacity: 0.5 }}>/ {browsePath}</span>
-                  )}
-                  <div style={{ marginLeft: "auto" }}>
-                    <button className="ibtn" onClick={fetchFiles} title="Refresh">
-                      <RefreshCw className="h-3 w-3" />
-                    </button>
+                  <div className="ws-breadcrumb">
+                    <span className="ws-breadcrumb-current">{activeWorkspace.name}</span>
+                    {browsePath !== "." && <span className="ws-breadcrumb-muted">/ {browsePath}</span>}
                   </div>
+                  <button className="ws-icon-btn" onClick={fetchFiles} title="Refresh" style={{ marginLeft: "auto" }}>
+                    <RefreshCw className="h-3 w-3" />
+                  </button>
                 </div>
 
-                <div style={{ flex: 1, overflow: "auto" }}>
+                <div className="ws-files-body">
                   {filesLoading ? (
-                    <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>Loading...</div>
+                    <div className="ws-files-empty">Loading...</div>
                   ) : files.length === 0 ? (
-                    <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>Empty directory</div>
+                    <div className="ws-files-empty">
+                      <Folder className="h-5 w-5" style={{ opacity: 0.2 }} />
+                      <p>Empty directory</p>
+                    </div>
                   ) : (
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <table className="ws-file-table">
+                      <thead>
+                        <tr>
+                          <th className="ws-ft-name">Name</th>
+                          <th className="ws-ft-size">Size</th>
+                          <th className="ws-ft-modified">Modified</th>
+                        </tr>
+                      </thead>
                       <tbody>
                         {files.map((item) => (
-                          <tr
-                            key={item.path}
-                            onClick={() => handleOpenFile(item)}
-                            style={{
-                              cursor: "pointer",
-                              borderBottom: "1px solid var(--border)",
-                            }}
-                            className="file-row"
-                          >
-                            <td style={{ padding: "6px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                              {item.type === "dir"
-                                ? <Folder className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} />
-                                : fileIcon(item.name)
-                              }
-                              <span style={{ fontWeight: item.type === "dir" ? 500 : 400 }}>{item.name}</span>
+                          <tr key={item.path} className="ws-file-row" onClick={() => handleOpenFile(item)}>
+                            <td className="ws-ft-name">
+                              <div className="ws-file-name-cell">
+                                {item.type === "dir"
+                                  ? <Folder className="ws-file-icon" style={{ color: "#60a5fa" }} />
+                                  : <FileIcon name={item.name} />
+                                }
+                                <span className={item.type === "dir" ? "ws-dir-name" : ""}>{item.name}</span>
+                                {item.type === "dir" && <ChevronRight className="ws-dir-chevron" />}
+                              </div>
                             </td>
-                            <td style={{ padding: "6px 12px", textAlign: "right", opacity: 0.4, whiteSpace: "nowrap" }}>
-                              {item.type === "file" ? formatSize(item.size) : ""}
+                            <td className="ws-ft-size">
+                              {item.type === "file" ? formatSize(item.size) : "\u2014"}
+                            </td>
+                            <td className="ws-ft-modified">
+                              {item.modified ? timeAgo(new Date(item.modified * 1000).toISOString()) : "\u2014"}
                             </td>
                           </tr>
                         ))}
@@ -398,72 +383,58 @@ export function WorkspacesPanel() {
                     </table>
                   )}
                 </div>
-              </>
+              </div>
             ) : (
-              /* Versions tab */
-              <div style={{ flex: 1, overflow: "auto" }}>
-                {/* Branches */}
+              /* ── Versions tab ── */
+              <div className="ws-versions">
                 {Object.keys(branches).length > 0 && (
-                  <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", opacity: 0.5, marginBottom: 8 }}>Branches</div>
+                  <div className="ws-versions-section">
+                    <div className="ws-section-header">
+                      <GitBranch className="h-3.5 w-3.5" style={{ opacity: 0.5 }} />
+                      <span>Branches</span>
+                    </div>
                     {Object.entries(branches).map(([branch, latest]) => (
-                      <div key={branch} style={{
-                        display: "flex", alignItems: "center", gap: 8, padding: "6px 0",
-                        fontSize: 12,
-                      }}>
-                        <GitBranch className="h-3.5 w-3.5" style={{ color: "var(--accent)" }} />
-                        <span style={{ fontWeight: 500 }}>{branch}</span>
-                        <span style={{ opacity: 0.4, marginLeft: "auto", fontFamily: "var(--font-mono, monospace)", fontSize: 11 }}>
-                          {latest}
-                        </span>
+                      <div key={branch} className="ws-branch-row">
+                        <GitBranch className="h-3.5 w-3.5 ws-branch-icon" />
+                        <span className="ws-branch-name">{branch}</span>
+                        <code className="ws-branch-version">{latest}</code>
                       </div>
                     ))}
                   </div>
                 )}
 
-                {/* Versions list */}
-                <div style={{ padding: "12px 16px" }}>
-                  <div style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8,
-                  }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", opacity: 0.5 }}>
-                      Versions ({versions.length})
-                    </span>
-                    <button className="ibtn" onClick={fetchVersions} title="Refresh">
+                <div className="ws-versions-section">
+                  <div className="ws-section-header">
+                    <Package className="h-3.5 w-3.5" style={{ opacity: 0.5 }} />
+                    <span>Versions ({versions.length})</span>
+                    <button className="ws-icon-btn" onClick={fetchVersions} title="Refresh" style={{ marginLeft: "auto" }}>
                       <RefreshCw className="h-3 w-3" />
                     </button>
                   </div>
                   {versionsLoading ? (
-                    <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>Loading...</div>
+                    <div className="ws-files-empty">Loading...</div>
                   ) : versions.length === 0 ? (
-                    <div style={{ padding: 16, textAlign: "center", fontSize: 12, opacity: 0.5 }}>
-                      No versions deployed yet
+                    <div className="ws-files-empty">
+                      <Package className="h-5 w-5" style={{ opacity: 0.2 }} />
+                      <p>No versions deployed yet</p>
                     </div>
                   ) : (
-                    versions.map((v, i) => (
-                      <div key={v} style={{
-                        display: "flex", alignItems: "center", gap: 8, padding: "8px 0",
-                        borderBottom: "1px solid var(--border)", fontSize: 12,
-                      }}>
-                        <Package className="h-3.5 w-3.5" style={{ opacity: 0.4 }} />
-                        <span style={{ fontFamily: "var(--font-mono, monospace)", fontSize: 11 }}>{v}</span>
-                        {i === 0 && (
-                          <span style={{
-                            marginLeft: "auto", fontSize: 10, padding: "1px 6px",
-                            background: "var(--accent)", borderRadius: 3, fontWeight: 500,
-                          }}>
-                            latest
-                          </span>
-                        )}
-                      </div>
-                    ))
+                    <div className="ws-version-list">
+                      {versions.map((v, i) => (
+                        <div key={v} className="ws-version-row">
+                          <Package className="h-3.5 w-3.5" style={{ opacity: 0.35 }} />
+                          <code className="ws-version-name">{v}</code>
+                          {i === 0 && <span className="ws-version-badge">latest</span>}
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>
             )}
           </>
         )}
-      </div>
+      </main>
     </div>
   );
 }

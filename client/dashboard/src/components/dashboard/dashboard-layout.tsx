@@ -529,7 +529,7 @@ export function DashboardLayout() {
 
       {/* ════ MAIN CONTENT ════ */}
       <div className={cn("fmain", sidebarOpen && "shifted")}>
-        <div className="fmain-content">
+        <div className={cn("fmain-content", (activeView === "deploy" || activeView === "workspaces") && "fmain-full")}>
           {activeView === "inbox" && <PanelErrorBoundary name="Inbox"><InboxPanel /></PanelErrorBoundary>}
           {activeView === "infrastructure" && <PanelErrorBoundary name="Infrastructure"><InfrastructurePanel /></PanelErrorBoundary>}
           {activeView === "projects" && <PanelErrorBoundary name="Projects"><ProjectsPanel /></PanelErrorBoundary>}
