@@ -92,10 +92,10 @@ async def lifespan(app: FastAPI):
         from nso.shared.events import EVENTS_MIGRATION, set_persist_handler, _db_persist_handler
         from nso.engine.compute.pool import POOL_MIGRATIONS, seed_plans
         from nso.engine.compute.quota import QUOTA_MIGRATIONS
-        from nso.engine.infrastructure.database.migrations import TABLES as DB_TABLES, INDEXES as DB_INDEXES
-        from nso.engine.infrastructure.storage.migrations import TABLES as STORAGE_TABLES, INDEXES as STORAGE_INDEXES
+        from nso.engine.infrastructure.database.migrations import DB_MIGRATIONS
+        from nso.engine.infrastructure.storage.migrations import STORAGE_MIGRATIONS
         conn = await db.get_db()
-        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS + QUOTA_MIGRATIONS + [DB_TABLES, DB_INDEXES, STORAGE_TABLES, STORAGE_INDEXES]:
+        for migration in SPEC_MIGRATIONS + EVENTS_MIGRATION + POOL_MIGRATIONS + QUOTA_MIGRATIONS + DB_MIGRATIONS + STORAGE_MIGRATIONS:
             await conn.execute(migration)
         await conn.commit()
 

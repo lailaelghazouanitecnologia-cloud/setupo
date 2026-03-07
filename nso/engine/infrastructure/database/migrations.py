@@ -1,5 +1,5 @@
-TABLES = """
-    CREATE TABLE IF NOT EXISTS managed_databases (
+DB_MIGRATIONS = [
+    """CREATE TABLE IF NOT EXISTS managed_databases (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
         instance_id TEXT NOT NULL,
@@ -18,10 +18,7 @@ TABLES = """
         ready_at TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
-    );
-"""
-
-INDEXES = """
-    CREATE INDEX IF NOT EXISTS idx_managed_databases_project ON managed_databases(project_id);
-    CREATE INDEX IF NOT EXISTS idx_managed_databases_instance ON managed_databases(instance_id);
-"""
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_managed_databases_project ON managed_databases(project_id)",
+    "CREATE INDEX IF NOT EXISTS idx_managed_databases_instance ON managed_databases(instance_id)",
+]
