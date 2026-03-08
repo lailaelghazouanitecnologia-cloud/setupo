@@ -368,28 +368,13 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
             <div className="da-welcome-inner">
               <h2 className="da-welcome-title">What can I help you deploy?</h2>
 
-              {/* Workspace selector */}
+              {/* Workspace selector dropdown */}
               {workspaces.length > 0 && (
-                <div className="da-ws-selector">
-                  <span className="da-ws-selector-label">Workspace</span>
-                  <div className="da-ws-selector-chips">
-                    <button
-                      className={`da-ws-chip ${!selectedWorkspace ? "active" : ""}`}
-                      onClick={() => setSelectedWorkspace(null)}
-                    >
-                      All
-                    </button>
-                    {workspaces.map((ws: any) => (
-                      <button
-                        key={ws.name}
-                        className={`da-ws-chip ${selectedWorkspace === ws.name ? "active" : ""}`}
-                        onClick={() => setSelectedWorkspace(ws.name === selectedWorkspace ? null : ws.name)}
-                      >
-                        {ws.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                <WorkspaceDropdown
+                  workspaces={workspaces}
+                  selected={selectedWorkspace}
+                  onSelect={setSelectedWorkspace}
+                />
               )}
 
               <div className="da-welcome-suggestions">
@@ -839,6 +824,60 @@ function groupByDate(threads: DeployThread[]) {
   if (y.length) groups.push({ label: "Yesterday", items: y });
   if (o.length) groups.push({ label: "Previous", items: o });
   return groups;
+}
+
+/* ═══════════════════════════════════════════
+   WORKSPACE DROPDOWN
+   ═══════════════════════════════════════════ */
+
+function WorkspaceDropdown({ workspaces, selected, onSelect }: {
+  workspaces: any[];
+  selected: string | null;
+  onSelect: (ws: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="da-ws-selector" ref={ref}>
+      <button className="da-ws-trigger" onClick={() => setOpen(!open)}>
+        {selected ? (
+          <span className="da-ws-trigger-label">{selected}</span>
+        ) : (
+          <span className="da-ws-trigger-label da-ws-trigger-placeholder">Select workspace</span>
+        )}
+        <ChevronDown className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
+      </button>
+      {open && (
+        <div className="da-ws-dropdown">
+          <button
+            className={`da-ws-option ${!selected ? "active" : ""}`}
+            onClick={() => { onSelect(null); setOpen(false); }}
+          >
+            All workspaces
+          </button>
+          {workspaces.map((ws: any) => (
+            <button
+              key={ws.name}
+              className={`da-ws-option ${selected === ws.name ? "active" : ""}`}
+              onClick={() => { onSelect(ws.name); setOpen(false); }}
+            >
+              {ws.name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 const ThreadSidebar = memo(function ThreadSidebar({ threads, activeThreadId, onSelect, onCreate, onDelete }: {

@@ -107,32 +107,41 @@
 .da-suggestion-icon { color: var(--da-accent); flex-shrink: 0; }
 .da-input-container { width: 100%; }
 
-/* Workspace selector */
+/* Workspace selector dropdown */
 .da-ws-selector {
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  display: flex; align-items: center; gap: 8px;
+  position: relative;
 }
-.da-ws-selector-label {
-  font-size: 11px; font-weight: 500; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--muted-foreground); opacity: 0.6;
+.da-ws-trigger {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card);
+  color: var(--foreground); font-size: 14px; font-weight: 500;
+  cursor: pointer; transition: all 0.15s;
+  min-width: 160px;
 }
-.da-ws-selector-chips {
-  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+.da-ws-trigger:hover { background: var(--accent); }
+.da-ws-trigger-label {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.da-ws-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 6px 14px; border-radius: 20px;
-  border: 1px solid var(--border); background: var(--background);
-  color: var(--muted-foreground); font-size: 13px; font-weight: 500;
-  cursor: pointer; transition: all 0.2s;
+.da-ws-trigger-placeholder { color: var(--muted-foreground); }
+.da-ws-dropdown {
+  position: absolute; top: 100%; left: 0; right: 0;
+  margin-top: 4px; z-index: 20;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 4px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  max-height: 200px; overflow-y: auto;
 }
-.da-ws-chip:hover {
-  background: var(--accent); color: var(--foreground);
-  border-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+.da-ws-option {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 8px 12px; border-radius: 6px;
+  border: none; background: none; cursor: pointer;
+  font-size: 14px; color: var(--foreground); transition: background 0.1s;
+  text-align: left;
 }
-.da-ws-chip.active {
-  background: linear-gradient(to top, #06b6d4, #1e3a5f);
-  color: #fff; border-color: transparent;
-}
+.da-ws-option:hover { background: var(--accent); }
+.da-ws-option.active { background: var(--accent); font-weight: 500; }
 
 /* ── Messages area ── */
 .da-messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 24px; }
@@ -419,13 +428,13 @@
 .da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
 .da-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Model indicator — Deploy Agent aqua→navy gradient */
+/* Model indicator */
 .da-model-indicator {
   display: inline-flex; align-items: center; gap: 4px;
   height: 28px; padding: 0 10px; border-radius: 7px;
-  border: none; cursor: default;
-  background: linear-gradient(to top, #06b6d4, #1e3a5f);
-  color: #fff; font-size: 11px; font-weight: 600;
+  border: 1px solid var(--border); cursor: default;
+  background: var(--card);
+  color: var(--muted-foreground); font-size: 11px; font-weight: 600;
   white-space: nowrap; user-select: none;
   transition: opacity 0.15s;
   letter-spacing: 0.02em;
