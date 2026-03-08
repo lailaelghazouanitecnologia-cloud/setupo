@@ -127,43 +127,54 @@ class OpenAILike(Model):
             params["messages"] = self._strip_tool_messages(params["messages"])
             stream = await self.client.chat.completions.create(**params)
 
-        async for chunk in stream:
-            choice = chunk.choices[0] if chunk.choices else None
-            if not choice:
-                continue
+        try:
+            async for chunk in stream:
+                choice = chunk.choices[0] if chunk.choices else None
+                if not choice:
+                    continue
 
-            delta = choice.delta
-            response = ModelResponse(
-                finish_reason=choice.finish_reason,
-                model=chunk.model,
-            )
-
-            if delta and delta.content:
-                response.content = delta.content
-
-            if delta and getattr(delta, "reasoning", None):
-                response.reasoning = delta.reasoning
-
-            if delta and delta.tool_calls:
-                response.tool_calls = []
-                for tc in delta.tool_calls:
-                    response.tool_calls.append(ToolCall(
-                        id=tc.id or "",
-                        type="function",
-                        function=ToolCallFunction(
-                            name=tc.function.name or "" if tc.function else "",
-                            arguments=tc.function.arguments or "" if tc.function else "",
-                        ),
-                    ))
-
-            if chunk.usage:
-                response.usage = Usage(
-                    prompt_tokens=chunk.usage.prompt_tokens or 0,
-                    completion_tokens=chunk.usage.completion_tokens or 0,
-                    total_tokens=chunk.usage.total_tokens or 0,
+                delta = choice.delta
+                response = ModelResponse(
+                    finish_reason=choice.finish_reason,
+                    model=chunk.model,
                 )
 
-            yield response
+                if delta and delta.content:
+                    response.content = delta.content
+
+                if delta and getattr(delta, "reasoning", None):
+                    response.reasoning = delta.reasoning
+
+                if delta and delta.tool_calls:
+                    response.tool_calls = []
+                    for tc in delta.tool_calls:
+                        response.tool_calls.append(ToolCall(
+                            id=tc.id or "",
+                            type="function",
+                            function=ToolCallFunction(
+                                name=tc.function.name or "" if tc.function else "",
+                                arguments=tc.function.arguments or "" if tc.function else "",
+                            ),
+                        ))
+
+                if chunk.usage:
+                    response.usage = Usage(
+                        prompt_tokens=chunk.usage.prompt_tokens or 0,
+                        completion_tokens=chunk.usage.completion_tokens or 0,
+                        total_tokens=chunk.usage.total_tokens or 0,
+                    )
+
+                yield response
+        except Exception as stream_err:
+            # Some providers (Groq) raise APIError during streaming for malformed tool call JSON.
+            # Yield a final response with finish_reason so the agent loop can handle tool calls
+            # that were already buffered, or fall through gracefully.
+            error_str = str(stream_err)
+            if "parse tool call" in error_str.lower() or "invalid json" in error_str.lower():
+                logger.warning("Stream error (malformed tool call JSON from provider): %s", error_str[:200])
+                yield ModelResponse(finish_reason="stop")
+            else:
+                raise
 
     @staticmethod
     def _sanitize_messages(messages: list[Message]) -> list[dict]:
