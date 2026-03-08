@@ -394,6 +394,10 @@ async def run_dual_agent_loop(
     supervisor_text = ""
     total_steps = 0
     _executed_tool_keys: set[str] = set()
+    # Track tool names called (regardless of args) to prevent repeat destructive calls
+    _called_tool_names: set[str] = set()
+    # Tools that should never be called more than once per run
+    _once_only_tools = {"run_ship", "run_build"}
 
     yield RunEvent("thinking", {"step": 1, "run_id": run_id, "phase": "supervisor"})
 
@@ -494,16 +498,27 @@ async def run_dual_agent_loop(
                     sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=error_msg))
                     continue
 
+                # Deduplicate: block once-only tools from being called again
+                tool_base = tc.function.name
+                if tool_base in _once_only_tools and tool_base in _called_tool_names:
+                    dup_msg = json.dumps({"error": f"Tool '{tool_base}' already executed successfully. Do NOT call it again. Use the previous result and STOP."})
+                    yield RunEvent("tool_call", {"id": tc.id, "name": tool_base, "arguments": args})
+                    yield RunEvent("tool_result", {"id": tc.id, "name": tool_base, "result": dup_msg})
+                    sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=dup_msg))
+                    logger.warning("Once-only tool blocked: %s (already called)", tool_base)
+                    continue
+
                 # Deduplicate: skip tools already called with same args
-                dedup_key = f"{tc.function.name}:{json.dumps(args, sort_keys=True)}"
+                dedup_key = f"{tool_base}:{json.dumps(args, sort_keys=True)}"
                 if dedup_key in _executed_tool_keys:
-                    dup_msg = json.dumps({"error": f"Tool '{tc.function.name}' already called with these arguments. Use the previous result."})
-                    yield RunEvent("tool_call", {"id": tc.id, "name": tc.function.name, "arguments": args})
-                    yield RunEvent("tool_result", {"id": tc.id, "name": tc.function.name, "result": dup_msg})
+                    dup_msg = json.dumps({"error": f"Tool '{tool_base}' already called with these arguments. Use the previous result."})
+                    yield RunEvent("tool_call", {"id": tc.id, "name": tool_base, "arguments": args})
+                    yield RunEvent("tool_result", {"id": tc.id, "name": tool_base, "result": dup_msg})
                     sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=dup_msg))
                     logger.warning("Duplicate tool call skipped: %s", dedup_key[:200])
                     continue
                 _executed_tool_keys.add(dedup_key)
+                _called_tool_names.add(tool_base)
 
                 yield RunEvent("tool_call", {"id": tc.id, "name": tc.function.name, "arguments": args})
 

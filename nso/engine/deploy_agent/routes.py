@@ -46,7 +46,7 @@ WORKER_API_KEY = os.environ.get("DEPLOY_AGENT_WORKER_API_KEY", "")
 WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://inference.baseten.co/v1")
 WORKER_MODEL = os.environ.get("DEPLOY_AGENT_WORKER_MODEL", "")
 
-DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "15"))
+DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "5"))
 
 # Dual-mode is active when worker env vars are configured
 DUAL_MODE = bool(WORKER_API_KEY and WORKER_API_URL and WORKER_MODEL)
@@ -77,11 +77,12 @@ SUPERVISOR_PROMPT = """You are the NSO Deploy Agent Supervisor. Your job is to u
 IMPORTANT RULES:
 - Focus on EXECUTING TOOLS to gather information. Do NOT write long responses.
 - If the user asks a question that requires platform data, call the appropriate tool.
-- If no tools are needed (e.g. greeting, simple question), respond briefly.
-- After executing tools, stop. The Worker model will compose the final response.
-- Be efficient: call multiple tools in one step if possible.
-- CRITICAL: NEVER call the same tool twice with the same arguments. If you already called a tool and got a result, use that result. Do NOT repeat tool calls.
-- After gathering data (1-3 tool calls max), STOP and let the worker respond.
+- If no tools are needed (e.g. greeting, simple question), respond briefly with text only.
+- After executing tools, STOP IMMEDIATELY. The Worker model will compose the final response.
+- CRITICAL: NEVER call the same tool more than once. If you already called a tool, USE the result you got. Do NOT repeat it.
+- CRITICAL: After run_ship succeeds, you are DONE. Do NOT call any more tools. Just stop.
+- CRITICAL: After run_build succeeds, you are DONE. Do NOT call any more tools. Just stop.
+- Maximum 2 tool calls per request. After 2 tool calls, STOP.
 - Never expose internal details, tool names, or system architecture to users.
 """
 

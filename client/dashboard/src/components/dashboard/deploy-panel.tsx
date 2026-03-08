@@ -153,12 +153,16 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
 
   const selectThread = useCallback(async (id: string) => {
     if (id === activeThreadId) return;
+    // Cancel any active streaming before switching
+    if (streaming) { abortRef.current?.abort(); abortRef.current = null; setStreaming(false); }
     // Cleanup previous empty thread
     await cleanupEmptyThread(activeThreadId);
     setActiveThreadId(id);
-  }, [activeThreadId, cleanupEmptyThread]);
+  }, [activeThreadId, cleanupEmptyThread, streaming]);
 
   const createThread = async () => {
+    // Cancel any active streaming before creating new thread
+    if (streaming) { abortRef.current?.abort(); abortRef.current = null; setStreaming(false); }
     // Cleanup current empty thread before creating new one
     await cleanupEmptyThread(activeThreadId);
     try {
@@ -166,6 +170,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       setThreads((prev) => [t, ...prev]);
       setActiveThreadId(t.id);
       setMessages([]);
+      setStreamText(""); setStreamReasoning(""); setActiveToolCall(null); setError("");
     } catch (e: any) { setError(e.message || "Failed to create thread"); }
   };
 
