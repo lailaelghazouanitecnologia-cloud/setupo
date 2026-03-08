@@ -391,6 +391,14 @@ async def stream_message(
 
     # Build tools with workspace context from thread
     thread_workspace = thread.get("workspace", "") or ""
+
+    # Resolve user subdomain for domain context
+    user_subdomain = ""
+    if auth.user_id:
+        user_record = await db.fetch_one("users", id=auth.user_id)
+        if user_record:
+            user_subdomain = (user_record.get("subdomain") or "").strip()
+
     ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "", workspace=thread_workspace)
     registry = ToolRegistry()
     for func, name, desc in create_tools(ctx):
@@ -409,7 +417,10 @@ async def stream_message(
         # Inject workspace context into system prompt
         ws_context = ""
         if thread_workspace:
+            domain_example = f"{thread_workspace}-{user_subdomain}.nso.dev" if user_subdomain else f"{thread_workspace}.nso.dev"
             ws_context = f"\n\n## ACTIVE WORKSPACE CONTEXT\nThe user is working on workspace: **{thread_workspace}**\n- When the user says actions like 'deploy', 'build', 'ship', or refers to 'it', they mean this workspace.\n- Use workspace='{thread_workspace}' in all tool calls unless the user explicitly names a different workspace.\n- Do NOT ask 'what workspace?' — you already know it.\n- The workspace name is NOT a topic of conversation — it's a project name. Never interpret it as anything else.\n"
+            if user_subdomain:
+                ws_context += f"- The user's subdomain is: **{user_subdomain}**\n- After deploy, the URL is: **https://{domain_example}**\n- ALWAYS use this exact URL when telling the user where their app is. NEVER use placeholders like <tu_usuario>.\n"
 
         active_system = SYSTEM_PROMPT + ws_context
         active_supervisor = SUPERVISOR_PROMPT + ws_context if SUPERVISOR_PROMPT else ""
