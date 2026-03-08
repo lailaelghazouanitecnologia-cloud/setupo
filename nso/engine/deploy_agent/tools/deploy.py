@@ -120,27 +120,36 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         if ctx.user_id:
             await _auto_claim_subdomain(ctx.user_id)
 
-        # Resolve instance
+        # Resolve instance — prefer linked instance if healthy, fallback to any running
         if not instance_id:
             if ws.get("instance_id"):
                 instance_id = ws["instance_id"]
-            else:
+            elif not instance_id:
                 config = read_config(ws_path)
                 if config and config.deploy and config.deploy.instance_id:
                     instance_id = config.deploy.instance_id
-                else:
-                    instances = await db.fetch_all("instances", project_id=ctx.project_id)
-                    ready = [i for i in instances if i.get("state") in ("ready", "running")]
-                    if ready:
-                        instance_id = ready[0]["id"]
-                    else:
-                        return json.dumps({"error": "No instance available. Create one first."})
 
-        inst = await db.fetch_one("instances", id=instance_id)
-        if not inst or inst.get("project_id") != ctx.project_id:
-            return json.dumps({"error": f"Instance {instance_id} not found in project"})
-        if inst.get("state") not in ("ready", "running", "error"):
-            return json.dumps({"error": f"Instance is in state '{inst.get('state')}' — must be ready or running"})
+        # Validate chosen instance is deployable; fallback to any running instance if not
+        inst = None
+        if instance_id:
+            inst = await db.fetch_one("instances", id=instance_id)
+            if inst and inst.get("project_id") == ctx.project_id and inst.get("state") in ("ready", "running"):
+                pass  # good — use this instance
+            else:
+                logger.warning("Linked instance %s not deployable (state=%s), trying fallback",
+                               instance_id, inst.get("state") if inst else "not found")
+                inst = None
+                instance_id = ""
+
+        if not instance_id:
+            instances = await db.fetch_all("instances", project_id=ctx.project_id)
+            running = [i for i in instances if i.get("state") in ("ready", "running")]
+            if running:
+                inst = running[0]
+                instance_id = inst["id"]
+                logger.info("Falling back to instance %s (%s)", instance_id, inst.get("label", ""))
+            else:
+                return json.dumps({"error": "No instance available. Create one first or fix existing instances."})
 
         # Pack
         pkg_config = read_package_config(ws_path)
