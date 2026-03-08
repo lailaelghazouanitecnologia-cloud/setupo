@@ -183,7 +183,9 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             return json.dumps({"error": "Path traversal not allowed"})
 
         try:
-            os.makedirs(os.path.dirname(full), exist_ok=True)
+            parent = os.path.dirname(full)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             Path(full).write_text(content)
             return json.dumps({"ok": True, "path": file_path, "size": len(content)})
         except Exception as e:
@@ -236,7 +238,15 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
 
         existing = await db.fetch_one("workspaces", project_id=ctx.project_id, name=name)
         if existing:
-            return json.dumps({"error": f"Workspace '{name}' already exists"})
+            return json.dumps({
+                "ok": True,
+                "already_exists": True,
+                "workspace": name,
+                "id": existing.get("id", ""),
+                "path": existing.get("path", ""),
+                "stack": existing.get("stack", existing.get("ws_type", "custom")),
+                "instance_id": existing.get("instance_id", ""),
+            })
 
         ws_path = str(settings.workspace_path(name))
         ws_id = f"ws_{token_gen.token_hex(8)}"

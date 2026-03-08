@@ -77,6 +77,7 @@ def _get_worker() -> OpenAILike:
 SUPERVISOR_PROMPT = """You are the NSO Deploy Agent Supervisor. Your job is to understand the user's request and execute the right tools to gather data.
 
 IMPORTANT RULES:
+- Workspace names (like "cocina", "blog", "api") are PROJECT NAMES, not conversation topics. NEVER misinterpret them.
 - Focus on EXECUTING TOOLS to gather information. Do NOT write long responses.
 - If the user asks a question that requires platform data, call the appropriate tool.
 - If no tools are needed (e.g. greeting, simple question), respond briefly with text only.
@@ -84,11 +85,18 @@ IMPORTANT RULES:
 - CRITICAL: NEVER call the same tool more than once. If you already called a tool, USE the result you got. Do NOT repeat it.
 - CRITICAL: After run_ship succeeds, you are DONE. Do NOT call any more tools. Just stop.
 - CRITICAL: After run_build succeeds, you are DONE. Do NOT call any more tools. Just stop.
+- CRITICAL: If create_workspace returns already_exists=true, that's fine — use the existing workspace. Do NOT retry or error out.
 - Maximum 2 tool calls per request. After 2 tool calls, STOP.
 - Never expose internal details, tool names, or system architecture to users.
 """
 
 SYSTEM_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps users build, deploy, and manage their projects on NSO (a cloud deployment platform).
+
+## CRITICAL: Workspace names are PROJECT names, not conversation topics
+- Workspace names like "cocina", "blog", "api", "tienda" are PROJECT NAMES chosen by the user.
+- NEVER interpret workspace names as topics. "cocina" is a project name, NOT a cooking topic.
+- NEVER ask "do you mean a recipe?" or similar — the user is always talking about their workspace/project.
+- When in doubt, assume the user is talking about their workspace.
 
 ## Platform overview:
 NSO is an infrastructure platform with:
@@ -381,8 +389,9 @@ async def stream_message(
         else:
             messages.append(Message.from_dict({"role": r["role"], "content": r.get("content", "") or ""}))
 
-    # Build tools
-    ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "")
+    # Build tools with workspace context from thread
+    thread_workspace = thread.get("workspace", "") or ""
+    ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "", workspace=thread_workspace)
     registry = ToolRegistry()
     for func, name, desc in create_tools(ctx):
         registry.register_callable(func, name=name, description=desc)
@@ -397,6 +406,15 @@ async def stream_message(
         all_tool_calls = []
         all_tool_results = []
 
+        # Inject workspace context into system prompt
+        ws_context = ""
+        if thread_workspace:
+            ws_context = f"\n\n## ACTIVE WORKSPACE CONTEXT\nThe user is working on workspace: **{thread_workspace}**\n- When the user says actions like 'deploy', 'build', 'ship', or refers to 'it', they mean this workspace.\n- Use workspace='{thread_workspace}' in all tool calls unless the user explicitly names a different workspace.\n- Do NOT ask 'what workspace?' — you already know it.\n- The workspace name is NOT a topic of conversation — it's a project name. Never interpret it as anything else.\n"
+
+        active_system = SYSTEM_PROMPT + ws_context
+        active_supervisor = SUPERVISOR_PROMPT + ws_context if SUPERVISOR_PROMPT else ""
+        active_worker = WORKER_PROMPT + ws_context
+
         try:
             if DUAL_MODE:
                 # Dual-model: supervisor handles tools, worker writes response
@@ -405,8 +423,8 @@ async def stream_message(
                     supervisor=_get_supervisor(),
                     worker=_get_worker(),
                     messages=messages,
-                    supervisor_prompt=SUPERVISOR_PROMPT,
-                    worker_prompt=WORKER_PROMPT,
+                    supervisor_prompt=active_supervisor,
+                    worker_prompt=active_worker,
                     registry=registry,
                     max_steps=DEPLOY_AGENT_MAX_STEPS,
                     run_id=run_id,
@@ -417,7 +435,7 @@ async def stream_message(
                 event_stream = run_agent_loop(
                     model=_get_supervisor(),
                     messages=messages,
-                    system_prompt=SYSTEM_PROMPT,
+                    system_prompt=active_system,
                     registry=registry,
                     max_steps=DEPLOY_AGENT_MAX_STEPS,
                     run_id=run_id,

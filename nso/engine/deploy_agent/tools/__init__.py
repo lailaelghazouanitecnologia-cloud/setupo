@@ -25,9 +25,10 @@ logger = logging.getLogger("nso.deploy_agent.tools")
 class DeployContext:
     """Shared context for all tool calls within a deploy session."""
 
-    def __init__(self, project_id: str, user_id: str = ""):
+    def __init__(self, project_id: str, user_id: str = "", workspace: str = ""):
         self.project_id = project_id
         self.user_id = user_id
+        self.workspace = workspace
 
 
 def create_tools(ctx: DeployContext) -> list[tuple]:

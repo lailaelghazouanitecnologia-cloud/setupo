@@ -97,6 +97,13 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
 
     async def run_ship(workspace: str, instance_id: str = "", branch: str = "main", domain: str = "") -> str:
         """Execute full ship pipeline: pack → push to R2 → deploy to instance."""
+        try:
+            return await _run_ship_impl(workspace, instance_id, branch, domain)
+        except Exception as exc:
+            logger.exception("run_ship unhandled error for workspace=%s", workspace)
+            return json.dumps({"error": f"Ship failed: {type(exc).__name__}: {exc}"})
+
+    async def _run_ship_impl(workspace: str, instance_id: str, branch: str, domain: str) -> str:
         from nso.engine.storage.zar_packer import pack
         from nso.engine.storage.service import R2Client
         from nso.engine.workspace.config import read_config, read_package_config
