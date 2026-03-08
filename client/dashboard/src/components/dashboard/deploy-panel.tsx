@@ -357,7 +357,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
 
       {/* Chat area */}
       <main className="da-main">
-        {isEmpty && !activeThreadId ? (
+        {isEmpty ? (
           /* Welcome / empty state */
           <div className="da-welcome">
             <div className="da-welcome-inner">

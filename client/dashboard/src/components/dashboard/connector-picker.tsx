@@ -11,6 +11,7 @@ import {
   testConnector, getConnectorStatus,
   type AddonInfo,
 } from "@/lib/api/client";
+import { useDashboardStore } from "@/stores/dashboard-store";
 
 /* ═══════════════════════════════════════════
    CONNECTOR PICKER — Dropdown + Setup Modal
@@ -74,6 +75,7 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
   const [connectorStates, setConnectorStates] = useState<Record<string, AddonInfo>>({});
   const [loading, setLoading] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
 
   // Close on outside click
   useEffect(() => {
@@ -119,11 +121,7 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
 
   const handleConnectorClick = (def: ConnectorDef) => {
     const state = connectorStates[def.id];
-    if (state?.installed) {
-      // Already installed — toggle or show details
-      return;
-    }
-    // Not installed — open setup
+    // Open setup modal for both new and existing connectors
     setOpen(false);
     setSetupConnector(def);
   };
@@ -148,6 +146,12 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
       {/* Dropdown list */}
       {open && !setupConnector && (
         <div className="cp-dropdown">
+          <div className="cp-dropdown-header">
+            <span className="cp-dropdown-title">Connectors</span>
+            <button className="cp-dropdown-close" onClick={() => setOpen(false)}>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
           <div className="cp-list">
             {loading ? (
               <div className="cp-list-loading">
@@ -204,7 +208,7 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
 
           {/* Footer */}
           <div className="cp-footer">
-            <div className="cp-footer-item" onClick={() => { /* navigate to addons panel */ }}>
+            <div className="cp-footer-item" onClick={() => { setOpen(false); setActiveView("addons"); }}>
               <div className="cp-footer-icon">
                 <Settings2 className="h-4 w-4" />
               </div>
@@ -249,7 +253,9 @@ function ConnectorSetupModal({
   const [step, setStep] = useState(0); // 0 = config form, 1 = testing
   const [values, setValues] = useState<Record<string, string>>(() => {
     const v: Record<string, string> = {};
-    for (const f of connector.fields) v[f.key] = "";
+    const existingConfig = existingState?.config || {};
+    const cfg = typeof existingConfig === "string" ? (() => { try { return JSON.parse(existingConfig); } catch { return {}; } })() : existingConfig;
+    for (const f of connector.fields) v[f.key] = (cfg as any)[f.key] || "";
     return v;
   });
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});

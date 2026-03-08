@@ -96,7 +96,33 @@ class OpenAILike(Model):
     ) -> AsyncIterator[ModelResponse]:
         params = self._build_params(messages, tools, tool_choice, stream=True)
 
-        stream = await self.client.chat.completions.create(**params)
+        # Retry on 400 errors (e.g. model generates invalid JSON in tool args)
+        last_error = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                stream = await self.client.chat.completions.create(**params)
+                last_error = None
+                break
+            except Exception as e:
+                error_str = str(e)
+                # Retry on 400 "Invalid JSON" errors (model-generated bad tool args)
+                if "400" in error_str and ("Invalid JSON" in error_str or "invalid_json" in error_str.lower()):
+                    last_error = e
+                    wait = self.retry_delay * (2 ** attempt)
+                    logger.warning(
+                        "Model returned 400 (bad tool call JSON), retry %d/%d in %.1fs: %s",
+                        attempt + 1, self.max_retries, wait, error_str[:200],
+                    )
+                    await asyncio.sleep(wait)
+                    continue
+                raise
+
+        if last_error is not None:
+            # All retries exhausted — try once more without tools as fallback
+            logger.warning("All retries exhausted for 400 error, falling back to no-tools mode")
+            params.pop("tools", None)
+            params.pop("tool_choice", None)
+            stream = await self.client.chat.completions.create(**params)
 
         async for chunk in stream:
             choice = chunk.choices[0] if chunk.choices else None
@@ -177,6 +203,9 @@ class OpenAILike(Model):
             params["tools"] = tools
             if tool_choice:
                 params["tool_choice"] = tool_choice
+            # Disable parallel tool calls — simplifies output for models that
+            # struggle with generating valid JSON for multiple tool calls at once.
+            params["parallel_tool_calls"] = False
 
         if stream:
             params["stream_options"] = {"include_usage": True}

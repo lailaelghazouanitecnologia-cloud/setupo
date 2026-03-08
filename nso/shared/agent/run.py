@@ -83,6 +83,53 @@ def _sanitize_tool_name(name: str) -> str:
     return name
 
 
+def _repair_json(raw: str) -> dict:
+    """Attempt to parse potentially malformed JSON from LLM tool call arguments.
+
+    Tries several repair strategies before giving up.
+    """
+    # 1. Direct parse
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        pass
+
+    stripped = raw.strip()
+
+    # 2. Strip markdown code fences
+    if stripped.startswith("```"):
+        lines = stripped.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        stripped = "\n".join(lines).strip()
+        try:
+            return json.loads(stripped)
+        except json.JSONDecodeError:
+            pass
+
+    # 3. Extract first {...} block
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end > start:
+        try:
+            return json.loads(stripped[start:end + 1])
+        except json.JSONDecodeError:
+            pass
+
+    # 4. Trailing commas before } or ]
+    import re
+    cleaned = re.sub(r",\s*([}\]])", r"\1", stripped)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    # 5. Empty or whitespace → empty dict
+    if not stripped or stripped in ("{}", "null", "None"):
+        return {}
+
+    raise json.JSONDecodeError("Cannot repair JSON", raw, 0)
+
+
 async def run_agent_loop(
     *,
     model: Model,
@@ -211,8 +258,8 @@ async def run_agent_loop(
                 tc.function.name = _sanitize_tool_name(tc.function.name)
                 tool_name = tc.function.name
                 try:
-                    args = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
+                    args = _repair_json(tc.function.arguments)
+                except (json.JSONDecodeError, Exception):
                     error_msg = json.dumps({
                         "error": f"Failed to parse tool call arguments as JSON. "
                         f"Raw: {tc.function.arguments[:500]}"
@@ -438,10 +485,10 @@ async def run_dual_agent_loop(
                 tc.function.name = _sanitize_tool_name(tc.function.name)
 
                 try:
-                    args = json.loads(tc.function.arguments)
-                except json.JSONDecodeError:
+                    args = _repair_json(tc.function.arguments)
+                except (json.JSONDecodeError, Exception):
                     args = {}
-                    error_msg = json.dumps({"error": "Failed to parse arguments"})
+                    error_msg = json.dumps({"error": f"Failed to parse arguments. Raw: {tc.function.arguments[:300]}"})
                     yield RunEvent("tool_call", {"id": tc.id, "name": tc.function.name, "arguments": {}})
                     yield RunEvent("tool_result", {"id": tc.id, "name": tc.function.name, "result": error_msg})
                     sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=error_msg))
