@@ -428,18 +428,42 @@
 .da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
 .da-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Model indicator */
-.da-model-indicator {
-  display: inline-flex; align-items: center; gap: 4px;
-  height: 28px; padding: 0 10px; border-radius: 7px;
-  border: 1px solid var(--border); cursor: default;
-  background: var(--card);
-  color: var(--muted-foreground); font-size: 11px; font-weight: 600;
-  white-space: nowrap; user-select: none;
-  transition: opacity 0.15s;
-  letter-spacing: 0.02em;
+/* Model indicator wrap — contains workspace dropdown in toolbar */
+.da-model-indicator-wrap {
+  display: inline-flex; align-items: center;
 }
-.da-model-indicator:hover { opacity: 0.9; }
+.da-model-indicator-wrap .da-ws-selector { gap: 4px; }
+.da-model-indicator-wrap .da-ws-trigger {
+  padding: 0 8px; height: 28px; min-width: auto;
+  border: none; background: none;
+  font-size: 11px; font-weight: 700;
+  background-image: linear-gradient(to right, #06b6d4, #1e3a8a);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  cursor: pointer;
+}
+.da-model-indicator-wrap .da-ws-trigger:hover {
+  background-image: linear-gradient(to right, #06b6d4, #1e3a8a);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  opacity: 0.8;
+}
+.da-model-indicator-wrap .da-ws-trigger-label {
+  font-size: 11px;
+}
+.da-model-indicator-wrap .da-ws-trigger svg {
+  color: #06b6d4;
+  -webkit-text-fill-color: initial;
+}
+.da-model-indicator-wrap .da-ws-dropdown {
+  min-width: 180px; right: 0; left: auto; bottom: 100%; top: auto;
+  margin-bottom: 4px; margin-top: 0;
+}
+.da-model-indicator-wrap .da-ws-option {
+  font-size: 12px; padding: 6px 10px;
+}
 
 /* Send / stop button */
 .da-send-btn {

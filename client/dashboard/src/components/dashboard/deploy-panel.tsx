@@ -368,15 +368,6 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
             <div className="da-welcome-inner">
               <h2 className="da-welcome-title">What can I help you deploy?</h2>
 
-              {/* Workspace selector dropdown */}
-              {workspaces.length > 0 && (
-                <WorkspaceDropdown
-                  workspaces={workspaces}
-                  selected={selectedWorkspace}
-                  onSelect={setSelectedWorkspace}
-                />
-              )}
-
               <div className="da-welcome-suggestions">
                 {SUGGESTIONS.map((s) => (
                   <button key={s.text} className="da-suggestion" onClick={() => sendMessage(s.text)}>
@@ -399,6 +390,9 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
                   attachments={attachments}
                   onAddAttachment={addAttachment}
                   onRemoveAttachment={removeAttachment}
+                  workspaces={workspaces}
+                  selectedWorkspace={selectedWorkspace}
+                  onSelectWorkspace={setSelectedWorkspace}
                 />
               </div>
             </div>
@@ -448,6 +442,9 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
                 attachments={attachments}
                 onAddAttachment={addAttachment}
                 onRemoveAttachment={removeAttachment}
+                workspaces={workspaces}
+                selectedWorkspace={selectedWorkspace}
+                onSelectWorkspace={setSelectedWorkspace}
               />
             </div>
           </>
@@ -483,7 +480,7 @@ function getFileIcon(mime: string, name: string): React.ElementType {
   return FileText;
 }
 
-function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop, projectId, attachments, onAddAttachment, onRemoveAttachment }: {
+function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown, onSend, onStop, projectId, attachments, onAddAttachment, onRemoveAttachment, workspaces, selectedWorkspace, onSelectWorkspace }: {
   input: string;
   streaming: boolean;
   textareaRef: React.RefObject<HTMLTextAreaElement | null>;
@@ -495,6 +492,9 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
   attachments: Attachment[];
   onAddAttachment: (a: Attachment) => void;
   onRemoveAttachment: (id: string) => void;
+  workspaces: any[];
+  selectedWorkspace: string | null;
+  onSelectWorkspace: (ws: string | null) => void;
 }) {
   const [showPicker, setShowPicker] = useState<"zar" | null>(null);
   const [pickerMenu, setPickerMenu] = useState(false);
@@ -670,10 +670,14 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
               <ConnectorPicker projectId={projectId} />
             </div>
             <div className="da-toolbar-right">
-              {/* Model indicator */}
-              <button type="button" className="da-model-indicator" title="Deploy Agent">
-                <span>Deploy Agent</span>
-              </button>
+              {/* Workspace indicator (gradient text) */}
+              <div className="da-model-indicator-wrap">
+                <WorkspaceDropdown
+                  workspaces={workspaces}
+                  selected={selectedWorkspace}
+                  onSelect={onSelectWorkspace}
+                />
+              </div>
               {/* Send / Stop */}
               {streaming ? (
                 <button onClick={onStop} className="da-send-btn active" title="Stop">
@@ -853,7 +857,7 @@ function WorkspaceDropdown({ workspaces, selected, onSelect }: {
         {selected ? (
           <span className="da-ws-trigger-label">{selected}</span>
         ) : (
-          <span className="da-ws-trigger-label da-ws-trigger-placeholder">Select workspace</span>
+          <span className="da-ws-trigger-label da-ws-trigger-placeholder">Workspaces</span>
         )}
         <ChevronDown className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
       </button>
