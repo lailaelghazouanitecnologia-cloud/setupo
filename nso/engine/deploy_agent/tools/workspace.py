@@ -1,5 +1,5 @@
 """
-Workspace tools — analysis, file ops, config generation.
+Workspace tools — analysis, file ops, config generation, creation.
 
 Tools:
   - analyze_project: Scan workspace to detect stack/framework/entry points
@@ -8,19 +8,49 @@ Tools:
   - list_instances: List VPS instances
   - read_workspace_file: Read a file from workspace
   - write_workspace_file: Write/create a file in workspace
+  - create_workspace: Create a new workspace
+  - delete_workspace_file: Delete a file from workspace
 """
 
 from __future__ import annotations
 
 import json
 import os
+import re
+import secrets as token_gen
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from nso.shared import db
+from nso.config import settings
 
 if TYPE_CHECKING:
     from nso.engine.deploy_agent.tools import DeployContext
+
+# Files that cannot be overwritten in protected workspaces
+PROTECTED_FILE_PATTERNS = [
+    "config.toml",
+    ".zar-manifest.json",
+    "deploy.toml",
+]
+
+
+def _is_protected_file(file_path: str, ws_data: dict) -> bool:
+    """Check if a file is protected from writes."""
+    if not ws_data.get("readonly"):
+        return False
+    protected = ws_data.get("protected_files", "")
+    if isinstance(protected, str):
+        try:
+            protected = json.loads(protected) if protected else []
+        except Exception:
+            protected = []
+    # Always protect certain files in readonly workspaces
+    all_protected = set(PROTECTED_FILE_PATTERNS)
+    if isinstance(protected, list):
+        all_protected.update(protected)
+    return file_path in all_protected or os.path.basename(file_path) in all_protected
 
 
 def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
@@ -88,11 +118,14 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
                 continue
             result.append({
                 "name": ws.get("name", ""),
+                "stack": ws.get("stack", ""),
                 "path": ws.get("path", ""),
                 "instance_id": ws.get("instance_id", ""),
+                "readonly": bool(ws.get("readonly", 0)),
+                "description": ws.get("description", ""),
                 "created_at": ws.get("created_at", ""),
             })
-        return json.dumps({"workspaces": result})
+        return json.dumps({"workspaces": result, "count": len(result)})
 
     async def list_instances() -> str:
         """List all VPS instances in the project."""
@@ -133,10 +166,15 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             return json.dumps({"error": f"Cannot read file: {e}"})
 
     async def write_workspace_file(workspace: str, file_path: str, content: str) -> str:
-        """Write a file to a workspace directory."""
+        """Write a file to a workspace directory. Respects workspace protection settings."""
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
         if not ws:
             return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        # Check readonly workspace
+        if ws.get("readonly"):
+            if _is_protected_file(file_path, ws):
+                return json.dumps({"error": f"File '{file_path}' is protected in this workspace and cannot be modified"})
 
         ws_path = ws.get("path", "")
         full = os.path.join(ws_path, file_path)
@@ -151,13 +189,124 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
         except Exception as e:
             return json.dumps({"error": f"Cannot write file: {e}"})
 
+    async def delete_workspace_file(workspace: str, file_path: str) -> str:
+        """Delete a file from a workspace directory."""
+        ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
+        if not ws:
+            return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        if ws.get("readonly"):
+            return json.dumps({"error": "This workspace is read-only — files cannot be deleted"})
+
+        ws_path = ws.get("path", "")
+        full = os.path.join(ws_path, file_path)
+
+        if ".." in file_path or not os.path.abspath(full).startswith(os.path.abspath(ws_path)):
+            return json.dumps({"error": "Path traversal not allowed"})
+
+        if not os.path.exists(full):
+            return json.dumps({"error": f"File not found: {file_path}"})
+
+        try:
+            if os.path.isdir(full):
+                import shutil
+                shutil.rmtree(full)
+            else:
+                os.remove(full)
+            return json.dumps({"ok": True, "path": file_path, "deleted": True})
+        except Exception as e:
+            return json.dumps({"error": f"Cannot delete: {e}"})
+
+    async def create_workspace(
+        name: str,
+        stack: str = "custom",
+        description: str = "",
+        git_url: str = "",
+        branch: str = "main",
+        instance_id: str = "",
+        readonly: str = "false",
+    ) -> str:
+        """Create a new workspace. stack can be: python, node, static, custom. git_url clones a repo."""
+        import asyncio
+
+        # Validate name
+        name = name.strip().lower()
+        if not re.match(r"^[a-z][a-z0-9_-]{1,30}$", name):
+            return json.dumps({"error": "Name must be 2-31 chars, lowercase, start with letter, only a-z0-9_-"})
+
+        existing = await db.fetch_one("workspaces", project_id=ctx.project_id, name=name)
+        if existing:
+            return json.dumps({"error": f"Workspace '{name}' already exists"})
+
+        ws_path = str(settings.workspace_path(name))
+        ws_id = f"ws_{token_gen.token_hex(8)}"
+        is_readonly = readonly.lower() in ("true", "1", "yes")
+
+        # Clone or create directory
+        if git_url:
+            if not git_url.startswith("http"):
+                git_url = f"https://github.com/{git_url}.git"
+            proc = await asyncio.create_subprocess_exec(
+                "git", "clone", "--depth", "1", "-b", branch, git_url, ws_path,
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+            stdout, _ = await proc.communicate()
+            if proc.returncode != 0:
+                return json.dumps({"error": f"Clone failed: {stdout.decode()[:500]}"})
+        else:
+            os.makedirs(ws_path, exist_ok=True)
+            _scaffold_workspace(ws_path, stack, name)
+
+        # Write config.toml
+        from nso.shared.models import WorkspaceConfig, WorkspaceGitConfig, WorkspaceDeployConfig
+        from nso.engine.workspace.config import write_config
+
+        config = WorkspaceConfig(
+            name=name,
+            type=stack or "custom",
+            description=description,
+            git=WorkspaceGitConfig(url=git_url, branch=branch),
+            deploy=WorkspaceDeployConfig(instance_id=instance_id or None),
+        )
+        write_config(ws_path, config)
+
+        now = datetime.now(timezone.utc).isoformat()
+        await db.insert("workspaces", {
+            "id": ws_id,
+            "project_id": ctx.project_id,
+            "name": name,
+            "path": ws_path,
+            "ws_type": "git" if git_url else "custom",
+            "stack": stack,
+            "description": description,
+            "instance_id": instance_id or None,
+            "git_url": git_url,
+            "branch": branch,
+            "readonly": 1 if is_readonly else 0,
+            "protected_files": "[]",
+            "created_at": now,
+            "updated_at": now,
+        })
+
+        return json.dumps({
+            "ok": True,
+            "workspace": name,
+            "id": ws_id,
+            "path": ws_path,
+            "stack": stack,
+            "readonly": is_readonly,
+            "message": f"Workspace '{name}' created successfully",
+        })
+
     return [
         (analyze_project, "analyze_project", "Analyze workspace to detect stack, files, dependencies, entry points"),
         (generate_deploy_config, "generate_deploy_config", "Generate deploy.toml from analysis"),
         (list_workspaces, "list_workspaces", "List all workspaces in the project"),
         (list_instances, "list_instances", "List all VPS instances in the project"),
         (read_workspace_file, "read_workspace_file", "Read a file from workspace"),
-        (write_workspace_file, "write_workspace_file", "Write a file to workspace"),
+        (write_workspace_file, "write_workspace_file", "Write a file to workspace (respects protection)"),
+        (delete_workspace_file, "delete_workspace_file", "Delete a file from workspace"),
+        (create_workspace, "create_workspace", "Create a new workspace with stack (python/node/static/custom), optional git URL"),
     ]
 
 
@@ -324,6 +473,35 @@ def _generate_deploy_toml(info: dict) -> str:
         lines += ['[health]', 'strategy = "http"', f'url = "http://localhost:{port}/"', 'timeout = 30', 'retries = 5', '']
 
     return "\n".join(lines) + "\n"
+
+
+def _scaffold_workspace(ws_path: str, stack: str, name: str) -> None:
+    """Create starter files for a workspace based on its stack."""
+    if not stack or stack == "custom":
+        return
+
+    existing = set(os.listdir(ws_path)) if os.path.isdir(ws_path) else set()
+    if existing - {"config.toml", ".git"}:
+        return
+
+    os.makedirs(ws_path, exist_ok=True)
+
+    def _write(fname: str, content: str) -> None:
+        fpath = os.path.join(ws_path, fname)
+        if not os.path.exists(fpath):
+            Path(fpath).write_text(content)
+
+    if stack == "node":
+        _write("package.json", json.dumps({
+            "name": name, "version": "0.1.0", "private": True,
+            "scripts": {"dev": "npx serve -l 3000 .", "start": "npx serve -l 3000 ."}
+        }, indent=2))
+        _write("index.html", f"<!DOCTYPE html>\n<html><head><title>{name}</title></head>\n<body><h1>{name}</h1><p>Ready.</p></body></html>")
+    elif stack == "python":
+        _write("requirements.txt", "fastapi\nuvicorn\n")
+        _write("main.py", f'from fastapi import FastAPI\n\napp = FastAPI(title="{name}")\n\n@app.get("/")\ndef root():\n    return {{"workspace": "{name}", "status": "running"}}\n')
+    elif stack == "static":
+        _write("index.html", f"<!DOCTYPE html>\n<html><head><title>{name}</title></head>\n<body><h1>{name}</h1><p>Static workspace ready.</p></body></html>")
 
 
 def _detect_build_cmd(ws_path: str) -> str:

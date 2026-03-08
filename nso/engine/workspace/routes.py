@@ -174,6 +174,8 @@ class UpdateConfigRequest(BaseModel):
     command: str | None = None
     port: int | None = None
     env: dict[str, str] | None = None
+    readonly: bool | None = None
+    protected_files: list[str] | None = None
 
 
 @router.get("/{name}/config")
@@ -218,6 +220,11 @@ async def update_config(name: str, req: UpdateConfigRequest, project_id: str = D
         updates["description"] = req.description
     if req.instance_id is not None:
         updates["instance_id"] = req.instance_id
+    if req.readonly is not None:
+        updates["readonly"] = 1 if req.readonly else 0
+    if req.protected_files is not None:
+        import json as _json
+        updates["protected_files"] = _json.dumps(req.protected_files)
     await db.update("workspaces", ws["id"], updates)
 
     return {"config": config.model_dump(), "raw": generate_config_toml(config)}
@@ -297,6 +304,21 @@ async def write_file(name: str, req: WriteFileRequest, project_id: str = Depends
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
+
+    # Check workspace protection
+    if ws.get("readonly"):
+        import json as _json
+        protected = ws.get("protected_files", "[]")
+        if isinstance(protected, str):
+            try:
+                protected = _json.loads(protected) if protected else []
+            except Exception:
+                protected = []
+        always_protected = {"config.toml", ".zar-manifest.json", "deploy.toml"}
+        all_protected = always_protected | set(protected if isinstance(protected, list) else [])
+        basename = os.path.basename(req.path)
+        if req.path in all_protected or basename in all_protected:
+            raise HTTPException(403, f"File '{req.path}' is protected in this read-only workspace")
 
     full_path = _validate_path(ws["path"], req.path)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)

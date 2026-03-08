@@ -11,6 +11,8 @@ TABLES = """
         git_url TEXT,
         branch TEXT,
         agent_visible INTEGER DEFAULT 1,
+        readonly INTEGER DEFAULT 0,
+        protected_files TEXT DEFAULT '[]',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -60,3 +62,15 @@ async def run_alterations(conn, logger):
     except Exception:
         await conn.execute("ALTER TABLE workspaces ADD COLUMN agent_visible INTEGER DEFAULT 1")
         logger.info("Added agent_visible column to workspaces")
+
+    try:
+        await conn.execute("SELECT readonly FROM workspaces LIMIT 1")
+    except Exception:
+        await conn.execute("ALTER TABLE workspaces ADD COLUMN readonly INTEGER DEFAULT 0")
+        logger.info("Added readonly column to workspaces")
+
+    try:
+        await conn.execute("SELECT protected_files FROM workspaces LIMIT 1")
+    except Exception:
+        await conn.execute("ALTER TABLE workspaces ADD COLUMN protected_files TEXT DEFAULT '[]'")
+        logger.info("Added protected_files column to workspaces")
