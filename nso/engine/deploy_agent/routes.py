@@ -89,6 +89,20 @@ RULES:
 - NEVER call create_instance unless the user EXPLICITLY asks to create a new server/VPS. For deploys, use existing instances.
 - If deploying, call list_instances first to find an available instance, then link_workspace_instance + run_ship.
 
+## MESH — External Servers:
+- The user may have external servers (Hetzner, OVH, DigitalOcean, Raspberry Pi, bare metal) registered as mesh devices.
+- If user says "deploy to all servers", "deploy to production", or mentions a group name → use deploy_to_mesh.
+- If user says "deploy to hetz-1" or references a device name → list_mesh_devices first to find the device_id, then deploy_to_mesh.
+- If user says "run X on all servers" → use exec_on_mesh_group with the group.
+- Mesh devices are managed via SSH. Instances (Vultr) are managed via the agent HTTP API. They are DIFFERENT.
+- For mesh deploys: deploy_to_mesh packs the workspace and uploads via SCP directly. No agent needed.
+- For instance deploys: run_ship packs, pushes to R2, and the agent pulls. Agent required.
+
+## DOMAIN PATTERN:
+- Deploy domains follow: workspace-username.nso.dev (e.g. choco-sonfazt.nso.dev)
+- The username is the user's claimed subdomain.
+- After deploy, ALWAYS share the exact URL. NEVER use placeholders.
+
 ## ACTION RULES — DO, DON'T EXPLAIN:
 - When user asks you to create/write files → use write_workspace_file. DO NOT show code and tell them to copy it.
 - When user asks to install dependencies → use exec_in_workspace("npm install", "pip install", etc.). DO NOT tell them to run it.
@@ -122,8 +136,12 @@ You have tools. USE THEM. Never tell the user what commands to run — run them 
 
 ## Platform:
 - **Workspaces** = code directories. Independent from instances.
-- **Instances** = VPS servers (Vultr). Only create when user explicitly asks.
-- For deploys: use existing instances (list_instances first), link workspace, then run_ship.
+- **Instances** = managed VPS servers (Vultr). Only create when user explicitly asks.
+- **Mesh devices** = external servers (Hetzner, OVH, RPi, bare metal) managed via SSH.
+- **Mesh groups** = collections of mesh devices for batch operations.
+- For instance deploys: use existing instances (list_instances first), link workspace, then run_ship.
+- For mesh deploys: use deploy_to_mesh with device_id (dev_xxx) or group_id (grp_xxx).
+- Domain pattern: workspace-username.nso.dev (e.g. choco-sonfazt.nso.dev)
 
 ## Your tools:
 - **write_workspace_file** — create/edit files in workspace
@@ -131,17 +149,25 @@ You have tools. USE THEM. Never tell the user what commands to run — run them 
 - **list_workspace_files** — see what's in a workspace
 - **read_workspace_file** — read file contents
 - **exec_in_workspace** — RUN commands: npm install, npm build, pip install, etc. USE THIS when user wants you to DO something.
-- **run_ship** — full deploy pipeline (pack + push + deploy + auto-domain + SSL)
+- **run_ship** — full deploy pipeline to managed instances (pack + push + deploy + auto-domain + SSL)
 - **run_build** — build a workspace
 - **create_workspace** — create new workspace
 - **analyze_project** — detect stack/framework
 - **generate_deploy_config** — create deploy.toml
-- **list_instances** / **link_workspace_instance** — for deploy targeting
+- **list_instances** / **link_workspace_instance** — for managed instance targeting
 - **manage_service** — systemd service management on instances
 - **manage_domain** — domain management
 - **setup_connector** / **list_connectors** — external service integrations
 - **manage_dns** — DNS management via Cloudflare connector
 - **list_secrets** / **add_secret** — environment variable management
+- **list_mesh_devices** — list external servers registered in the mesh
+- **list_mesh_groups** — list device groups
+- **register_mesh_device** — register a new external server (any provider)
+- **exec_on_mesh_device** — run SSH command on a mesh device
+- **exec_on_mesh_group** — run command on ALL devices in a group concurrently
+- **deploy_to_mesh** — deploy workspace to mesh device(s) or group via SCP
+- **mesh_device_status** — get live health/metrics for a mesh device
+- **manage_mesh_group** — create/manage device groups
 
 ## When building web projects:
 - For static sites: write a complete index.html with inline CSS (Tailwind CDN, etc.). No build step needed.
@@ -181,6 +207,8 @@ CRITICAL RULES:
 - If tools succeeded → confirm briefly what was done. "Listo, archivos creados." or "Deployed. Tu app: https://..."
 - If tools failed → explain the error in ONE sentence and what you'll try instead.
 - After deploy → share the URL immediately: "Tu app está en: https://workspace-user.nso.dev"
+- After mesh deploy → report results: "Desplegado en 5/5 servidores." Include any failures.
+- After mesh exec → summarize: "Comando ejecutado en 3 servidores. 3 OK, 0 fallos."
 - Maximum 2-3 sentences. No tables, no verbose explanations.
 - Respond in the same language the user uses.
 - NEVER say "Próximos pasos" or "Next steps" — there are no next steps, you already did everything.
@@ -369,6 +397,22 @@ async def stream_message(
                 "description": ws_record.get("description", ""),
             }
 
+    # Pre-fetch mesh summary for context injection
+    mesh_summary = None
+    try:
+        mesh_devices = await db.fetch_all("mesh_devices", project_id=project_id)
+        if mesh_devices:
+            online = sum(1 for d in mesh_devices if d.get("status") == "online")
+            mesh_groups = await db.fetch_all("mesh_groups", project_id=project_id)
+            mesh_summary = {
+                "total_devices": len(mesh_devices),
+                "online": online,
+                "devices": [{"id": d["id"], "name": d.get("name", ""), "status": d.get("status", "")} for d in mesh_devices[:10]],
+                "groups": [{"id": g["id"], "name": g.get("name", "")} for g in mesh_groups],
+            }
+    except Exception:
+        pass
+
     ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "", workspace=thread_workspace)
     registry = ToolRegistry()
     for func, name, desc in create_tools(ctx):
@@ -403,6 +447,17 @@ async def stream_message(
                 ws_context += f"- The user's subdomain is: **{user_subdomain}**\n"
                 ws_context += f"- After deploy, the URL is: **https://{domain_example}**\n"
                 ws_context += f"- ALWAYS use this exact URL when telling the user where their app is. NEVER use placeholders like <tu_usuario>.\n"
+            if mesh_summary:
+                ws_context += f"\n## MESH DEVICES AVAILABLE\n"
+                ws_context += f"- Total devices: {mesh_summary['total_devices']} ({mesh_summary['online']} online)\n"
+                for d in mesh_summary["devices"]:
+                    ws_context += f"  - {d['name']} ({d['id']}) — {d['status']}\n"
+                if mesh_summary["groups"]:
+                    ws_context += f"- Groups:\n"
+                    for g in mesh_summary["groups"]:
+                        ws_context += f"  - {g['name']} ({g['id']})\n"
+                ws_context += f"- Use deploy_to_mesh for deploying to these external servers.\n"
+                ws_context += f"- Use exec_on_mesh_device or exec_on_mesh_group for running commands.\n"
 
         active_system = SYSTEM_PROMPT + ws_context
         active_supervisor = SUPERVISOR_PROMPT + ws_context if SUPERVISOR_PROMPT else ""
