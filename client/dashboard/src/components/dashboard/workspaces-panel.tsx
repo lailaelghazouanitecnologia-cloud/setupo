@@ -321,42 +321,15 @@ export function WorkspacesPanel() {
                     <span className="ws-sidebar-item-name">
                       {ws.name}
                       {ws.readonly ? <Lock className="h-2.5 w-2.5" style={{ opacity: 0.4, marginLeft: 4 }} /> : null}
-                      {isDeployed && (
-                        <span className="ws-deploy-badge" title="Running" />
-                      )}
                     </span>
                     <span className="ws-sidebar-item-meta">
-                      <span className="ws-stack-dot" style={{ background: stack.color }} />
                       {stack.label}
-                      {ws.description ? <span className="ws-sidebar-item-desc"> — {ws.description}</span> : null}
+                      {ws.description ? <> · {ws.description}</> : null}
+                      {isDeployed ? <span className="ws-live-text">live</span> : null}
+                      {ws.instance_id && !isDeployed && ws.instance_state ? (
+                        <span className="ws-state-text">{ws.instance_state}</span>
+                      ) : null}
                     </span>
-                    {ws.deploy_url && (
-                      <a
-                        className="ws-deploy-url"
-                        href={ws.deploy_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        title={ws.deploy_url}
-                      >
-                        <Link className="h-2.5 w-2.5" />
-                        {ws.deploy_url.replace("https://", "")}
-                      </a>
-                    )}
-                    {ws.instance_id && !isDeployed && ws.instance_state && (
-                      <span className="ws-sidebar-item-state">
-                        <span
-                          className="ws-state-dot"
-                          style={{
-                            background:
-                              ws.instance_state === "error" ? "#ef4444" :
-                              ["creating", "installing", "deploying"].includes(ws.instance_state) ? "#eab308" :
-                              "#6b7280",
-                          }}
-                        />
-                        {ws.instance_state}
-                      </span>
-                    )}
                   </div>
                   <button
                     className="ws-sidebar-item-delete"
