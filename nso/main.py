@@ -218,6 +218,76 @@ if SERVER_MODE in ("admin", "full"):
 from nso.engine.workspace import share_routes
 app.include_router(share_routes.join_router, prefix="/api", tags=["workspace-sharing"])
 
+# ── Download / Install endpoints (public) ──
+
+@app.get("/api/install", tags=["download"])
+@app.get("/install", tags=["download"])
+async def get_install_script():
+    """Serve the NSO agent install script. Usage: curl -fsSL https://nso.dev/install | bash"""
+    from fastapi.responses import PlainTextResponse
+    script_path = Path(__file__).parent / "base" / "install.sh"
+    if not script_path.exists():
+        return PlainTextResponse("# install.sh not found", status_code=404)
+    return PlainTextResponse(
+        script_path.read_text(),
+        media_type="text/x-shellscript",
+        headers={"Content-Disposition": "inline; filename=install.sh"},
+    )
+
+
+@app.get("/api/download/agent", tags=["download"])
+async def download_agent():
+    """Download the NSO agent as a tar.gz archive."""
+    import tarfile
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    agent_dir = Path(__file__).parent.parent / "vm" / "agent"
+    if not agent_dir.exists():
+        return JSONResponse({"error": "Agent source not found"}, status_code=404)
+
+    buf = BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for f in agent_dir.rglob("*"):
+            if f.is_file() and "__pycache__" not in str(f) and not f.name.endswith(".pyc"):
+                arcname = f"agent/{f.relative_to(agent_dir)}"
+                tar.add(str(f), arcname=arcname)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=nso-agent.tar.gz"},
+    )
+
+
+@app.get("/api/download/cli", tags=["download"])
+async def download_cli():
+    """Download the NSO CLI as a tar.gz archive."""
+    import tarfile
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    cli_dir = Path(__file__).parent.parent / "vm" / "cli"
+    nso_entry = Path(__file__).parent.parent / "vm" / "nso"
+    if not cli_dir.exists():
+        return JSONResponse({"error": "CLI source not found"}, status_code=404)
+
+    buf = BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+        for f in cli_dir.rglob("*"):
+            if f.is_file() and "__pycache__" not in str(f) and not f.name.endswith(".pyc"):
+                arcname = f"cli/{f.relative_to(cli_dir)}"
+                tar.add(str(f), arcname=arcname)
+        if nso_entry.exists():
+            tar.add(str(nso_entry), arcname="nso")
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/gzip",
+        headers={"Content-Disposition": "attachment; filename=nso-cli.tar.gz"},
+    )
+
+
 if os.environ.get("NSO_SERVE_STATIC"):
     from fastapi.staticfiles import StaticFiles
     dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "client", "dashboard", "static")
