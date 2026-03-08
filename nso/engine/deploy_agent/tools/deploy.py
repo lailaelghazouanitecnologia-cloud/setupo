@@ -548,7 +548,7 @@ async def _auto_setup_nginx(
         logger.warning("Auto nginx setup error for %s: %s", domain, exc)
 
 
-
+async def _send_deploy_notification(
     user_id: str, workspace: str, version: str, domain: str, instance_label: str,
 ):
     """Send an in-app notification after a successful deploy."""
