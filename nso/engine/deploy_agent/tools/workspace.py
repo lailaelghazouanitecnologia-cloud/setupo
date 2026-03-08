@@ -147,6 +147,26 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
     SENSITIVE_FILES = {".env", ".env.local", ".env.production", ".env.staging",
                        "credentials.json", "service-account.json", ".npmrc", ".pypirc"}
 
+    def _safe_workspace_path(ws_path: str, file_path: str) -> tuple[str, str | None]:
+        """Validate and resolve a file path within a workspace.
+        Returns (resolved_path, error_message). error_message is None if valid."""
+        if ".." in file_path:
+            return "", "Path traversal not allowed"
+
+        full = os.path.join(ws_path, file_path)
+        abs_ws = os.path.abspath(ws_path)
+
+        # Check before resolving (basic path traversal)
+        if not os.path.abspath(full).startswith(abs_ws):
+            return "", "Path traversal not allowed"
+
+        # Check the real path after resolving symlinks
+        real_full = os.path.realpath(full)
+        if not real_full.startswith(abs_ws):
+            return "", "Symlink escape not allowed — target is outside workspace"
+
+        return real_full, None
+
     async def read_workspace_file(workspace: str, file_path: str) -> str:
         """Read a file from a workspace directory."""
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
@@ -159,10 +179,12 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             return json.dumps({"error": f"Cannot read '{basename}' — sensitive file. Use list_secrets to view configured secrets."})
 
         ws_path = ws.get("path", "")
-        full = os.path.join(ws_path, file_path)
+        full, err = _safe_workspace_path(ws_path, file_path)
+        if err:
+            return json.dumps({"error": err})
 
-        if ".." in file_path or not os.path.abspath(full).startswith(os.path.abspath(ws_path)):
-            return json.dumps({"error": "Path traversal not allowed"})
+        if os.path.islink(full):
+            return json.dumps({"error": "Cannot read symlinks — security restriction"})
         if not os.path.isfile(full):
             return json.dumps({"error": f"File not found: {file_path}"})
 
@@ -186,13 +208,24 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
                 return json.dumps({"error": f"File '{file_path}' is protected in this workspace and cannot be modified"})
 
         ws_path = ws.get("path", "")
-        full = os.path.join(ws_path, file_path)
 
-        if ".." in file_path or not os.path.abspath(full).startswith(os.path.abspath(ws_path)):
+        # Validate path before creating dirs
+        if ".." in file_path:
             return json.dumps({"error": "Path traversal not allowed"})
 
+        full = os.path.join(ws_path, file_path)
+        abs_ws = os.path.abspath(ws_path)
+        if not os.path.abspath(full).startswith(abs_ws):
+            return json.dumps({"error": "Path traversal not allowed"})
+
+        # Check parent directory doesn't escape via symlink
+        parent = os.path.dirname(full)
+        if parent and os.path.exists(parent):
+            real_parent = os.path.realpath(parent)
+            if not real_parent.startswith(abs_ws):
+                return json.dumps({"error": "Symlink escape not allowed — parent directory points outside workspace"})
+
         try:
-            parent = os.path.dirname(full)
             if parent:
                 os.makedirs(parent, exist_ok=True)
             Path(full).write_text(content)
@@ -210,18 +243,22 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             return json.dumps({"error": "This workspace is read-only — files cannot be deleted"})
 
         ws_path = ws.get("path", "")
-        full = os.path.join(ws_path, file_path)
-
-        if ".." in file_path or not os.path.abspath(full).startswith(os.path.abspath(ws_path)):
-            return json.dumps({"error": "Path traversal not allowed"})
+        full, err = _safe_workspace_path(ws_path, file_path)
+        if err:
+            return json.dumps({"error": err})
 
         if not os.path.exists(full):
             return json.dumps({"error": f"File not found: {file_path}"})
 
+        # Don't follow symlinks for deletion — remove the link itself
+        if os.path.islink(full):
+            os.unlink(full)
+            return json.dumps({"ok": True, "path": file_path, "deleted": True, "was_symlink": True})
+
         try:
             if os.path.isdir(full):
                 import shutil
-                shutil.rmtree(full)
+                shutil.rmtree(full, onerror=lambda *_: None)
             else:
                 os.remove(full)
             return json.dumps({"ok": True, "path": file_path, "deleted": True})
@@ -317,6 +354,44 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             "message": f"Workspace '{name}' created successfully",
         })
 
+    # Allowed command prefixes for workspace execution
+    _ALLOWED_CMD_PREFIXES = [
+        # Node.js / npm / yarn / pnpm
+        "npm ", "npm install", "npx ", "yarn ", "pnpm ", "node ",
+        # Python
+        "pip ", "pip install", "pip3 ", "python ", "python3 ",
+        "pip install -r", "pip3 install -r",
+        # Build tools
+        "make", "cmake ", "cargo ", "go ", "rustc ",
+        # Package/dependency management
+        "composer ", "bundle ", "gem ",
+        # Common build/test commands
+        "cat ", "ls ", "head ", "tail ", "wc ", "grep ", "find ",
+        "mkdir ", "cp ", "mv ", "touch ",
+        # Git (read-only operations)
+        "git status", "git log", "git diff", "git branch",
+        "git clone", "git pull", "git fetch",
+        # System info
+        "whoami", "pwd", "env", "which ", "echo ",
+        # Process
+        "kill ", "pkill ",
+    ]
+
+    # Patterns that are NEVER allowed regardless of prefix match
+    _BLOCKED_PATTERNS = [
+        "rm -rf /", "rm -rf /*", "rm -rf ~",
+        "mkfs", "dd if=", "dd of=/dev",
+        "> /dev/sd", "> /dev/nv",
+        "shutdown", "reboot", "poweroff", "halt",
+        "init 0", "init 6",
+        ":(){ :|:", "fork",  # fork bomb
+        "chmod 777 /", "chown root /",
+        "curl|bash", "curl|sh", "wget|bash", "wget|sh",  # pipe to shell
+        "/etc/shadow", "/etc/passwd",
+        "master_key", "id_rsa", "id_ed25519",  # SSH key access
+        "NSO_JWT_SECRET", "AGENT_ADMIN",  # secret env vars
+    ]
+
     async def exec_in_workspace(workspace: str, command: str, timeout: int = 120) -> str:
         """Execute a shell command inside a workspace directory. Use this for:
         - npm install, npm run build, pip install, etc.
@@ -333,11 +408,37 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
         if not ws_path or not os.path.isdir(ws_path):
             return json.dumps({"error": f"Workspace path not found: {ws_path}"})
 
-        # Block dangerous commands
+        # Block dangerous patterns first
         cmd_lower = command.lower().strip()
-        dangerous = ["rm -rf /", "mkfs", "dd if=", "> /dev/", "shutdown", "reboot", "init 0", "halt"]
-        if any(d in cmd_lower for d in dangerous):
-            return json.dumps({"error": "Command blocked for safety"})
+        for pattern in _BLOCKED_PATTERNS:
+            if pattern in cmd_lower:
+                return json.dumps({"error": f"Command blocked for safety: contains '{pattern}'"})
+
+        # Split compound commands and validate each part
+        # Handle &&, ||, ;, | chains
+        import re
+        parts = re.split(r'\s*(?:&&|\|\||;)\s*', command.strip())
+        for part in parts:
+            part_stripped = part.strip()
+            if not part_stripped:
+                continue
+            # Check if the first word/prefix matches allowed commands
+            part_lower = part_stripped.lower()
+            allowed = False
+            for prefix in _ALLOWED_CMD_PREFIXES:
+                if part_lower.startswith(prefix) or part_lower == prefix.strip():
+                    allowed = True
+                    break
+            if not allowed:
+                return json.dumps({
+                    "error": f"Command not allowed: '{part_stripped.split()[0]}'. "
+                             f"Allowed: npm, npx, yarn, pip, python, node, make, cargo, go, git, etc.",
+                })
+
+        # Prevent reading outside workspace via command arguments
+        abs_ws = os.path.abspath(ws_path)
+        if "/opt/nso/data" in command or "/opt/nso/config" in command:
+            return json.dumps({"error": "Cannot access NSO system directories from workspace"})
 
         try:
             proc = await _asyncio.create_subprocess_shell(

@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 from typing import TYPE_CHECKING
 
@@ -28,6 +29,45 @@ if TYPE_CHECKING:
     from nso.engine.deploy_agent.tools import DeployContext
 
 logger = logging.getLogger("nso.deploy_agent.tools.mesh")
+
+# Commands that are NEVER allowed on mesh devices
+_MESH_BLOCKED_PATTERNS = [
+    "rm -rf /", "rm -rf /*", "rm -rf ~",
+    "mkfs", "dd if=", "dd of=/dev",
+    "> /dev/sd", "> /dev/nv",
+    "shutdown", "reboot", "poweroff", "halt",
+    "init 0", "init 6",
+    ":(){ :|:", # fork bomb
+    "chmod 777 /", "chown root /",
+    "master_key", "id_rsa", "id_ed25519",
+    "/opt/nso/data", "/opt/nso/config",
+]
+
+# Valid path pattern for target directories
+_SAFE_TARGET_DIR_RE = re.compile(r"^/[a-zA-Z0-9/_.-]+$")
+
+
+def _validate_mesh_command(command: str) -> str | None:
+    """Validate a command for mesh device execution.
+    Returns error message if blocked, None if allowed."""
+    cmd_lower = command.lower().strip()
+    for pattern in _MESH_BLOCKED_PATTERNS:
+        if pattern in cmd_lower:
+            return f"Command blocked for safety: contains '{pattern}'"
+    if len(command) > 4096:
+        return "Command too long (max 4096 characters)"
+    return None
+
+
+def _validate_target_dir(target_dir: str) -> str | None:
+    """Validate a target directory path. Returns error message if invalid."""
+    if not _SAFE_TARGET_DIR_RE.match(target_dir):
+        return f"Invalid target directory: '{target_dir}'. Must be an absolute path with alphanumeric characters."
+    if ".." in target_dir:
+        return "Path traversal not allowed in target directory"
+    if target_dir in ("/", "/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys"):
+        return f"Cannot deploy to system directory: {target_dir}"
+    return None
 
 
 def create_mesh_tools(ctx: DeployContext) -> list[tuple]:
@@ -130,6 +170,11 @@ def create_mesh_tools(ctx: DeployContext) -> list[tuple]:
         Use this for remote operations: checking logs, restarting services, running scripts, etc."""
         from nso.engine.mesh.service import exec_on_device
 
+        # Validate command safety
+        err = _validate_mesh_command(command)
+        if err:
+            return json.dumps({"error": err})
+
         try:
             result = await exec_on_device(
                 project_id=ctx.project_id,
@@ -154,6 +199,11 @@ def create_mesh_tools(ctx: DeployContext) -> list[tuple]:
         """Execute a command on ALL devices in a mesh group concurrently.
         Perfect for rolling updates, health checks, or batch operations across servers."""
         from nso.engine.mesh.service import exec_on_group
+
+        # Validate command safety
+        err = _validate_mesh_command(command)
+        if err:
+            return json.dumps({"error": err})
 
         try:
             results = await exec_on_group(
@@ -193,6 +243,17 @@ def create_mesh_tools(ctx: DeployContext) -> list[tuple]:
         from nso.engine.mesh.service import (
             deploy_to_device, list_devices, get_group, exec_on_device,
         )
+
+        # Validate target_dir to prevent shell injection
+        err = _validate_target_dir(target_dir)
+        if err:
+            return json.dumps({"error": err})
+
+        # Validate restart_command if provided
+        if restart_command:
+            err = _validate_mesh_command(restart_command)
+            if err:
+                return json.dumps({"error": f"Restart command blocked: {err}"})
 
         # Pack workspace
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)

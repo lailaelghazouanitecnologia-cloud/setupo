@@ -14,19 +14,60 @@ logger = logging.getLogger("nso-agent.files")
 router = APIRouter(prefix="/files", tags=["files"])
 
 ALLOWED_ROOTS = ["/opt/nso", "/opt/app", "/var/log/nso", "/tmp"]
+# Directories that can be read but NOT written to — NSO system internals
+READONLY_PATHS = ["/opt/nso/data/mesh", "/opt/nso/config"]
+# Sensitive files that should never be read via API
+SENSITIVE_BASENAMES = frozenset({
+    "master_key", "master_key.pub",
+    ".env", ".env.local", ".env.production",
+    "credentials.json", "service-account.json",
+})
 MAX_READ_SIZE = 5 * 1024 * 1024
 DEFAULT_PATH = "/opt/nso"
 SKIP_DIRS = frozenset({"node_modules", "__pycache__", ".git", "venv", ".venv"})
 
 
-def _safe_path(path: str) -> Path:
+def _safe_path(path: str, check_symlinks: bool = True) -> Path:
     if not path:
         path = DEFAULT_PATH
     resolved = Path(path).resolve()
+
+    # Check against allowed roots
+    resolved_str = str(resolved)
+    allowed = False
     for root in ALLOWED_ROOTS:
-        if str(resolved).startswith(root):
-            return resolved
-    raise HTTPException(403, f"Access denied: path outside allowed directories")
+        if resolved_str.startswith(root):
+            allowed = True
+            break
+    if not allowed:
+        raise HTTPException(403, f"Access denied: path outside allowed directories")
+
+    # Verify the real path (after symlink resolution) is still in allowed roots
+    if check_symlinks and resolved.exists():
+        real_path = str(Path(path).resolve())
+        real_allowed = False
+        for root in ALLOWED_ROOTS:
+            if real_path.startswith(root):
+                real_allowed = True
+                break
+        if not real_allowed:
+            raise HTTPException(403, "Access denied: symlink target outside allowed directories")
+
+    return resolved
+
+
+def _is_writable_path(path: Path) -> bool:
+    """Check if a path is writable (not in readonly protected areas)."""
+    path_str = str(path)
+    for readonly in READONLY_PATHS:
+        if path_str.startswith(readonly):
+            return False
+    return True
+
+
+def _is_sensitive_file(path: Path) -> bool:
+    """Check if a file is sensitive and should not be read."""
+    return path.name in SENSITIVE_BASENAMES
 
 class FSItem(BaseModel):
     name: str
@@ -112,6 +153,8 @@ async def read_file(
         raise HTTPException(404, f"File not found: {path}")
     if not target.is_file():
         raise HTTPException(400, f"Not a file: {path}")
+    if _is_sensitive_file(target):
+        raise HTTPException(403, f"Access denied: sensitive file")
 
     size = target.stat().st_size
     if size > MAX_READ_SIZE:
@@ -131,6 +174,12 @@ async def write_file(
     admin: AdminUser = Depends(require_admin),
 ):
     target = _safe_path(req.path)
+
+    if not _is_writable_path(target):
+        raise HTTPException(403, f"Access denied: path is read-only")
+    if _is_sensitive_file(target):
+        raise HTTPException(403, f"Access denied: cannot overwrite sensitive file")
+
     target.parent.mkdir(parents=True, exist_ok=True)
 
     try:
@@ -169,6 +218,11 @@ async def delete_path(
     for root in ALLOWED_ROOTS:
         if str(target) == root:
             raise HTTPException(403, f"Cannot delete root directory: {path}")
+
+    if not _is_writable_path(target):
+        raise HTTPException(403, f"Access denied: path is protected")
+    if _is_sensitive_file(target):
+        raise HTTPException(403, f"Access denied: cannot delete sensitive file")
 
     try:
         if target.is_dir():

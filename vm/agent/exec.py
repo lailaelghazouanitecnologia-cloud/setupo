@@ -30,26 +30,44 @@ class ExecResponse(BaseModel):
     exit_code: int
     timed_out: bool = False
 
+# Patterns that are NEVER allowed — comprehensive blocklist
 BLOCKED_PATTERNS = [
-    "rm -rf /",
-    "mkfs",
-    "dd if=",
-    "> /dev/sd",
-    "shutdown",
-    "reboot",
-    "poweroff",
-    "halt",
-    "init 0",
-    "init 6",
+    # Destructive filesystem operations
+    "rm -rf /", "rm -rf /*", "rm -rf ~",
+    "mkfs", "dd if=", "dd of=/dev",
+    "> /dev/sd", "> /dev/nv",
+    # System control
+    "shutdown", "reboot", "poweroff", "halt",
+    "init 0", "init 6",
+    # Resource exhaustion
+    ":(){ :|:", "fork",
+    "kill -9 -1",
+    # Sensitive paths — NSO internals
+    "/opt/nso/data/mesh/master_key",
+    "NSO_JWT_SECRET",
+    "AGENT_ADMIN_PASSWORD",
 ]
+
+# Allowed working directories
+ALLOWED_CWD = ["/opt/nso", "/opt/app", "/tmp"]
 
 
 def _is_blocked(command: str) -> bool:
     cmd_lower = command.lower().strip()
     for pattern in BLOCKED_PATTERNS:
-        if pattern in cmd_lower:
+        if pattern.lower() in cmd_lower:
             return True
     return False
+
+
+def _validate_cwd(working_dir: str) -> str:
+    """Validate working directory is in allowed list."""
+    resolved = os.path.realpath(working_dir)
+    for allowed in ALLOWED_CWD:
+        if resolved.startswith(allowed):
+            return resolved
+    return "/opt/nso"
+
 
 @router.post("/", response_model=ExecResponse)
 async def execute_command(
@@ -59,12 +77,20 @@ async def execute_command(
     if _is_blocked(req.command):
         raise HTTPException(403, "Command blocked for safety")
 
-    if not os.path.isdir(req.working_dir):
-        req.working_dir = "/opt/nso"
+    if len(req.command) > 4096:
+        raise HTTPException(400, "Command too long (max 4096 characters)")
 
-    env = {**os.environ, **req.env}
+    # Validate and sanitize working directory
+    req.working_dir = _validate_cwd(req.working_dir)
 
-    logger.info("exec: %s (cwd=%s, timeout=%d)", req.command, req.working_dir, req.timeout)
+    # Filter environment variables — block injection of sensitive overrides
+    safe_env = {**os.environ}
+    blocked_env_keys = {"LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "NODE_PATH"}
+    for k, v in req.env.items():
+        if k.upper() not in blocked_env_keys:
+            safe_env[k] = v
+
+    logger.info("exec: %s (cwd=%s, timeout=%d)", req.command[:200], req.working_dir, req.timeout)
 
     try:
         proc = await asyncio.create_subprocess_shell(
@@ -72,7 +98,7 @@ async def execute_command(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=req.working_dir,
-            env=env,
+            env=safe_env,
         )
 
         try:
@@ -82,7 +108,7 @@ async def execute_command(
         except asyncio.TimeoutError:
             proc.kill()
             await proc.wait()
-            logger.warning("Command timed out: %s", req.command)
+            logger.warning("Command timed out: %s", req.command[:200])
             return ExecResponse(
                 stdout="",
                 stderr=f"Command timed out after {req.timeout}s",

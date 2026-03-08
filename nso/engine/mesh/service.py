@@ -270,15 +270,24 @@ async def get_device_status(project_id: str, device_id: str) -> dict:
 async def deploy_to_device(project_id: str, device_id: str,
                            zar_path: str, target_dir: str = "/opt/app") -> dict:
     """Deploy a .zar file to a device via SCP + SSH."""
+    import re
+    import shlex
+
     device = await get_device(project_id, device_id)
     if device["status"] != "online":
         raise NsoError(f"Device is {device['status']}, must be online", 400)
 
+    # Validate target_dir to prevent command injection
+    if not re.match(r"^/[a-zA-Z0-9/_.-]+$", target_dir) or ".." in target_dir:
+        raise NsoError(f"Invalid target directory: {target_dir}", 400)
+    if target_dir in ("/", "/etc", "/usr", "/bin", "/sbin", "/boot", "/dev", "/proc", "/sys"):
+        raise NsoError(f"Cannot deploy to system directory: {target_dir}", 400)
+
     key_path = get_master_key_path()
     start = time.monotonic()
 
-    # Upload .zar
-    remote_zar = f"/tmp/deploy-{secrets.token_hex(4)}.zar"
+    # Upload .zar — use 8 bytes for stronger randomness
+    remote_zar = f"/tmp/deploy-{secrets.token_hex(8)}.zar"
     uploaded = await scp_upload(
         device["host"], zar_path, remote_zar, key_path,
         user=device["ssh_user"],
@@ -286,11 +295,13 @@ async def deploy_to_device(project_id: str, device_id: str,
     if not uploaded:
         raise NsoError("Failed to upload .zar to device", 502)
 
-    # Extract and deploy
+    # Extract and deploy — use shlex.quote for safety
+    safe_target = shlex.quote(target_dir)
+    safe_zar = shlex.quote(remote_zar)
     deploy_cmd = (
-        f"mkdir -p {target_dir} && "
-        f"tar xzf {remote_zar} -C {target_dir} && "
-        f"rm -f {remote_zar}"
+        f"mkdir -p {safe_target} && "
+        f"tar xzf {safe_zar} -C {safe_target} && "
+        f"rm -f {safe_zar}"
     )
     output, code = await run_ssh_command(
         device["host"], deploy_cmd, key_path,
@@ -349,11 +360,20 @@ async def read_device_file(project_id: str, device_id: str,
 async def write_device_file(project_id: str, device_id: str,
                             path: str, content: str) -> dict:
     """Write a file to a device via SSH."""
-    # Use heredoc to avoid escaping issues
-    safe_content = content.replace("'", "'\\''")
+    import re
+    import shlex
+
+    # Validate path to prevent injection
+    if not re.match(r"^/[a-zA-Z0-9/_.-]+$", path) or ".." in path:
+        raise NsoError(f"Invalid file path: {path}", 400)
+
+    # Use heredoc with quoted delimiter (prevents variable expansion)
+    safe_path = shlex.quote(path)
+    # Replace NSOEOF in content to prevent heredoc escape
+    safe_content = content.replace("NSOEOF", "NSO_EOF")
     result = await exec_on_device(
         project_id, device_id,
-        f"cat > {path} << 'NSOEOF'\n{safe_content}\nNSOEOF",
+        f"cat > {safe_path} << 'NSOEOF'\n{safe_content}\nNSOEOF",
         triggered_by="user",
     )
     return result
