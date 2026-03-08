@@ -362,6 +362,7 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
     Updates the scaling policy and provisions/terminates replicas as needed.
     """
     from nso.engine.compute.supervisor_sync import apply_services as apply_to_agent
+    from nso.engine.compute.supervisor_sync import apply_to_node
     from nso.engine.compute.supervisor_sync import stop_service as agent_stop
     from nso.engine.compute.service import get_instance
 
@@ -390,15 +391,9 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
     actions = []
 
     if replicas > current:
-        # Scale up — find available instances in the project
-        all_instances = await db.fetch_all("instances", project_id=project_id)
-        running_instances = [i for i in all_instances
-                            if i.get("state") in ("running", "ready", "active") and i.get("ip")]
-        used_instance_ids = {r["instance_id"] for r in active}
-        available = [i for i in running_instances if i["id"] not in used_instance_ids]
-
+        # Scale up — use placement engine if compute_nodes exist, fallback to legacy
         needed = replicas - current
-        to_deploy = available[:needed]
+        used_instance_ids = {r["instance_id"] for r in active}
 
         spec = {
             "name": svc["name"],
@@ -413,19 +408,53 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
         if isinstance(env, dict):
             spec["env"] = env
 
-        for inst in to_deploy:
-            try:
-                await apply_to_agent(project_id, inst["id"], [spec])
-                await add_replica(service_id, inst["id"],
-                                  version=svc.get("version", ""),
-                                  port=svc.get("port", 0))
-                actions.append({"instance_id": inst["id"], "action": "added"})
-            except Exception as e:
-                logger.error("Scale-up failed for instance %s: %s", inst["id"], e)
-                actions.append({"instance_id": inst["id"], "action": "failed", "error": str(e)})
+        # Try placement engine first
+        try:
+            from nso.engine.compute.placement import find_placement
+            candidates = await find_placement(
+                project_id, svc, needed, exclude_nodes=used_instance_ids
+            )
+        except Exception:
+            candidates = []
 
-        if len(to_deploy) < needed:
-            actions.append({"warning": f"Only {len(to_deploy)} instances available, needed {needed}"})
+        if candidates:
+            # Use placement engine results
+            for node in candidates:
+                node_id = node["id"]
+                try:
+                    await apply_to_node(project_id, node_id, [spec])
+                    await add_replica(service_id, node_id,
+                                      version=svc.get("version", ""),
+                                      port=svc.get("port", 0))
+                    actions.append({"node_id": node_id, "action": "added"})
+
+                    # Update node allocated resources
+                    from nso.engine.compute.nodes import recalculate_allocated
+                    await recalculate_allocated(node_id)
+                except Exception as e:
+                    logger.error("Scale-up failed for node %s: %s", node_id, e)
+                    actions.append({"node_id": node_id, "action": "failed", "error": str(e)})
+        else:
+            # Fallback: legacy instance-based placement
+            all_instances = await db.fetch_all("instances", project_id=project_id)
+            running_instances = [i for i in all_instances
+                                if i.get("state") in ("running", "ready", "active") and i.get("ip")]
+            available = [i for i in running_instances if i["id"] not in used_instance_ids]
+            to_deploy = available[:needed]
+
+            for inst in to_deploy:
+                try:
+                    await apply_to_agent(project_id, inst["id"], [spec])
+                    await add_replica(service_id, inst["id"],
+                                      version=svc.get("version", ""),
+                                      port=svc.get("port", 0))
+                    actions.append({"instance_id": inst["id"], "action": "added"})
+                except Exception as e:
+                    logger.error("Scale-up failed for instance %s: %s", inst["id"], e)
+                    actions.append({"instance_id": inst["id"], "action": "failed", "error": str(e)})
+
+            if len(to_deploy) < needed:
+                actions.append({"warning": f"Only {len(to_deploy)} instances available, needed {needed}"})
 
     elif replicas < current:
         # Scale down — stop excess replicas (newest first)

@@ -161,6 +161,55 @@ async def apply_services(project_id: str, instance_id: str, specs: list[dict]) -
     return data
 
 
+async def apply_to_node(project_id: str, node_id: str, specs: list[dict]) -> dict:
+    """Apply service specs to a compute node (resolves node → IP, bypasses instance lookup)."""
+    node = await db.fetch_one("compute_nodes", id=node_id)
+    if node and node.get("ip"):
+        ip = node["ip"]
+        port = node.get("agent_port", 8081)
+        token = await _agent_login(ip)
+        async with _ipv4_client(AGENT_TIMEOUT + 10) as client:
+            resp = await client.post(
+                f"http://{ip}:{port}/supervisor/apply",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"processes": specs},
+            )
+            if resp.status_code != 200:
+                raise ProviderError("agent", f"Apply failed ({resp.status_code}): {resp.text}")
+            data = resp.json()
+        logger.info("Applied %d services to node %s (%s)", len(specs), node_id, ip)
+        return data
+
+    # Fallback: node has instance_id, use instance-based apply
+    if node and node.get("instance_id"):
+        return await apply_services(project_id, node["instance_id"], specs)
+
+    raise ProviderError("agent", f"Node {node_id} has no IP or instance_id")
+
+
+async def stop_on_node(project_id: str, node_id: str, service_name: str) -> dict:
+    """Stop a service on a compute node."""
+    node = await db.fetch_one("compute_nodes", id=node_id)
+    if node and node.get("ip"):
+        ip = node["ip"]
+        port = node.get("agent_port", 8081)
+        token = await _agent_login(ip)
+        async with _ipv4_client(AGENT_TIMEOUT + 10) as client:
+            resp = await client.post(
+                f"http://{ip}:{port}/supervisor/stop",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"name": service_name},
+            )
+            if resp.status_code != 200:
+                raise ProviderError("agent", f"Stop failed ({resp.status_code}): {resp.text}")
+            return resp.json()
+
+    if node and node.get("instance_id"):
+        return await stop_service(project_id, node["instance_id"], service_name)
+
+    raise ProviderError("agent", f"Node {node_id} has no IP or instance_id")
+
+
 # ── Sync: poll agent and persist to DB ──
 
 

@@ -21,6 +21,10 @@ JSON_FIELDS = frozenset({
     "data", "filters", "protected_files", "headers",
     "tool_calls", "tool_results", "history", "depends_on",
     "endpoints", "connects_to", "dependencies", "env",
+    "tunnel_config", "tags", "capabilities", "labels", "os_info",
+    "placement_node_selector", "placement_affinity",
+    "placement_anti_affinity_services", "placement_anti_affinity_nodes",
+    "auto_provision",
 })
 BOOL_FIELDS = frozenset({
     "proxied", "managed", "enabled", "published",

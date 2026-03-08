@@ -131,9 +131,14 @@ async def lifespan(app: FastAPI):
     from nso.engine.compute.metrics import start_collector, stop_collector
     start_collector()
 
+    # Start service reconciler
+    from nso.engine.compute.reconciler import start_reconciler, stop_reconciler
+    start_reconciler()
+
     yield
 
     stop_collector()
+    stop_reconciler()
 
     logger.info("NSO shutting down...")
     if services:
@@ -195,6 +200,7 @@ from nso.engine.infrastructure.storage import routes as infra_storage_routes
 from nso.engine.validator import routes as validator_routes
 from nso.engine.mesh import routes as mesh_routes
 from nso.engine.services import routes as services_routes
+from nso.engine.compute import node_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
@@ -227,6 +233,7 @@ app.include_router(validator_routes.router, prefix="/api/projects/{project_id}/v
 app.include_router(mesh_routes.router, prefix="/api/projects/{project_id}/mesh", tags=["mesh"])
 app.include_router(services_routes.router, prefix="/api/projects/{project_id}/services", tags=["services"])
 app.include_router(services_routes.connections_router, prefix="/api/projects/{project_id}/connections", tags=["connections"])
+app.include_router(node_routes.router, prefix="/api/projects/{project_id}/nodes", tags=["compute-nodes"])
 
 if SERVER_MODE in ("admin", "full"):
     from nso.engine.admin import routes as admin_routes

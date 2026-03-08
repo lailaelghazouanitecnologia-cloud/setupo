@@ -27,6 +27,15 @@ TABLES = """
         env TEXT DEFAULT '{}',
         restart_policy TEXT DEFAULT 'always',
 
+        -- Placement
+        placement_strategy TEXT DEFAULT 'shared',
+        placement_node_selector TEXT DEFAULT '{}',
+        placement_affinity TEXT DEFAULT '[]',
+        placement_anti_affinity_services TEXT DEFAULT '[]',
+        placement_anti_affinity_nodes TEXT DEFAULT '[]',
+        placement_spread TEXT DEFAULT '',
+        auto_provision TEXT DEFAULT '{}',
+
         -- Relationships
         endpoints TEXT DEFAULT '[]',
         dependencies TEXT DEFAULT '[]',
