@@ -13,6 +13,7 @@ import {
   listInstances, createInstance, deleteInstance,
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
+  listWorkspaces,
 } from "@/lib/api/client";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -69,10 +70,10 @@ const PLANS = [
 ] as const;
 
 
-const SERVICES = [
-  { name: "nso", display: "NSO API", description: "Main REST API server" },
-  { name: "nso-agent", display: "NSO Agent", description: "Remote execution agent" },
-  { name: "nginx", display: "nginx", description: "Reverse proxy & TLS" },
+const SYSTEM_SERVICES = [
+  { name: "nso", display: "nso", description: "API server" },
+  { name: "nso-agent", display: "nso-agent", description: "Agent" },
+  { name: "nginx", display: "nginx", description: "Reverse proxy" },
 ];
 
 /* ═══════════════════════════════════════════
@@ -830,6 +831,11 @@ function FilesPanel({ instance }: { instance: Instance }) {
    ═══════════════════════════════════════════ */
 
 export function ServicesTab() {
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const workspaces = useDashboardStore((s) => s.workspaces);
+  const setWorkspaces = useDashboardStore((s) => s.setWorkspaces);
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
+  const setActiveWorkspace = useDashboardStore((s) => s.setActiveWorkspace);
   const [statuses, setStatuses] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState<string | null>(null);
   const [sysInfo, setSysInfo] = useState<Record<string, string>>({});
@@ -865,17 +871,66 @@ export function ServicesTab() {
     setSysLoading(false);
   };
 
+  const goToWorkspace = (ws: any) => {
+    setActiveWorkspace(ws);
+    setActiveView("workspaces");
+  };
+
   useEffect(() => {
-    SERVICES.forEach((svc) => handleService("status", svc.name));
+    SYSTEM_SERVICES.forEach((svc) => handleService("status", svc.name));
     fetchSysInfo();
-  }, []);
+    // Load workspaces if not already loaded
+    if (activeProject && workspaces.length === 0) {
+      listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch(() => {});
+    }
+  }, [activeProject]);
 
   return (
     <div style={{ padding: "16px 0" }}>
+      {/* Workspaces as services */}
       <div className="settings-section">
-        <div className="settings-section-title">Services</div>
+        <div className="settings-section-title">Workspaces</div>
         <div className="svc-list">
-          {SERVICES.map((svc) => {
+          {workspaces.map((ws: any) => {
+            const deployed = ws.deployed === true;
+            const state = ws.instance_state || "";
+            return (
+              <div key={ws.id} className="svc-row">
+                <div className="svc-info">
+                  <div className="svc-status-dot" style={{
+                    background: deployed ? "var(--color-green)"
+                      : state === "error" ? "var(--color-red)"
+                      : state ? "var(--color-yellow)"
+                      : "var(--muted-foreground)",
+                    opacity: !deployed && !state ? 0.3 : 1,
+                  }} />
+                  <div>
+                    <button
+                      className="svc-name"
+                      onClick={() => goToWorkspace(ws)}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "inherit", textDecoration: "none" }}
+                    >
+                      {ws.name} →
+                    </button>
+                    <div className="svc-desc">
+                      {deployed ? "running" : state || "not deployed"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {workspaces.length === 0 && (
+            <div className="svc-desc" style={{ padding: "8px 0", opacity: 0.5 }}>No workspaces</div>
+          )}
+        </div>
+      </div>
+
+      {/* System services */}
+      <div className="settings-section">
+        <div className="settings-section-title">System Services</div>
+        <div className="svc-list">
+          {SYSTEM_SERVICES.map((svc) => {
             const st = statuses[svc.name];
             const isActive = st?.active;
             const hasError = st?.error;
