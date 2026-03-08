@@ -7,7 +7,7 @@ import {
   HardDrive, FileText, Globe, Activity,
   Clock, ChevronDown, ChevronUp, RefreshCw,
   Link2, ShoppingBag, Zap, Github,
-  Cloud, MessageSquare,
+  Cloud, MessageSquare, Database,
   HeartPulse, Shield, Timer,
   Star, Check,
 } from "lucide-react";
@@ -39,6 +39,8 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
   github: Github,
   s3: Cloud,
   slack: MessageSquare,
+  cloudflare: Globe,
+  r2: Database,
   // Marketplace
   "uptime-monitor": HeartPulse,
   "ssl-manager": Shield,
@@ -242,6 +244,15 @@ const CONNECTOR_FIELDS: Record<string, { key: string; label: string; placeholder
   slack: [
     { key: "bot_token", label: "Bot Token", placeholder: "xoxb-xxxx", secret: true },
     { key: "webhook_url", label: "Webhook URL (optional)", placeholder: "https://hooks.slack.com/services/..." },
+  ],
+  cloudflare: [
+    { key: "api_token", label: "API Token", placeholder: "Your Cloudflare API token", secret: true },
+  ],
+  r2: [
+    { key: "endpoint", label: "R2 Endpoint", placeholder: "https://xxx.r2.cloudflarestorage.com" },
+    { key: "access_key", label: "Access Key ID", placeholder: "Your R2 access key", secret: true },
+    { key: "secret_key", label: "Secret Access Key", placeholder: "Your R2 secret key", secret: true },
+    { key: "bucket", label: "Bucket Name", placeholder: "my-bucket" },
   ],
 };
 

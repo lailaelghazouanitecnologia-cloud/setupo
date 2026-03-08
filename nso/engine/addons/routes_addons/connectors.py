@@ -36,11 +36,14 @@ _REQUIRED = {
     "github": ["token"],
     "s3": ["endpoint", "access_key", "secret_key", "bucket"],
     "slack": ["bot_token"],
+    "cloudflare": ["api_token"],
+    "r2": ["endpoint", "access_key", "secret_key", "bucket"],
 }
 
 _ALTERNATIVES = {
     "github": [["app_id", "private_key", "installation_id"]],
     "slack": [["webhook_url"]],
+    "cloudflare": [["api_key", "email"]],
 }
 
 
@@ -151,8 +154,55 @@ async def _test_slack(config: dict) -> dict:
 
 
 
+async def _test_cloudflare(config: dict) -> dict:
+    api_token = config.get("api_token", "")
+    api_key = config.get("api_key", "")
+    email = config.get("email", "")
+
+    headers = {}
+    if api_token:
+        headers["Authorization"] = f"Bearer {api_token}"
+    elif api_key and email:
+        headers["X-Auth-Key"] = api_key
+        headers["X-Auth-Email"] = email
+    else:
+        return {"ok": False, "message": "api_token or (api_key + email) required"}
+
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.get("https://api.cloudflare.com/client/v4/user/tokens/verify", headers=headers)
+    if resp.status_code == 200:
+        d = resp.json()
+        if d.get("success"):
+            return {"ok": True, "message": "Cloudflare connected", "status": d.get("result", {}).get("status", "active")}
+        return {"ok": False, "message": f"Cloudflare error: {d.get('errors', [{}])[0].get('message', 'unknown')}"}
+    if resp.status_code == 401:
+        return {"ok": False, "message": "Invalid or expired token"}
+    return {"ok": False, "message": f"Cloudflare API error ({resp.status_code})"}
+
+
+async def _test_r2(config: dict) -> dict:
+    endpoint = config.get("endpoint", "").rstrip("/")
+    access_key = config.get("access_key", "")
+    secret_key = config.get("secret_key", "")
+    bucket = config.get("bucket", "")
+    if not all([endpoint, access_key, secret_key, bucket]):
+        return {"ok": False, "message": "endpoint, access_key, secret_key, and bucket are required"}
+
+    from nso.shared.models import R2Config
+    from nso.engine.storage.service import R2Client
+    r2 = R2Client(R2Config(bucket=bucket, endpoint=endpoint, access_key_id=access_key, secret_access_key=secret_key))
+    try:
+        await r2.list_keys("", max_keys=1)
+        return {"ok": True, "message": f"R2 bucket '{bucket}' accessible", "bucket": bucket}
+    except Exception as e:
+        return {"ok": False, "message": f"R2 connection failed: {e}"}
+    finally:
+        await r2.close()
+
+
 _TESTERS = {
     "github": _test_github, "s3": _test_s3, "slack": _test_slack,
+    "cloudflare": _test_cloudflare, "r2": _test_r2,
 }
 
 
@@ -431,6 +481,216 @@ async def s3_delete_file(key: str = Query(...), project_id: str = Depends(requir
         ok = await r2.delete(key)
         if not ok:
             raise HTTPException(502, "S3 delete failed")
+        return {"ok": True, "key": key}
+    finally:
+        await r2.close()
+
+
+# ═══════════════════════════════════════════════════════════════
+#  CLOUDFLARE ACTIONS
+# ═══════════════════════════════════════════════════════════════
+
+def _cf_headers(config: dict) -> dict:
+    """Build Cloudflare API headers from connector config."""
+    api_token = config.get("api_token", "")
+    if api_token:
+        return {"Authorization": f"Bearer {api_token}", "Content-Type": "application/json"}
+    return {
+        "X-Auth-Key": config.get("api_key", ""),
+        "X-Auth-Email": config.get("email", ""),
+        "Content-Type": "application/json",
+    }
+
+
+@router.get("/cloudflare/zones")
+async def cloudflare_list_zones(project_id: str = Depends(require_project)):
+    """List DNS zones (domains) in the Cloudflare account."""
+    config = await _get_config(project_id, "cloudflare")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.get("https://api.cloudflare.com/client/v4/zones",
+                           params={"per_page": 50, "status": "active"},
+                           headers=_cf_headers(config))
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Cloudflare API error: {resp.text[:300]}")
+    d = resp.json()
+    if not d.get("success"):
+        raise HTTPException(400, f"Cloudflare error: {d.get('errors', [{}])[0].get('message', 'unknown')}")
+    return {"zones": [{"id": z["id"], "name": z["name"], "status": z["status"],
+                        "name_servers": z.get("name_servers", [])} for z in d.get("result", [])]}
+
+
+@router.get("/cloudflare/zones/{zone_id}/records")
+async def cloudflare_list_records(
+    zone_id: str,
+    name: str = Query(""),
+    record_type: str = Query(""),
+    project_id: str = Depends(require_project),
+):
+    """List DNS records in a Cloudflare zone."""
+    config = await _get_config(project_id, "cloudflare")
+    params: dict = {"per_page": 100}
+    if name:
+        params["name"] = name
+    if record_type:
+        params["type"] = record_type
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.get(f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records",
+                           params=params, headers=_cf_headers(config))
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Cloudflare API error: {resp.text[:300]}")
+    d = resp.json()
+    if not d.get("success"):
+        raise HTTPException(400, f"Cloudflare error: {d.get('errors', [{}])[0].get('message', 'unknown')}")
+    return {"records": [{"id": r["id"], "type": r["type"], "name": r["name"],
+                          "content": r["content"], "proxied": r.get("proxied", False),
+                          "ttl": r.get("ttl", 1)} for r in d.get("result", [])]}
+
+
+class CloudflareDNSRequest(BaseModel):
+    zone_id: str
+    record_type: str = "A"
+    name: str
+    content: str
+    proxied: bool = True
+    ttl: int = 1
+
+
+@router.post("/cloudflare/records")
+async def cloudflare_create_record(req: CloudflareDNSRequest, project_id: str = Depends(require_project)):
+    """Create a DNS record via user's Cloudflare connector."""
+    config = await _get_config(project_id, "cloudflare")
+    payload = {"type": req.record_type, "name": req.name, "content": req.content,
+               "proxied": req.proxied, "ttl": req.ttl}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.post(f"https://api.cloudflare.com/client/v4/zones/{req.zone_id}/dns_records",
+                            json=payload, headers=_cf_headers(config))
+    if resp.status_code not in (200, 201):
+        raise HTTPException(resp.status_code, f"Cloudflare error: {resp.text[:300]}")
+    d = resp.json()
+    if not d.get("success"):
+        raise HTTPException(400, f"Cloudflare error: {d.get('errors', [{}])[0].get('message', 'unknown')}")
+    r = d.get("result", {})
+    return {"ok": True, "record": {"id": r["id"], "type": r["type"], "name": r["name"],
+                                    "content": r["content"], "proxied": r.get("proxied")}}
+
+
+class CloudflareDNSUpdateRequest(BaseModel):
+    zone_id: str
+    record_id: str
+    record_type: str = "A"
+    name: str = ""
+    content: str = ""
+    proxied: Optional[bool] = None
+    ttl: int = 1
+
+
+@router.patch("/cloudflare/records")
+async def cloudflare_update_record(req: CloudflareDNSUpdateRequest, project_id: str = Depends(require_project)):
+    """Update a DNS record via user's Cloudflare connector."""
+    config = await _get_config(project_id, "cloudflare")
+    payload: dict = {"type": req.record_type, "ttl": req.ttl}
+    if req.name:
+        payload["name"] = req.name
+    if req.content:
+        payload["content"] = req.content
+    if req.proxied is not None:
+        payload["proxied"] = req.proxied
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.patch(f"https://api.cloudflare.com/client/v4/zones/{req.zone_id}/dns_records/{req.record_id}",
+                             json=payload, headers=_cf_headers(config))
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Cloudflare error: {resp.text[:300]}")
+    d = resp.json()
+    if not d.get("success"):
+        raise HTTPException(400, f"Cloudflare error: {d.get('errors', [{}])[0].get('message', 'unknown')}")
+    return {"ok": True, "updated": req.record_id}
+
+
+@router.delete("/cloudflare/records")
+async def cloudflare_delete_record(
+    zone_id: str = Query(...),
+    record_id: str = Query(...),
+    project_id: str = Depends(require_project),
+):
+    """Delete a DNS record via user's Cloudflare connector."""
+    config = await _get_config(project_id, "cloudflare")
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.delete(f"https://api.cloudflare.com/client/v4/zones/{zone_id}/dns_records/{record_id}",
+                              headers=_cf_headers(config))
+    if resp.status_code != 200:
+        raise HTTPException(resp.status_code, f"Cloudflare error: {resp.text[:300]}")
+    return {"ok": True, "deleted": record_id}
+
+
+# ═══════════════════════════════════════════════════════════════
+#  R2 ACTIONS (Cloudflare R2 — separate from generic S3)
+# ═══════════════════════════════════════════════════════════════
+
+def _r2_client(config: dict):
+    from nso.shared.models import R2Config
+    from nso.engine.storage.service import R2Client
+    return R2Client(R2Config(
+        bucket=config["bucket"], endpoint=config["endpoint"],
+        access_key_id=config["access_key"], secret_access_key=config["secret_key"],
+    ))
+
+
+@router.get("/r2/files")
+async def r2_list_files(prefix: str = Query(""), project_id: str = Depends(require_project)):
+    """List files in the configured R2 bucket."""
+    config = await _get_config(project_id, "r2")
+    r2 = _r2_client(config)
+    try:
+        keys = await r2.list_keys(prefix)
+        return {"files": [{"key": k} for k in keys], "count": len(keys)}
+    finally:
+        await r2.close()
+
+
+class R2UploadRequest(BaseModel):
+    key: str
+    content: str  # base64
+    content_type: str = "application/octet-stream"
+
+
+@router.post("/r2/upload")
+async def r2_upload_file(req: R2UploadRequest, project_id: str = Depends(require_project)):
+    """Upload a file to the configured R2 bucket."""
+    config = await _get_config(project_id, "r2")
+    data = base64.b64decode(req.content)
+    r2 = _r2_client(config)
+    try:
+        ok = await r2.upload(req.key, data, content_type=req.content_type)
+        if not ok:
+            raise HTTPException(502, "R2 upload failed")
+        return {"ok": True, "key": req.key, "size": len(data)}
+    finally:
+        await r2.close()
+
+
+@router.get("/r2/download")
+async def r2_download_file(key: str = Query(...), project_id: str = Depends(require_project)):
+    """Download a file from the configured R2 bucket."""
+    config = await _get_config(project_id, "r2")
+    r2 = _r2_client(config)
+    try:
+        data = await r2.download(key)
+        if data is None:
+            raise HTTPException(404, "File not found")
+        return {"key": key, "content": base64.b64encode(data).decode(), "size": len(data)}
+    finally:
+        await r2.close()
+
+
+@router.delete("/r2/files")
+async def r2_delete_file(key: str = Query(...), project_id: str = Depends(require_project)):
+    """Delete a file from the configured R2 bucket."""
+    config = await _get_config(project_id, "r2")
+    r2 = _r2_client(config)
+    try:
+        ok = await r2.delete(key)
+        if not ok:
+            raise HTTPException(502, "R2 delete failed")
         return {"ok": True, "key": key}
     finally:
         await r2.close()

@@ -22,6 +22,7 @@ BUCKETS = [
     {"name": "connectors", "label": "Connectors", "prefixes": [
         "GITHUB_", "S3_ACCESS_KEY", "S3_SECRET_KEY", "S3_ENDPOINT", "S3_BUCKET",
         "SLACK_BOT_TOKEN", "SLACK_WEBHOOK_URL",
+        "CF_CONNECTOR_", "R2_CONNECTOR_",
     ]},
     {"name": "system", "label": "System", "prefixes": [
         "NSO_HOST", "NSO_PORT", "NSO_DATA_", "NSO_CONFIG_", "NSO_WORKSPACES_",
@@ -54,5 +55,16 @@ CONNECTOR_SECRET_MAP = {
     "slack": {
         "bot_token": "SLACK_BOT_TOKEN",
         "webhook_url": "SLACK_WEBHOOK_URL",
+    },
+    "cloudflare": {
+        "api_token": "CF_CONNECTOR_API_TOKEN",
+        "api_key": "CF_CONNECTOR_API_KEY",
+        "email": "CF_CONNECTOR_EMAIL",
+    },
+    "r2": {
+        "endpoint": "R2_CONNECTOR_ENDPOINT",
+        "access_key": "R2_CONNECTOR_ACCESS_KEY",
+        "secret_key": "R2_CONNECTOR_SECRET_KEY",
+        "bucket": "R2_CONNECTOR_BUCKET",
     },
 }

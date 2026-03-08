@@ -121,15 +121,15 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
         return json.dumps({"error": f"Cannot reach agent on instance {instance_id}"})
 
     async def manage_domain(
-        workspace: str,
+        workspace: str = "",
         action: str = "auto",
         custom_domain: str = "",
         instance_id: str = "",
     ) -> str:
         """Manage domain for a workspace. action: auto (assign workspace.user.nso.dev), custom (set custom domain), remove, list.
 
-        Auto-domain pattern: workspace.username.nso.dev
-        The user's subdomain is auto-claimed from their username.
+        Auto-domain pattern: workspace.username.nso.dev (uses platform Cloudflare).
+        For custom domains: if user has a Cloudflare connector, use manage_dns tool instead for full control.
         """
         if action == "list":
             domains = await db.fetch_all("domains", project_id=ctx.project_id)
@@ -142,7 +142,13 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
                     "instance_id": d.get("instance_id", ""),
                     "managed": bool(d.get("managed", 0)),
                 })
-            return json.dumps({"domains": result, "count": len(result)})
+            # Also check if user has Cloudflare connector
+            cf_addon = await db.fetch_one("addons", project_id=ctx.project_id, addon_id="cloudflare", addon_type="connector")
+            has_cf = bool(cf_addon and cf_addon.get("enabled"))
+            return json.dumps({"domains": result, "count": len(result), "has_cloudflare_connector": has_cf})
+
+        if not workspace:
+            return json.dumps({"error": "workspace name is required"})
 
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
         if not ws:

@@ -28,6 +28,22 @@ DEFAULT_CONNECTORS = [
         "icon": "message-square",
         "addon_type": "connector",
     },
+    {
+        "addon_id": "cloudflare",
+        "name": "Cloudflare",
+        "description": "Manage DNS records, domains, and routing through your Cloudflare account.",
+        "category": "dns",
+        "icon": "globe",
+        "addon_type": "connector",
+    },
+    {
+        "addon_id": "r2",
+        "name": "Cloudflare R2",
+        "description": "S3-compatible object storage powered by Cloudflare R2. No egress fees.",
+        "category": "storage",
+        "icon": "database",
+        "addon_type": "connector",
+    },
 ]
 
 # Default plugins — feature extensions

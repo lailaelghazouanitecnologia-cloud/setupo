@@ -5,6 +5,7 @@ import {
   Github, Cloud, MessageSquare, Cable,
   Plus, Settings2, ChevronRight, ChevronDown,
   X, Loader2, Check, Circle, Eye, EyeOff,
+  Globe, Database,
 } from "lucide-react";
 import {
   listAddons, installAddon, updateAddon,
@@ -62,6 +63,29 @@ const CONNECTORS: ConnectorDef[] = [
       { key: "webhook_url", label: "Webhook URL (optional)", placeholder: "https://hooks.slack.com/services/..." },
     ],
     steps: ["Enter Token", "Test Connection"],
+  },
+  {
+    id: "cloudflare",
+    name: "Cloudflare",
+    description: "Manage DNS records and domains through your Cloudflare account. Point custom domains to your instances.",
+    icon: Globe,
+    fields: [
+      { key: "api_token", label: "API Token", placeholder: "Your Cloudflare API token", secret: true },
+    ],
+    steps: ["Enter Token", "Verify Connection"],
+  },
+  {
+    id: "r2",
+    name: "Cloudflare R2",
+    description: "S3-compatible object storage powered by Cloudflare R2. No egress fees.",
+    icon: Database,
+    fields: [
+      { key: "endpoint", label: "R2 Endpoint", placeholder: "https://xxx.r2.cloudflarestorage.com" },
+      { key: "access_key", label: "Access Key ID", placeholder: "Your R2 access key", secret: true },
+      { key: "secret_key", label: "Secret Access Key", placeholder: "Your R2 secret key", secret: true },
+      { key: "bucket", label: "Bucket Name", placeholder: "my-bucket" },
+    ],
+    steps: ["Enter Credentials", "Verify Connection"],
   },
 ];
 
