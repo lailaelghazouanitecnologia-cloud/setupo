@@ -420,7 +420,7 @@ async def _auto_assign_domain(
         project = await db.fetch_one("projects", id=project_id)
         owner_id = project.get("owner", "") if project else user_id
         owner = await db.fetch_one("users", id=owner_id) if owner_id else None
-        owner_sub = (owner.get("subdomain", "") if owner else "").strip()
+        owner_sub = (owner.get("subdomain") or "" if owner else "").strip()
 
         if owner_sub:
             deploy_domain = f"{workspace}-{owner_sub}.{settings.NSO_BASE_DOMAIN}"

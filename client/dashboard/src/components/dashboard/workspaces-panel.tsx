@@ -318,17 +318,7 @@ export function WorkspacesPanel() {
                     <FolderOpen className="h-3.5 w-3.5" />
                   </div>
                   <div className="ws-sidebar-item-info">
-                    <span className="ws-sidebar-item-name">
-                      {ws.name}
-                      {ws.readonly ? <Lock className="h-2.5 w-2.5" style={{ opacity: 0.4, marginLeft: 4 }} /> : null}
-                    </span>
-                    <span className="ws-sidebar-item-meta">
-                      {ws.description || null}
-                      {isDeployed ? <span className="ws-live-text">live</span> : null}
-                      {ws.instance_id && !isDeployed && ws.instance_state ? (
-                        <span className="ws-state-text">{ws.instance_state}</span>
-                      ) : null}
-                    </span>
+                    <span className="ws-sidebar-item-name">{ws.name}</span>
                   </div>
                   <button
                     className="ws-sidebar-item-delete"
