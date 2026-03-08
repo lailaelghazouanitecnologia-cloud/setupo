@@ -90,11 +90,56 @@ def _validate_path(ws_path: str, relative: str) -> str:
     return full_path
 
 
+async def _check_workspace_limit(project_id: str) -> None:
+    """Enforce workspace limit from billing plan. Free plan = hard limit; paid = soft (overage billed)."""
+    try:
+        from nso.engine.compute.quota import get_owner_for_project
+        owner_id = await get_owner_for_project(project_id)
+        if not owner_id:
+            return  # No owner → admin project, skip
+
+        sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="active")
+        if not sub:
+            sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="trialing")
+        if not sub:
+            return  # No subscription → use defaults, no enforcement
+
+        plan = await db.fetch_one("billing_plans", id=sub.get("plan_id", ""))
+        if not plan:
+            return
+
+        import json as _json
+        features = plan.get("features", "{}")
+        if isinstance(features, str):
+            features = _json.loads(features) if features else {}
+
+        max_workspaces = features.get("workspaces", -1)
+        if max_workspaces == -1:
+            return  # Unlimited
+
+        current = await db.fetch_all("workspaces", project_id=project_id)
+        current_count = len(current)
+
+        # Free plan: hard limit
+        if plan.get("amount_cents", 0) == 0 and current_count >= max_workspaces:
+            raise HTTPException(
+                403,
+                f"Workspace limit reached ({current_count}/{max_workspaces}). "
+                f"Upgrade your plan to create more workspaces."
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Workspace limit check failed (allowing): %s", e)
+
+
 @router.post("")
 async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depends(require_project)):
     existing = await db.fetch_one("workspaces", project_id=project_id, name=req.name)
     if existing:
         raise HTTPException(409, f"Workspace '{req.name}' already exists")
+
+    await _check_workspace_limit(project_id)
 
     ws_path = _ws_path(req.name)
     ws_id = f"ws_{secrets.token_hex(8)}"

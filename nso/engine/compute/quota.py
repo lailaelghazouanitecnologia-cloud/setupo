@@ -250,3 +250,68 @@ async def get_owner_for_project(project_id: str) -> str | None:
     if not project:
         return None
     return project.get("owner")
+
+
+# ── Plan-to-quota mapping ──
+
+# The billing plan defines the INCLUDED baseline (free tier of resources).
+# Users can exceed these limits — overage is billed per usage rates.
+# allowed_plans controls which compute VM sizes are available for the project.
+# max_vms = -1 means no hard cap (pay-as-you-go beyond included).
+PLAN_QUOTA_MAP = {
+    "free":    {"max_vms": 1,  "max_vcpus": 1,  "max_ram_mb": 512,   "allowed_plans": ["free"]},
+    "starter": {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter"]},
+    "pro":     {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter", "pro"]},
+    "scale":   {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter", "pro", "business"]},
+}
+
+
+async def sync_plan_to_quotas(user_id: str, plan_code: str) -> list[str]:
+    """
+    Sync billing plan to compute quotas for all projects owned by a user.
+
+    The plan sets the INCLUDED baseline. Paid plans (starter+) have no hard VM
+    cap — users can add more VMs and pay overage. Free plan has a hard limit of 1.
+    allowed_plans expands with higher tiers (free users can only use 'free' VMs,
+    starter can use 'free'+'starter', etc.).
+
+    Called automatically when a subscription is created, upgraded, or downgraded.
+    Returns list of project_ids that were updated.
+    """
+    mapping = PLAN_QUOTA_MAP.get(plan_code)
+    if not mapping:
+        logger.warning("No quota mapping for plan '%s' — skipping sync", plan_code)
+        return []
+
+    # Find all projects owned by this user
+    projects = await db.fetch_all("projects", owner=user_id)
+    if not projects:
+        logger.info("No projects for user %s — quota sync skipped", user_id)
+        return []
+
+    updated = []
+    for project in projects:
+        pid = project["id"]
+        # Skip system project (admin infra)
+        settings = project.get("settings")
+        if isinstance(settings, str):
+            import json as _json
+            try:
+                settings = _json.loads(settings)
+            except Exception:
+                settings = {}
+        if isinstance(settings, dict) and settings.get("system"):
+            continue
+
+        await set_project_quota(
+            project_id=pid,
+            max_vms=mapping["max_vms"],
+            max_vcpus=mapping["max_vcpus"],
+            max_ram_mb=mapping["max_ram_mb"],
+            allowed_plans=mapping["allowed_plans"],
+            notes=f"Auto-synced from billing plan '{plan_code}'",
+        )
+        updated.append(pid)
+        logger.info("Synced quota for project %s → plan '%s'", pid, plan_code)
+
+    return updated

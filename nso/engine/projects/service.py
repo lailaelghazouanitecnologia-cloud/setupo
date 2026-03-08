@@ -43,6 +43,19 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
 
     project_dir = settings.project_dir(project_id)
     (project_dir / "workspaces").mkdir(exist_ok=True)
+
+    # Sync compute quotas from owner's billing plan
+    if req.owner:
+        try:
+            from nso.engine.compute.quota import sync_plan_to_quotas
+            sub = await db.fetch_one("billing_subscriptions", user_id=req.owner, status="active")
+            if not sub:
+                sub = await db.fetch_one("billing_subscriptions", user_id=req.owner, status="trialing")
+            if sub:
+                await sync_plan_to_quotas(req.owner, sub["plan_code"])
+        except Exception as e:
+            logger.warning("Quota sync on project create failed (non-blocking): %s", e)
+
     logger.info("Created project %s (%s)", project.name, project.id)
 
     return project, api_key

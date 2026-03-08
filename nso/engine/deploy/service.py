@@ -55,6 +55,63 @@ async def _log(instance_id: str, message: str, level: str = "info"):
     logger.info("[deploy %s] %s", instance_id, message)
 
 
+async def _check_deploy_limit(project_id: str) -> None:
+    """Enforce deploys-per-day limit from billing plan. Free = hard limit; paid = no cap."""
+    try:
+        from nso.engine.compute.quota import get_owner_for_project
+        owner_id = await get_owner_for_project(project_id)
+        if not owner_id:
+            return
+
+        sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="active")
+        if not sub:
+            sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="trialing")
+        if not sub:
+            return
+
+        plan = await db.fetch_one("billing_plans", id=sub.get("plan_id", ""))
+        if not plan:
+            return
+
+        # Only enforce hard limit for free plans
+        if plan.get("amount_cents", 0) > 0:
+            return
+
+        import json as _json
+        features = plan.get("features", "{}")
+        if isinstance(features, str):
+            features = _json.loads(features) if features else {}
+
+        max_deploys = features.get("deploys_per_day", -1)
+        if max_deploys == -1:
+            return
+
+        # Count today's deploys for this project
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        conn = await db.get_db()
+        cursor = await conn.execute(
+            "SELECT COUNT(*) as c FROM deploy_logs "
+            "WHERE instance_id IN (SELECT id FROM instances WHERE project_id = ?) "
+            "AND message LIKE 'Syncing workspace%' "
+            "AND created_at >= ?",
+            (project_id, today),
+        )
+        row = await cursor.fetchone()
+        today_count = row["c"] if row else 0
+
+        if today_count >= max_deploys:
+            raise ProviderError(
+                "deploy",
+                f"Daily deploy limit reached ({today_count}/{max_deploys}). "
+                f"Upgrade your plan for unlimited deploys."
+            )
+    except ProviderError:
+        raise
+    except Exception as e:
+        logger.warning("Deploy limit check failed (allowing): %s", e)
+
+
 async def deploy_to_instance(
     project_id: str,
     instance_id: str,
@@ -62,6 +119,8 @@ async def deploy_to_instance(
     branch: str = "main",
     command: str | None = None,
 ) -> dict:
+    await _check_deploy_limit(project_id)
+
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
         raise NotFoundError("Instance", instance_id)

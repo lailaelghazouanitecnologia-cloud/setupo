@@ -360,6 +360,15 @@ async def create_subscription(user_id: str, plan_code: str, trial: bool = False)
         {"plan_code": plan_code, "status": status},
     )
 
+    # Sync billing plan limits → compute quotas for all user projects
+    try:
+        from nso.engine.compute.quota import sync_plan_to_quotas
+        synced = await sync_plan_to_quotas(user_id, plan_code)
+        if synced:
+            logger.info("Synced quotas for %d projects after subscription change", len(synced))
+    except Exception as e:
+        logger.warning("Quota sync failed (non-blocking): %s", e)
+
     logger.info("Created subscription %s (plan=%s, user=%s, status=%s)",
                 sub["id"], plan_code, user_id, status)
     return sub
