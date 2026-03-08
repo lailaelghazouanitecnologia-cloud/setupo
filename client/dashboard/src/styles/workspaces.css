@@ -142,10 +142,12 @@
   display: flex; align-items: center;
 }
 .ws-deploy-badge {
-  display: inline-flex; align-items: center; gap: 3px;
-  margin-left: 6px; padding: 1px 5px; border-radius: 6px;
-  font-size: 9px; font-weight: 600; letter-spacing: 0.02em;
-  background: rgba(34, 197, 94, 0.15); color: #22c55e;
+  display: inline-flex; align-items: center;
+  margin-left: 5px;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+  font-size: 0; overflow: hidden;
 }
 .ws-deploy-url {
   display: flex; align-items: center; gap: 3px;

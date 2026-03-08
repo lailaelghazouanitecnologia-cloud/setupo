@@ -423,7 +423,7 @@ async def _auto_assign_domain(
         owner_sub = (owner.get("subdomain", "") if owner else "").strip()
 
         if owner_sub:
-            deploy_domain = f"{workspace}.{owner_sub}.{settings.NSO_BASE_DOMAIN}"
+            deploy_domain = f"{workspace}-{owner_sub}.{settings.NSO_BASE_DOMAIN}"
         else:
             short = project_id.replace("proj_", "")[:8]
             deploy_domain = f"{workspace}-{short}.{settings.NSO_BASE_DOMAIN}"

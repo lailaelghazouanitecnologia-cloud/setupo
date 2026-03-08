@@ -128,7 +128,7 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
     ) -> str:
         """Manage domain for a workspace. action: auto (assign workspace.user.nso.dev), custom (set custom domain), remove, list.
 
-        Auto-domain pattern: workspace.username.nso.dev (uses platform Cloudflare).
+        Auto-domain pattern: workspace-username.nso.dev (uses platform Cloudflare).
         For custom domains: if user has a Cloudflare connector, use manage_dns tool instead for full control.
         """
         if action == "list":
@@ -208,7 +208,7 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
             "domain": domain,
             "instance_id": instance_id,
             "ip": ip,
-            "pattern": "workspace.username.nso.dev" if action == "auto" else "custom",
+            "pattern": "workspace-username.nso.dev" if action == "auto" else "custom",
         })
 
     async def link_workspace_instance(workspace: str, instance_id: str) -> str:

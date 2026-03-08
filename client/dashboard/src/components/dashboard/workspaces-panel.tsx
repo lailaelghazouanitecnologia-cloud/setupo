@@ -322,10 +322,7 @@ export function WorkspacesPanel() {
                       {ws.name}
                       {ws.readonly ? <Lock className="h-2.5 w-2.5" style={{ opacity: 0.4, marginLeft: 4 }} /> : null}
                       {isDeployed && (
-                        <span className="ws-deploy-badge" title={ws.deploy_url || "Deployed"}>
-                          <Globe className="h-2.5 w-2.5" />
-                          Live
-                        </span>
+                        <span className="ws-deploy-badge" title="Running" />
                       )}
                     </span>
                     <span className="ws-sidebar-item-meta">
