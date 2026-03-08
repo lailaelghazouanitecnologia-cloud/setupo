@@ -133,21 +133,31 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
 
         # Deploy via agent
         import httpx
-        agent_url = f"http://{inst['ip']}:8081"
         agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
+        inst_ip = inst['ip']
 
-        try:
-            transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
-            async with httpx.AsyncClient(timeout=15, transport=transport) as client:
-                resp = await client.post(f"{agent_url}/auth/login", json={
-                    "email": settings.ADMIN_EMAIL,
-                    "password": agent_password,
-                })
-            if resp.status_code != 200:
-                return json.dumps({"error": f"Agent auth failed (HTTP {resp.status_code})"})
-            token = resp.json()["token"]
-        except Exception as exc:
-            return json.dumps({"error": f"Cannot connect to agent: {exc}"})
+        # Try localhost first (same-server deploy), then public IP
+        agent_urls = [f"http://127.0.0.1:8081", f"http://{inst_ip}:8081"]
+        token = None
+        last_error = None
+
+        for agent_url in agent_urls:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(f"{agent_url}/auth/login", json={
+                        "email": settings.ADMIN_EMAIL,
+                        "password": agent_password,
+                    })
+                if resp.status_code == 200:
+                    token = resp.json()["token"]
+                    break
+                last_error = f"Agent auth failed (HTTP {resp.status_code})"
+            except Exception as exc:
+                last_error = str(exc)
+                continue
+
+        if not token:
+            return json.dumps({"error": f"Cannot connect to agent: {last_error}"})
 
         # Resolve secrets
         resolved_secrets: dict[str, str] = {}
@@ -164,7 +174,7 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         await db.update("instances", instance_id, {"state": "deploying", "workspace": workspace})
 
         try:
-            async with httpx.AsyncClient(timeout=300, transport=transport) as client:
+            async with httpx.AsyncClient(timeout=300) as client:
                 resp = await client.post(
                     f"{agent_url}/deploy/pull",
                     headers={"Authorization": f"Bearer {token}"},
