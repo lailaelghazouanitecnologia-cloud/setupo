@@ -12,7 +12,7 @@ import {
   getWorkspaceFiles, readWorkspaceFile, zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
-import { FileTokenView } from "@/components/dashboard/file-token-view";
+import { tokenizeFile, estimateTokens } from "@/components/dashboard/file-token-view";
 import { formatSize, timeAgo } from "@/lib/format";
 
 /* ═══════════════════════════════════════════
@@ -296,8 +296,8 @@ export function WorkspacesPanel() {
             </div>
 
             {tab === "files" && viewingFile ? (
-              /* ── File viewer ── */
-              <div className="ws-file-viewer">
+              /* ── File viewer — inline tokenized ── */
+              <div className="ws-file-viewer ws-file-viewer-full">
                 <div className="ws-file-viewer-header">
                   <button className="ws-icon-btn" onClick={() => { setViewingFile(null); setFileContent(null); }}>
                     <ArrowLeft className="h-3.5 w-3.5" />
@@ -306,15 +306,33 @@ export function WorkspacesPanel() {
                     <span className="ws-breadcrumb-muted">{activeWorkspace.name} /</span>
                     <span className="ws-breadcrumb-current">{viewingFile}</span>
                   </div>
-                  <button className="ws-icon-btn" onClick={copyFileContent} title="Copy content" style={{ marginLeft: "auto" }}>
-                    {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-                  </button>
+                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "10px" }}>
+                    {fileContent !== null && (
+                      <span className="ws-file-stats">
+                        {estimateTokens(fileContent).toLocaleString()} tokens · {fileContent.split("\n").length} lines
+                      </span>
+                    )}
+                    <button className="ws-icon-btn" onClick={copyFileContent} title="Copy content">
+                      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
                 </div>
-                <div className="ws-file-viewer-content">
+                <div className="ws-file-viewer-code">
                   {fileContent !== null && (
-                    <FileTokenView
-                      files={[{ name: viewingFile, path: viewingFile, content: fileContent }]}
-                    />
+                    <pre className="ftv-code">
+                      {tokenizeFile(fileContent, viewingFile).map((line) => (
+                        <div key={line.lineNumber} className="ftv-line">
+                          <span className="ftv-line-num">{line.lineNumber}</span>
+                          <span className="ftv-line-content">
+                            {line.tokens.map((tok, ti) => (
+                              <span key={ti} className={`ftv-tok ftv-tok-${tok.kind}`}>
+                                {tok.text}
+                              </span>
+                            ))}
+                          </span>
+                        </div>
+                      ))}
+                    </pre>
                   )}
                 </div>
               </div>

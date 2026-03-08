@@ -231,7 +231,7 @@ function tokenizeLine(line: string, lang: "python" | "typescript" | "toml" | "te
   return tokens;
 }
 
-function tokenizeFile(content: string, filename: string): TokenizedLine[] {
+export function tokenizeFile(content: string, filename: string): TokenizedLine[] {
   const lang = detectLang(filename);
   return content.split("\n").map((line, idx) => ({
     tokens: tokenizeLine(line, lang),
@@ -240,7 +240,7 @@ function tokenizeFile(content: string, filename: string): TokenizedLine[] {
 }
 
 /* ── Approximate token count (cl100k_base-like) ── */
-function estimateTokens(text: string): number {
+export function estimateTokens(text: string): number {
   // Rough: ~4 chars per token for code
   return Math.ceil(text.length / 3.7);
 }

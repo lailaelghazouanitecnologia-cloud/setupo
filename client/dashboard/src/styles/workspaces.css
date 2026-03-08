@@ -210,6 +210,24 @@
   flex: 1; overflow: auto;
   background: color-mix(in srgb, var(--muted-foreground) 3%, transparent);
 }
+.ws-file-viewer-full {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
+.ws-file-viewer-code {
+  flex: 1; overflow: auto;
+  background: color-mix(in srgb, var(--muted-foreground) 2%, transparent);
+}
+.ws-file-viewer-code .ftv-code {
+  margin: 0; padding: 6px 0;
+}
+.ws-file-viewer-code .ftv-line {
+  padding-right: 14px;
+}
+.ws-file-stats {
+  font-size: 11px; color: var(--muted-foreground);
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
+}
 .ws-file-pre {
   margin: 0; padding: 16px;
   font-family: var(--font-mono, monospace);
