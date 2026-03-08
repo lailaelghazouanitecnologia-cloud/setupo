@@ -144,13 +144,22 @@ def _filter_by_selector(nodes: list[dict], selector: dict) -> list[dict]:
     return result
 
 
+async def _get_node_replicas(node: dict) -> list[dict]:
+    """Get replicas for a node, checking both node_id and instance_id."""
+    replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+    if node.get("instance_id"):
+        legacy = await db.fetch_all("service_replicas", instance_id=node["instance_id"])
+        existing_ids = {r["id"] for r in replicas}
+        replicas.extend(r for r in legacy if r["id"] not in existing_ids)
+    return replicas
+
+
 async def _filter_anti_affinity_services(nodes: list[dict], anti_services: list[str]) -> list[dict]:
     """Remove nodes that run any of the anti-affinity services."""
     anti_set = set(anti_services)
     result = []
     for node in nodes:
-        # Check service_replicas on this node
-        replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+        replicas = await _get_node_replicas(node)
         active_svc_ids = {r["service_id"] for r in replicas
                           if r.get("status") not in ("stopped", "failed", "destroyed")}
         if not active_svc_ids & anti_set:
@@ -162,11 +171,14 @@ def _filter_by_resources(nodes: list[dict], cpu_req: float, mem_req: int) -> lis
     """Filter nodes that have enough available resources."""
     result = []
     for node in nodes:
-        buffer_cpu = node["cpu_cores"] * (node.get("buffer_cpu_percent", 10) / 100)
-        buffer_mem = node["mem_total_mb"] * (node.get("buffer_mem_percent", 10) / 100)
+        cpu_cores = node.get("cpu_cores") or 1
+        mem_total = node.get("mem_total_mb") or 1024
 
-        cpu_avail = node["cpu_cores"] - buffer_cpu - (node.get("cpu_allocated", 0) or 0)
-        mem_avail = node["mem_total_mb"] - buffer_mem - (node.get("mem_allocated_mb", 0) or 0)
+        buffer_cpu = cpu_cores * (node.get("buffer_cpu_percent", 10) / 100)
+        buffer_mem = mem_total * (node.get("buffer_mem_percent", 10) / 100)
+
+        cpu_avail = cpu_cores - buffer_cpu - (node.get("cpu_allocated", 0) or 0)
+        mem_avail = mem_total - buffer_mem - (node.get("mem_allocated_mb", 0) or 0)
 
         if cpu_avail >= cpu_req and mem_avail >= mem_req:
             result.append(node)
@@ -178,7 +190,7 @@ async def _filter_by_service_count(nodes: list[dict]) -> list[dict]:
     result = []
     for node in nodes:
         max_svcs = node.get("max_services", 50)
-        replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+        replicas = await _get_node_replicas(node)
         active = sum(1 for r in replicas if r.get("status") not in ("stopped", "failed", "destroyed"))
         if active < max_svcs:
             result.append(node)
@@ -200,18 +212,21 @@ def _score_candidates(
         score = 0.0
 
         # Best-fit: prefer nodes where the service fits tightly (less waste)
-        if cpu_req > 0 and node["cpu_cores"] > 0:
-            buffer_cpu = node["cpu_cores"] * (node.get("buffer_cpu_percent", 10) / 100)
-            cpu_avail = node["cpu_cores"] - buffer_cpu - (node.get("cpu_allocated", 0) or 0)
+        cpu_cores = node.get("cpu_cores") or 1
+        mem_total = node.get("mem_total_mb") or 1024
+
+        if cpu_req > 0 and cpu_cores > 0:
+            buffer_cpu = cpu_cores * (node.get("buffer_cpu_percent", 10) / 100)
+            cpu_avail = cpu_cores - buffer_cpu - (node.get("cpu_allocated", 0) or 0)
             if cpu_avail > 0:
-                cpu_fit = 1 - ((cpu_avail - cpu_req) / node["cpu_cores"])
+                cpu_fit = 1 - ((cpu_avail - cpu_req) / cpu_cores)
                 score += max(0, cpu_fit) * 40  # 40% weight
 
-        if mem_req > 0 and node["mem_total_mb"] > 0:
-            buffer_mem = node["mem_total_mb"] * (node.get("buffer_mem_percent", 10) / 100)
-            mem_avail = node["mem_total_mb"] - buffer_mem - (node.get("mem_allocated_mb", 0) or 0)
+        if mem_req > 0 and mem_total > 0:
+            buffer_mem = mem_total * (node.get("buffer_mem_percent", 10) / 100)
+            mem_avail = mem_total - buffer_mem - (node.get("mem_allocated_mb", 0) or 0)
             if mem_avail > 0:
-                mem_fit = 1 - ((mem_avail - mem_req) / node["mem_total_mb"])
+                mem_fit = 1 - ((mem_avail - mem_req) / mem_total)
                 score += max(0, mem_fit) * 30  # 30% weight
 
         # Prefer less loaded nodes (real metrics)

@@ -1,7 +1,7 @@
 """
 Service reconciler — background loop that ensures desired state matches actual state.
 
-Every RECONCILE_INTERVAL seconds:
+Every RECONCILE_INTERVAL seconds, for each project:
 1. Check each service's desired replicas vs actual
 2. Detect offline nodes and relocate replicas
 3. Enforce scaling policies (auto-scale based on metrics)
@@ -10,7 +10,6 @@ Every RECONCILE_INTERVAL seconds:
 
 import asyncio
 import logging
-import time
 from datetime import datetime, timezone
 
 from nso.shared import db
@@ -24,14 +23,78 @@ AUTO_DESTROY_IDLE = 600  # seconds idle before destroying auto-provisioned node
 _task: asyncio.Task | None = None
 
 
+def _resolve_replica_node_id(replica: dict, nodes_by_instance: dict) -> str:
+    """
+    Resolve a replica's location to a compute_node ID.
+
+    service_replicas.instance_id can store either:
+    - A compute_node ID (node_*) — placed by the placement engine
+    - An instance ID (inst_*) — placed by legacy code
+
+    For legacy replicas, look up the compute_node that wraps that instance.
+    """
+    rid = replica.get("instance_id", "")
+    if rid.startswith("node_"):
+        return rid
+    # Legacy: look up the compute_node by instance_id
+    return nodes_by_instance.get(rid, rid)
+
+
+async def _build_node_index(project_id: str) -> dict[str, str]:
+    """Build a mapping of instance_id → node_id for a project."""
+    project_nodes = await db.fetch_all("compute_nodes", project_id=project_id)
+    return {
+        n["instance_id"]: n["id"]
+        for n in project_nodes
+        if n.get("instance_id")
+    }
+
+
+async def _get_node_replicas(node_id: str, nodes_by_instance: dict) -> list[dict]:
+    """Get replicas for a compute_node, handling both node_id and instance_id references."""
+    # Direct lookup by node_id
+    replicas = await db.fetch_all("service_replicas", instance_id=node_id)
+
+    # Also check for legacy replicas via the node's instance_id
+    for inst_id, nid in nodes_by_instance.items():
+        if nid == node_id:
+            legacy = await db.fetch_all("service_replicas", instance_id=inst_id)
+            # Deduplicate by replica ID
+            existing_ids = {r["id"] for r in replicas}
+            replicas.extend(r for r in legacy if r["id"] not in existing_ids)
+            break
+
+    return replicas
+
+
 async def _reconcile_once():
-    """Single reconciliation pass."""
+    """Single reconciliation pass — scoped per project."""
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
-    # ── 1. Detect offline nodes ──
+    # Get all projects that have compute nodes
     all_nodes = await db.fetch_all("compute_nodes")
-    for node in all_nodes:
+    project_ids = {n["project_id"] for n in all_nodes}
+
+    # Also include projects with active services (even without nodes)
+    all_services = await db.fetch_all("service_registry", status="active")
+    for svc in all_services:
+        project_ids.add(svc["project_id"])
+
+    for project_id in project_ids:
+        try:
+            await _reconcile_project(project_id, now, now_iso)
+        except Exception as e:
+            logger.error("Reconciliation error for project %s: %s", project_id, e)
+
+
+async def _reconcile_project(project_id: str, now: datetime, now_iso: str):
+    """Reconcile a single project."""
+    project_nodes = await db.fetch_all("compute_nodes", project_id=project_id)
+    nodes_by_instance = await _build_node_index(project_id)
+
+    # ── 1. Detect offline nodes ──
+    for node in project_nodes:
         if node["status"] in ("offline", "maintenance", "pending", "provisioning"):
             continue
         last_hb = node.get("last_heartbeat", "")
@@ -51,22 +114,20 @@ async def _reconcile_once():
                 pass
 
     # ── 2. Relocate replicas from offline nodes ──
-    offline_nodes = await db.fetch_all("compute_nodes", status="offline")
+    offline_nodes = [n for n in project_nodes if n["status"] == "offline"]
     for node in offline_nodes:
-        replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+        replicas = await _get_node_replicas(node["id"], nodes_by_instance)
         active = [r for r in replicas if r.get("status") not in ("stopped", "failed", "destroyed")]
         if not active:
             continue
 
         for replica in active:
             svc = await db.fetch_one("service_registry", id=replica["service_id"])
-            if not svc:
+            if not svc or svc["project_id"] != project_id:
                 continue
 
-            # Only relocate if service placement allows it
             strategy = svc.get("placement_strategy", "shared")
             if strategy == "dedicated":
-                # Dedicated: can't relocate, just mark as failed
                 await db.update("service_replicas", replica["id"], {
                     "status": "failed",
                     "error": f"Node {node['id']} offline",
@@ -74,23 +135,22 @@ async def _reconcile_once():
                 })
                 continue
 
-            # Try to find a new node
             try:
                 from nso.engine.compute.placement import find_placement
                 existing = await db.fetch_all("service_replicas", service_id=svc["id"])
-                exclude = {r["instance_id"] for r in existing
-                           if r.get("status") not in ("stopped", "failed", "destroyed")}
+                exclude = set()
+                for r in existing:
+                    if r.get("status") not in ("stopped", "failed", "destroyed"):
+                        exclude.add(_resolve_replica_node_id(r, nodes_by_instance))
                 exclude.add(node["id"])
 
-                candidates = await find_placement(svc["project_id"], svc, 1, exclude_nodes=exclude)
+                candidates = await find_placement(project_id, svc, 1, exclude_nodes=exclude)
                 if candidates:
                     new_node = candidates[0]
-                    # Deploy to new node
-                    from nso.engine.compute.supervisor_sync import apply_to_node as apply_to_agent
+                    from nso.engine.compute.supervisor_sync import apply_to_node
                     spec = _build_spec(svc)
-                    await apply_to_agent(svc["project_id"], new_node["id"], [spec])
+                    await apply_to_node(project_id, new_node["id"], [spec])
 
-                    # Create new replica
                     import secrets
                     await db.insert("service_replicas", {
                         "id": f"rep_{secrets.token_hex(8)}",
@@ -103,7 +163,6 @@ async def _reconcile_once():
                         "updated_at": now_iso,
                     })
 
-                    # Mark old replica as destroyed
                     await db.update("service_replicas", replica["id"], {
                         "status": "destroyed",
                         "error": f"Relocated from offline node {node['id']}",
@@ -119,8 +178,8 @@ async def _reconcile_once():
                 logger.error("Failed to relocate replica %s: %s", replica["id"], e)
 
     # ── 3. Enforce scaling policies ──
-    all_services = await db.fetch_all("service_registry")
-    for svc in all_services:
+    project_services = await db.fetch_all("service_registry", project_id=project_id)
+    for svc in project_services:
         if svc.get("status") not in ("active",):
             continue
 
@@ -128,7 +187,6 @@ async def _reconcile_once():
         if not policy:
             continue
 
-        # Check cooldown
         last_scale = policy.get("last_scale_at", "")
         if last_scale:
             try:
@@ -149,11 +207,10 @@ async def _reconcile_once():
             needed = target - current
             logger.info("Service %s below min replicas (%d < %d), scaling up by %d",
                         svc["id"], current, policy["min_replicas"], needed)
-            await _auto_scale_up(svc, needed, active)
+            await _auto_scale_up(svc, needed, active, nodes_by_instance)
             await db.update("scaling_policies", policy["id"], {"last_scale_at": now_iso})
             continue
 
-        # Metric-based scaling
         if current == 0:
             continue
 
@@ -171,16 +228,14 @@ async def _reconcile_once():
         avg_value = sum(values) / len(values)
         target_val = policy["target_value"]
 
-        # Scale up
         if avg_value > target_val and current < policy["max_replicas"]:
             step = policy.get("scale_up_step", 1)
             needed = min(step, policy["max_replicas"] - current)
             logger.info("Service %s avg %s=%.1f > target %.1f, scaling up by %d",
                         svc["id"], metric, avg_value, target_val, needed)
-            await _auto_scale_up(svc, needed, active)
+            await _auto_scale_up(svc, needed, active, nodes_by_instance)
             await db.update("scaling_policies", policy["id"], {"last_scale_at": now_iso})
 
-        # Scale down
         elif avg_value < target_val * 0.5 and current > policy["min_replicas"]:
             step = policy.get("scale_down_step", 1)
             excess = min(step, current - policy["min_replicas"])
@@ -191,17 +246,16 @@ async def _reconcile_once():
                 await db.update("scaling_policies", policy["id"], {"last_scale_at": now_iso})
 
     # ── 4. Clean up idle auto-provisioned nodes ──
-    for node in all_nodes:
+    for node in project_nodes:
         meta = node.get("metadata") or {}
         if not meta.get("auto_provisioned_for"):
             continue
 
-        replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+        replicas = await _get_node_replicas(node["id"], nodes_by_instance)
         active = [r for r in replicas if r.get("status") not in ("stopped", "failed", "destroyed")]
         if active:
             continue
 
-        # Node has no active services — check idle time
         updated = node.get("updated_at", "")
         if updated:
             try:
@@ -210,11 +264,10 @@ async def _reconcile_once():
                 if idle_seconds > AUTO_DESTROY_IDLE:
                     logger.info("Destroying idle auto-provisioned node %s (idle %.0fs)",
                                 node["id"], idle_seconds)
-                    # Destroy the VPS
                     if node.get("instance_id"):
                         try:
                             from nso.engine.compute.service import delete_instance
-                            await delete_instance(node["project_id"], node["instance_id"])
+                            await delete_instance(project_id, node["instance_id"])
                         except Exception as e:
                             logger.error("Failed to destroy instance for node %s: %s", node["id"], e)
                     await db.delete("compute_nodes", node["id"])
@@ -225,7 +278,7 @@ async def _reconcile_once():
 def _build_spec(svc: dict) -> dict:
     """Build a ProcessSpec dict from a service registry entry."""
     spec = {
-        "name": svc["name"],
+        "name": svc.get("name", ""),
         "command": svc.get("command", ""),
         "port": svc.get("port", 0),
         "working_dir": svc.get("working_dir", "/opt/app"),
@@ -239,14 +292,20 @@ def _build_spec(svc: dict) -> dict:
     return spec
 
 
-async def _auto_scale_up(svc: dict, needed: int, active: list[dict]):
+async def _auto_scale_up(svc: dict, needed: int, active: list[dict],
+                          nodes_by_instance: dict | None = None):
     """Scale up by deploying to new nodes via placement engine."""
     from nso.engine.compute.placement import find_placement
-    from nso.engine.compute.supervisor_sync import apply_to_node as apply_to_agent
+    from nso.engine.compute.supervisor_sync import apply_to_node
     import secrets
 
-    exclude = {r["instance_id"] for r in active
-               if r.get("status") not in ("stopped", "failed", "destroyed")}
+    if nodes_by_instance is None:
+        nodes_by_instance = await _build_node_index(svc["project_id"])
+
+    exclude = set()
+    for r in active:
+        if r.get("status") not in ("stopped", "failed", "destroyed"):
+            exclude.add(_resolve_replica_node_id(r, nodes_by_instance))
 
     candidates = await find_placement(svc["project_id"], svc, needed, exclude_nodes=exclude)
     spec = _build_spec(svc)
@@ -254,7 +313,7 @@ async def _auto_scale_up(svc: dict, needed: int, active: list[dict]):
 
     for node in candidates:
         try:
-            await apply_to_agent(svc["project_id"], node["id"], [spec])
+            await apply_to_node(svc["project_id"], node["id"], [spec])
             await db.insert("service_replicas", {
                 "id": f"rep_{secrets.token_hex(8)}",
                 "service_id": svc["id"],
@@ -271,14 +330,14 @@ async def _auto_scale_up(svc: dict, needed: int, active: list[dict]):
 
 async def _auto_scale_down(svc: dict, excess: int, active: list[dict]):
     """Scale down by stopping newest replicas."""
-    from nso.engine.compute.supervisor_sync import stop_on_node as agent_stop
+    from nso.engine.compute.supervisor_sync import stop_on_node
 
     to_remove = sorted(active, key=lambda r: r.get("created_at", ""), reverse=True)[:excess]
     now = datetime.now(timezone.utc).isoformat()
 
     for replica in to_remove:
         try:
-            await agent_stop(svc["project_id"], replica["instance_id"], svc["name"])
+            await stop_on_node(svc["project_id"], replica["instance_id"], svc["name"])
             await db.update("service_replicas", replica["id"], {
                 "status": "stopped",
                 "updated_at": now,

@@ -39,6 +39,17 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _get_node_replicas(node: dict) -> list[dict]:
+    """Get all replicas for a node, checking both node_id and instance_id."""
+    replicas = await db.fetch_all("service_replicas", instance_id=node["id"])
+    # Also check legacy replicas stored by the node's backing instance_id
+    if node.get("instance_id"):
+        legacy = await db.fetch_all("service_replicas", instance_id=node["instance_id"])
+        existing_ids = {r["id"] for r in replicas}
+        replicas.extend(r for r in legacy if r["id"] not in existing_ids)
+    return replicas
+
+
 # ── CRUD ──
 
 
@@ -124,10 +135,10 @@ async def update_node(project_id: str, node_id: str, **updates) -> dict:
 
 async def delete_node(project_id: str, node_id: str):
     """Delete a compute node."""
-    await get_node(project_id, node_id)
+    node = await get_node(project_id, node_id)
 
-    # Check no active replicas on this node
-    replicas = await db.fetch_all("service_replicas", instance_id=node_id)
+    # Check no active replicas on this node (by node_id or by instance_id)
+    replicas = await _get_node_replicas(node)
     active = [r for r in replicas if r.get("status") not in ("stopped", "failed", "destroyed")]
     if active:
         raise ConflictError(f"Node has {len(active)} active replicas. Stop services first.")
@@ -210,17 +221,20 @@ async def get_available_resources(node_id: str) -> dict:
     if not node:
         return {"cpu": 0, "mem_mb": 0}
 
-    buffer_cpu = node["cpu_cores"] * (node.get("buffer_cpu_percent", 10) / 100)
-    buffer_mem = node["mem_total_mb"] * (node.get("buffer_mem_percent", 10) / 100)
+    cpu_cores = node.get("cpu_cores") or 1
+    mem_total = node.get("mem_total_mb") or 1024
 
-    cpu_avail = node["cpu_cores"] - buffer_cpu - node.get("cpu_allocated", 0)
-    mem_avail = node["mem_total_mb"] - buffer_mem - node.get("mem_allocated_mb", 0)
+    buffer_cpu = cpu_cores * (node.get("buffer_cpu_percent", 10) / 100)
+    buffer_mem = mem_total * (node.get("buffer_mem_percent", 10) / 100)
+
+    cpu_avail = cpu_cores - buffer_cpu - (node.get("cpu_allocated", 0) or 0)
+    mem_avail = mem_total - buffer_mem - (node.get("mem_allocated_mb", 0) or 0)
 
     return {
         "cpu_available": max(0, round(cpu_avail, 2)),
         "mem_available_mb": max(0, int(mem_avail)),
-        "cpu_total": node["cpu_cores"],
-        "mem_total_mb": node["mem_total_mb"],
+        "cpu_total": cpu_cores,
+        "mem_total_mb": mem_total,
         "cpu_allocated": node.get("cpu_allocated", 0),
         "mem_allocated_mb": node.get("mem_allocated_mb", 0),
         "cpu_used_percent": node.get("cpu_used_percent", 0),
@@ -230,7 +244,8 @@ async def get_available_resources(node_id: str) -> dict:
 
 async def recalculate_allocated(node_id: str):
     """Recalculate allocated resources from active service replicas."""
-    replicas = await db.fetch_all("service_replicas", instance_id=node_id)
+    node = await db.fetch_one("compute_nodes", id=node_id)
+    replicas = await _get_node_replicas(node) if node else []
     active_replicas = [r for r in replicas if r.get("status") not in ("stopped", "failed", "destroyed")]
 
     total_cpu = 0.0
@@ -253,7 +268,7 @@ async def recalculate_allocated(node_id: str):
 
 async def auto_register_instance(project_id: str, instance_id: str) -> dict | None:
     """Auto-create a compute_node for an existing instance if not already registered."""
-    existing = await db.fetch_one("compute_nodes", instance_id=instance_id)
+    existing = await db.fetch_one("compute_nodes", project_id=project_id, instance_id=instance_id)
     if existing:
         return existing
 

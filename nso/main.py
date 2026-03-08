@@ -131,14 +131,21 @@ async def lifespan(app: FastAPI):
     from nso.engine.compute.metrics import start_collector, stop_collector
     start_collector()
 
-    # Start service reconciler
-    from nso.engine.compute.reconciler import start_reconciler, stop_reconciler
-    start_reconciler()
+    # Start service reconciler (admin/full only — needs access to all projects)
+    _compute_reconciler_stop = None
+    if SERVER_MODE in ("admin", "full"):
+        from nso.engine.compute.reconciler import (
+            start_reconciler as start_compute_reconciler,
+            stop_reconciler as stop_compute_reconciler,
+        )
+        start_compute_reconciler()
+        _compute_reconciler_stop = stop_compute_reconciler
 
     yield
 
     stop_collector()
-    stop_reconciler()
+    if _compute_reconciler_stop:
+        _compute_reconciler_stop()
 
     logger.info("NSO shutting down...")
     if services:

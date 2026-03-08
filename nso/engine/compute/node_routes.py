@@ -14,6 +14,86 @@ from nso.shared.deps import require_project
 router = APIRouter()
 
 
+# ── Fixed-path routes MUST come before /{node_id} to avoid capture ──
+
+
+@router.post("/placement/preview")
+async def placement_preview(
+    body: dict = Body(...),
+    project_id: str = Depends(require_project),
+):
+    """Preview placement decisions for a service without deploying."""
+    from nso.shared import db
+
+    service_id = body.get("service_id")
+    replicas = body.get("replicas", 1)
+
+    if not service_id:
+        raise HTTPException(422, "service_id is required")
+
+    try:
+        svc = await db.fetch_one("service_registry", id=service_id)
+        if not svc or svc["project_id"] != project_id:
+            raise HTTPException(404, "Service not found")
+
+        candidates = await placement.find_placement(project_id, svc, replicas)
+        return {
+            "service_id": service_id,
+            "requested_replicas": replicas,
+            "placed_on": [
+                {
+                    "node_id": n["id"],
+                    "label": n.get("label", ""),
+                    "provider": n.get("provider", ""),
+                    "cpu_cores": n.get("cpu_cores", 0),
+                    "mem_total_mb": n.get("mem_total_mb", 0),
+                    "cpu_allocated": n.get("cpu_allocated", 0),
+                    "mem_allocated_mb": n.get("mem_allocated_mb", 0),
+                    "status": n.get("status", ""),
+                }
+                for n in candidates
+            ],
+            "deficit": max(0, replicas - len(candidates)),
+        }
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
+@router.post("/sync-instances")
+async def sync_instances(
+    project_id: str = Depends(require_project),
+):
+    """Auto-register all existing VPS instances as compute nodes."""
+    from nso.shared import db
+
+    try:
+        instances = await db.fetch_all("instances", project_id=project_id)
+        registered = []
+        skipped = []
+        for inst in instances:
+            # Check if already registered before calling auto_register
+            existing = await db.fetch_one("compute_nodes",
+                                          project_id=project_id,
+                                          instance_id=inst["id"])
+            if existing:
+                skipped.append(inst["id"])
+                continue
+
+            node = await nodes.auto_register_instance(project_id, inst["id"])
+            if node:
+                registered.append(node["id"])
+            else:
+                skipped.append(inst["id"])
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+    return {
+        "registered": len(registered),
+        "skipped": len(skipped),
+        "node_ids": registered,
+    }
+
+
 # ── CRUD ──
 
 
@@ -202,6 +282,9 @@ async def heartbeat(
 ):
     """Receive heartbeat from agent on a node."""
     try:
+        # Verify ownership BEFORE updating metrics
+        node = await nodes.get_node(project_id, node_id)
+
         await nodes.update_node_metrics(
             node_id,
             cpu=body.get("cpu_used_percent", 0),
@@ -210,89 +293,8 @@ async def heartbeat(
             load=body.get("load_1m", 0),
         )
         # Update status to online if it was offline
-        node = await nodes.get_node(project_id, node_id)
         if node["status"] == "offline":
             await nodes.update_node(project_id, node_id, status="online")
-            node = await nodes.get_node(project_id, node_id)
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"ok": True}
-
-
-# ── Placement preview ──
-
-
-@router.post("/placement/preview")
-async def placement_preview(
-    body: dict = Body(...),
-    project_id: str = Depends(require_project),
-):
-    """Preview placement decisions for a service without deploying."""
-    from nso.shared import db
-
-    service_id = body.get("service_id")
-    replicas = body.get("replicas", 1)
-
-    if not service_id:
-        raise HTTPException(422, "service_id is required")
-
-    try:
-        svc = await db.fetch_one("service_registry", id=service_id)
-        if not svc or svc["project_id"] != project_id:
-            raise HTTPException(404, "Service not found")
-
-        candidates = await placement.find_placement(project_id, svc, replicas)
-        return {
-            "service_id": service_id,
-            "requested_replicas": replicas,
-            "placed_on": [
-                {
-                    "node_id": n["id"],
-                    "label": n.get("label", ""),
-                    "provider": n.get("provider", ""),
-                    "cpu_cores": n.get("cpu_cores", 0),
-                    "mem_total_mb": n.get("mem_total_mb", 0),
-                    "cpu_allocated": n.get("cpu_allocated", 0),
-                    "mem_allocated_mb": n.get("mem_allocated_mb", 0),
-                    "status": n.get("status", ""),
-                }
-                for n in candidates
-            ],
-            "deficit": max(0, replicas - len(candidates)),
-        }
-    except NsoError as e:
-        raise HTTPException(e.status_code, e.message)
-
-
-# ── Auto-register existing instances ──
-
-
-@router.post("/sync-instances")
-async def sync_instances(
-    project_id: str = Depends(require_project),
-):
-    """Auto-register all existing VPS instances as compute nodes."""
-    from nso.shared import db
-
-    try:
-        instances = await db.fetch_all("instances", project_id=project_id)
-        registered = []
-        skipped = []
-        for inst in instances:
-            node = await nodes.auto_register_instance(project_id, inst["id"])
-            if node:
-                existing = await db.fetch_one("compute_nodes", instance_id=inst["id"])
-                if existing and existing["id"] == node["id"]:
-                    registered.append(node["id"])
-                else:
-                    skipped.append(inst["id"])
-            else:
-                skipped.append(inst["id"])
-    except NsoError as e:
-        raise HTTPException(e.status_code, e.message)
-
-    return {
-        "registered": len(registered),
-        "skipped": len(skipped),
-        "node_ids": registered,
-    }
