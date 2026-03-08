@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI):
         from nso.engine.orchestrator.reconciler import start_reconciler, stop_reconciler
         from nso.engine.compute.pool_reconciler import start_pool_reconciler, stop_pool_reconciler
         from nso.engine.compute import host_manager, vm_manager
+        from nso.engine.mesh.health import start_mesh_health, stop_mesh_health
 
         # Run migrations
         from nso.engine.orchestrator.state import SPEC_MIGRATIONS
@@ -121,6 +122,7 @@ async def lifespan(app: FastAPI):
                           depends_on=["host_manager"])
         services.register("pool_reconciler", start_pool_reconciler, stop_pool_reconciler,
                           depends_on=["host_manager"])
+        services.register("mesh_health", start_mesh_health, stop_mesh_health)
 
         await services.start_all()
         app.state.services = services
@@ -191,6 +193,7 @@ from nso.engine.compute import pool_routes
 from nso.engine.infrastructure.database import routes as infra_db_routes
 from nso.engine.infrastructure.storage import routes as infra_storage_routes
 from nso.engine.validator import routes as validator_routes
+from nso.engine.mesh import routes as mesh_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
@@ -220,6 +223,7 @@ app.include_router(pool_routes.router, prefix="/api/compute/pool", tags=["comput
 app.include_router(infra_db_routes.router, prefix="/api/projects/{project_id}/databases", tags=["databases"])
 app.include_router(infra_storage_routes.router, prefix="/api/projects/{project_id}/storage", tags=["user-storage"])
 app.include_router(validator_routes.router, prefix="/api/projects/{project_id}/validate", tags=["validator"])
+app.include_router(mesh_routes.router, prefix="/api/projects/{project_id}/mesh", tags=["mesh"])
 
 if SERVER_MODE in ("admin", "full"):
     from nso.engine.admin import routes as admin_routes

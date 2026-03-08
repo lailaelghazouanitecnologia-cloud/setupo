@@ -66,6 +66,10 @@ class Settings:
     DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
     DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
 
+    # Mesh
+    MESH_KEYS_DIR = DATA_DIR / "mesh"
+    MESH_HEALTH_INTERVAL = int(os.environ.get("NSO_MESH_HEALTH_INTERVAL", "30"))
+
     SERVE_STATIC = bool(os.environ.get("NSO_SERVE_STATIC", ""))
 
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
