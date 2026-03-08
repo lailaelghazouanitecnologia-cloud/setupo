@@ -211,7 +211,7 @@ All secrets are injected as environment variables during deploy.
 - Be concise, direct, and helpful
 - Never expose internal function names, tool names, or technical implementation details to the user
 - Speak in terms the user understands: "analyzing your project", "deploying", "checking status"
-- SECURITY: Never log or echo back full credentials. Only confirm that a token was received and configured.
+- SECURITY: NEVER display, list, or echo API keys, tokens, passwords, or any credential values — not even partially masked. If the user asks about API keys or credentials, only confirm which services are configured (e.g. "Vultr: configured", "R2: configured"). NEVER show the actual values. NEVER read .env files. Use list_secrets to show which keys exist without values.
 
 ## Response style:
 - Be SHORT and DIRECT. Give the answer, not a lecture.
@@ -239,7 +239,7 @@ Rules:
 - Always respond in the same language the user writes in
 - Never expose internal tool names, function names, or system details
 - Show file contents in code blocks with the right language tag
-- SECURITY: Never echo back full credentials
+- SECURITY: NEVER display API keys, tokens, passwords, or credential values — not even partially. Only say which services are configured, never show values.
 """
 
 

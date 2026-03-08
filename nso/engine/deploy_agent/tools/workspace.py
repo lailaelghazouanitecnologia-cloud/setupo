@@ -143,11 +143,20 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             })
         return json.dumps({"instances": result})
 
+    # Sensitive file patterns that should never be read/exposed
+    SENSITIVE_FILES = {".env", ".env.local", ".env.production", ".env.staging",
+                       "credentials.json", "service-account.json", ".npmrc", ".pypirc"}
+
     async def read_workspace_file(workspace: str, file_path: str) -> str:
         """Read a file from a workspace directory."""
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
         if not ws:
             return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        # Block sensitive files
+        basename = os.path.basename(file_path)
+        if basename in SENSITIVE_FILES or basename.startswith(".env"):
+            return json.dumps({"error": f"Cannot read '{basename}' — sensitive file. Use list_secrets to view configured secrets."})
 
         ws_path = ws.get("path", "")
         full = os.path.join(ws_path, file_path)
