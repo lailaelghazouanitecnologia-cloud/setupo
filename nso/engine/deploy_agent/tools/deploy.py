@@ -26,19 +26,30 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("nso.deploy_agent.tools.deploy")
 
-# Map workspace names to systemd service names
+# Platform workspace → systemd service mapping
 _WORKSPACE_SERVICE_MAP = {
     "server": "nso",
     "agent": "nso-agent",
-    "dashboard": "",  # static — no service restart needed
+    "dashboard": "",
     "admin": "",
     "cli": "",
 }
 
 
-def _service_for_workspace(workspace: str) -> str:
-    """Return the systemd service name for a workspace, or 'nso-app' as default."""
-    return _WORKSPACE_SERVICE_MAP.get(workspace, "nso-app")
+def _service_for_workspace(workspace: str, ws_data: dict | None = None) -> str:
+    """Return the systemd service name for a workspace.
+
+    Platform workspaces use a fixed map. User workspaces get 'nso-app' for
+    python/node stacks, or empty string for static/custom.
+    """
+    if workspace in _WORKSPACE_SERVICE_MAP:
+        return _WORKSPACE_SERVICE_MAP[workspace]
+    # For user-created workspaces, infer from stack
+    if ws_data:
+        stack = ws_data.get("stack", "custom")
+        if stack in ("static", "custom", ""):
+            return ""  # static sites don't need a service restart
+    return "nso-app"
 
 
 def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
@@ -121,7 +132,7 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         inst = await db.fetch_one("instances", id=instance_id)
         if not inst or inst.get("project_id") != ctx.project_id:
             return json.dumps({"error": f"Instance {instance_id} not found in project"})
-        if inst.get("state") not in ("ready", "running"):
+        if inst.get("state") not in ("ready", "running", "error"):
             return json.dumps({"error": f"Instance is in state '{inst.get('state')}' — must be ready or running"})
 
         # Pack
@@ -199,7 +210,7 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
                         "r2_access_key_id": r2_cfg.access_key_id,
                         "r2_secret_access_key": r2_cfg.secret_access_key,
                         "target_dir": ws_path or "/opt/app",
-                        "restart_service": _service_for_workspace(workspace),
+                        "restart_service": _service_for_workspace(workspace, ws),
                         "install_deps": True,
                         "secrets": resolved_secrets,
                         "use_pipeline": True,
