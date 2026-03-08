@@ -661,13 +661,13 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
             <div className="da-toolbar-left">
               <button
                 className="da-attach-btn"
-                onClick={() => setPickerMenu(!pickerMenu)}
+                onClick={() => { setPickerMenu(!pickerMenu); }}
                 title="Attach"
                 disabled={streaming}
               >
                 <Plus className="h-4 w-4" />
               </button>
-              <ConnectorPicker projectId={projectId} />
+              <ConnectorPicker projectId={projectId} onOpen={() => setPickerMenu(false)} />
             </div>
             <div className="da-toolbar-right">
               {/* Workspace indicator (gradient text) */}

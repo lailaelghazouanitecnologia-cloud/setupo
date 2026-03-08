@@ -69,7 +69,7 @@ const CONNECTORS: ConnectorDef[] = [
    MAIN EXPORT — Connector Button + Popover
    ═══════════════════════════════════════════ */
 
-export function ConnectorPicker({ projectId }: { projectId: string }) {
+export function ConnectorPicker({ projectId, onOpen }: { projectId: string; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   const [setupConnector, setSetupConnector] = useState<ConnectorDef | null>(null);
   const [connectorStates, setConnectorStates] = useState<Record<string, AddonInfo>>({});
@@ -136,7 +136,7 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
       {/* Trigger button */}
       <button
         className={`cp-trigger ${open ? "active" : ""}`}
-        onClick={() => { setOpen(!open); setSetupConnector(null); }}
+        onClick={() => { const next = !open; setOpen(next); setSetupConnector(null); if (next && onOpen) onOpen(); }}
         title="Connectors"
       >
         <Cable className="h-4 w-4" />

@@ -169,9 +169,10 @@ class OpenAILike(Model):
     def _sanitize_messages(messages: list[Message]) -> list[dict]:
         """Sanitize messages for API submission.
 
-        Ensures all tool_call arguments in historical messages are valid JSON,
-        which some providers (e.g. Baseten) strictly validate on the request body.
+        Ensures all tool_call names are valid and arguments are valid JSON,
+        which providers like Groq and Baseten strictly validate.
         """
+        import re as _re
         import json as _json
         sanitized = []
         for m in messages:
@@ -180,12 +181,16 @@ class OpenAILike(Model):
                 clean_tcs = []
                 for tc in d["tool_calls"]:
                     fn = tc.get("function", {})
-                    args_str = fn.get("arguments", "{}")
+                    # Sanitize tool name (strip garbage tokens from LLM)
+                    raw_name = fn.get("name", "")
+                    cleaned_name = _re.split(r'[<:\n]', raw_name)[0].strip()
+                    match = _re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*', cleaned_name)
+                    fn["name"] = match.group(0) if match else raw_name or "unknown_tool"
                     # Validate arguments is valid JSON
+                    args_str = fn.get("arguments", "{}")
                     try:
                         _json.loads(args_str)
                     except (ValueError, TypeError):
-                        # Fix: wrap in valid JSON or default to empty
                         fn["arguments"] = "{}"
                     clean_tcs.append(tc)
                 d["tool_calls"] = clean_tcs
