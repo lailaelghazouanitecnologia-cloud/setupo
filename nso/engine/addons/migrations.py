@@ -56,6 +56,7 @@ TABLES = """
         enabled INTEGER DEFAULT 1,
         config TEXT DEFAULT '{}',
         installed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 

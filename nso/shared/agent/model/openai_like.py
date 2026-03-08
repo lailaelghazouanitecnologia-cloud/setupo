@@ -105,8 +105,8 @@ class OpenAILike(Model):
                 break
             except Exception as e:
                 error_str = str(e)
-                # Retry on 400 "Invalid JSON" errors (model-generated bad tool args)
-                if "400" in error_str and ("Invalid JSON" in error_str or "invalid_json" in error_str.lower()):
+                # Retry on 400 errors from model-generated bad output (invalid JSON, parsing failures)
+                if "400" in error_str and ("Invalid JSON" in error_str or "invalid_json" in error_str.lower() or "Parsing failed" in error_str or "failed_generation" in error_str.lower()):
                     last_error = e
                     wait = self.retry_delay * (2 ** attempt)
                     logger.warning(
