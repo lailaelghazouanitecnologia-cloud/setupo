@@ -43,9 +43,39 @@ TABLES += """
     );
 """
 
+TABLES += """
+    CREATE TABLE IF NOT EXISTS instance_services (
+        id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        status TEXT DEFAULT 'pending',
+        pid INTEGER DEFAULT 0,
+        port INTEGER DEFAULT 0,
+        version TEXT DEFAULT '',
+        command TEXT DEFAULT '',
+        working_dir TEXT DEFAULT '/opt/app',
+        health_path TEXT DEFAULT '',
+        restart_policy TEXT DEFAULT 'always',
+        restart_count INTEGER DEFAULT 0,
+        cpu_percent REAL DEFAULT 0,
+        rss_mb REAL DEFAULT 0,
+        uptime INTEGER DEFAULT 0,
+        consecutive_failures INTEGER DEFAULT 0,
+        error TEXT DEFAULT '',
+        depends_on TEXT DEFAULT '[]',
+        collected_at TEXT DEFAULT '',
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE,
+        UNIQUE(instance_id, name)
+    );
+"""
+
 INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
     CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
     CREATE INDEX IF NOT EXISTS idx_instances_project_state ON instances(project_id, state);
     CREATE INDEX IF NOT EXISTS idx_instance_metrics_instance ON instance_metrics(instance_id);
+    CREATE INDEX IF NOT EXISTS idx_instance_services_instance ON instance_services(instance_id);
+    CREATE INDEX IF NOT EXISTS idx_instance_services_status ON instance_services(status);
 """

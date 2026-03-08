@@ -19,7 +19,7 @@ JSON_FIELDS = frozenset({
     "settings", "metadata", "config", "config_schema",
     "features", "properties", "plan_codes", "items",
     "data", "filters", "protected_files", "headers",
-    "tool_calls", "tool_results", "history",
+    "tool_calls", "tool_results", "history", "depends_on",
 })
 BOOL_FIELDS = frozenset({
     "proxied", "managed", "enabled", "published",
