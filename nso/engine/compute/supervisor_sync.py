@@ -161,9 +161,19 @@ async def apply_services(project_id: str, instance_id: str, specs: list[dict]) -
     return data
 
 
+async def _resolve_node(node_or_instance_id: str) -> dict | None:
+    """Resolve a node by id, or by instance_id for legacy replicas."""
+    node = await db.fetch_one("compute_nodes", id=node_or_instance_id)
+    if node:
+        return node
+    # Legacy fallback: replica stores an instance_id, find the node that wraps it
+    node = await db.fetch_one("compute_nodes", instance_id=node_or_instance_id)
+    return node
+
+
 async def apply_to_node(project_id: str, node_id: str, specs: list[dict]) -> dict:
     """Apply service specs to a compute node (resolves node → IP, bypasses instance lookup)."""
-    node = await db.fetch_one("compute_nodes", id=node_id)
+    node = await _resolve_node(node_id)
     if node and node.get("ip"):
         ip = node["ip"]
         port = node.get("agent_port", 8081)
@@ -180,16 +190,17 @@ async def apply_to_node(project_id: str, node_id: str, specs: list[dict]) -> dic
         logger.info("Applied %d services to node %s (%s)", len(specs), node_id, ip)
         return data
 
-    # Fallback: node has instance_id, use instance-based apply
-    if node and node.get("instance_id"):
-        return await apply_services(project_id, node["instance_id"], specs)
-
-    raise ProviderError("agent", f"Node {node_id} has no IP or instance_id")
+    # Fallback: node has instance_id or node_id is itself an instance_id
+    instance_id = (node or {}).get("instance_id", node_id)
+    try:
+        return await apply_services(project_id, instance_id, specs)
+    except (NotFoundError, ProviderError):
+        raise ProviderError("agent", f"Cannot resolve node {node_id} to a reachable agent")
 
 
 async def stop_on_node(project_id: str, node_id: str, service_name: str) -> dict:
     """Stop a service on a compute node."""
-    node = await db.fetch_one("compute_nodes", id=node_id)
+    node = await _resolve_node(node_id)
     if node and node.get("ip"):
         ip = node["ip"]
         port = node.get("agent_port", 8081)
@@ -204,10 +215,12 @@ async def stop_on_node(project_id: str, node_id: str, service_name: str) -> dict
                 raise ProviderError("agent", f"Stop failed ({resp.status_code}): {resp.text}")
             return resp.json()
 
-    if node and node.get("instance_id"):
-        return await stop_service(project_id, node["instance_id"], service_name)
-
-    raise ProviderError("agent", f"Node {node_id} has no IP or instance_id")
+    # Fallback: node has instance_id or node_id is itself an instance_id
+    instance_id = (node or {}).get("instance_id", node_id)
+    try:
+        return await stop_service(project_id, instance_id, service_name)
+    except (NotFoundError, ProviderError):
+        raise ProviderError("agent", f"Cannot resolve node {node_id} to a reachable agent")
 
 
 # ── Sync: poll agent and persist to DB ──
