@@ -15,7 +15,7 @@ import { FileTokenView, type FileEntry } from "./file-token-view";
 import { ConnectorPicker } from "./connector-picker";
 import {
   createDeployThread, listDeployThreads, getDeployThread,
-  deleteDeployThread, streamDeployAgent,
+  deleteDeployThread, updateDeployThread, streamDeployAgent,
   listWorkspaces, zarVersions,
   type DeployThread, type DeployMessage,
 } from "@/lib/api/client";
@@ -234,6 +234,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
       const rawText = (override || input).trim();
       const title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
       setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, title } : t));
+      updateDeployThread(projectId, activeThreadId, { title }).catch(() => {});
     }
     await doStream(activeThreadId, content);
   };

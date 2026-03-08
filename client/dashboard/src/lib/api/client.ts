@@ -1708,6 +1708,13 @@ export async function createDeployThread(projectId: string, workspace = "", titl
   });
 }
 
+export async function updateDeployThread(projectId: string, threadId: string, data: { title?: string; workspace?: string }) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/deploy-agent/threads/${threadId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
 export async function listDeployThreads(projectId: string) {
   return centralApi<{ threads: DeployThread[]; count: number }>(`/api/projects/${projectId}/deploy-agent/threads`);
 }

@@ -238,6 +238,25 @@ async def get_thread(thread_id: str, project_id: str = Depends(require_project))
     return {"thread": thread, "messages": messages}
 
 
+@router.patch("/threads/{thread_id}")
+async def update_thread(
+    thread_id: str,
+    req: CreateThreadRequest,
+    project_id: str = Depends(require_project),
+):
+    thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
+    if not thread:
+        raise HTTPException(404, "Thread not found")
+    updates = {}
+    if req.title:
+        updates["title"] = req.title
+    if req.workspace:
+        updates["workspace"] = req.workspace
+    if updates:
+        await db.update("deploy_threads", thread_id, updates)
+    return {"ok": True, **updates}
+
+
 @router.delete("/threads/{thread_id}")
 async def delete_thread(thread_id: str, project_id: str = Depends(require_project)):
     thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
