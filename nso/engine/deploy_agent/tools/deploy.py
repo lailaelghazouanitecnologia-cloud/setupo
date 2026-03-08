@@ -26,6 +26,20 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("nso.deploy_agent.tools.deploy")
 
+# Map workspace names to systemd service names
+_WORKSPACE_SERVICE_MAP = {
+    "server": "nso",
+    "agent": "nso-agent",
+    "dashboard": "",  # static — no service restart needed
+    "admin": "",
+    "cli": "",
+}
+
+
+def _service_for_workspace(workspace: str) -> str:
+    """Return the systemd service name for a workspace, or 'nso-app' as default."""
+    return _WORKSPACE_SERVICE_MAP.get(workspace, "nso-app")
+
 
 def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
     """Create deploy pipeline tools bound to project context."""
@@ -184,8 +198,8 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
                         "r2_bucket": r2_cfg.bucket,
                         "r2_access_key_id": r2_cfg.access_key_id,
                         "r2_secret_access_key": r2_cfg.secret_access_key,
-                        "target_dir": "/opt/app",
-                        "restart_service": "nso-app",
+                        "target_dir": ws_path or "/opt/app",
+                        "restart_service": _service_for_workspace(workspace),
                         "install_deps": True,
                         "secrets": resolved_secrets,
                         "use_pipeline": True,
@@ -230,23 +244,27 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
 
         try:
             import httpx
-            transport = httpx.AsyncHTTPTransport(local_address="0.0.0.0")
             agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
-            async with httpx.AsyncClient(timeout=10, transport=transport) as client:
-                resp = await client.post(f"http://{ip}:8081/auth/login", json={
-                    "email": settings.ADMIN_EMAIL, "password": agent_password,
-                })
-                if resp.status_code != 200:
-                    return json.dumps({"error": "Agent auth failed"})
-                token = resp.json()["token"]
-
-                resp = await client.get(
-                    f"http://{ip}:8081/deploy/current",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
-                if resp.status_code == 200:
-                    return json.dumps(resp.json())
-                return json.dumps({"error": f"Status check failed: {resp.status_code}"})
+            # Try localhost first, then public IP
+            for base_url in [f"http://127.0.0.1:8081", f"http://{ip}:8081"]:
+                try:
+                    async with httpx.AsyncClient(timeout=10) as client:
+                        resp = await client.post(f"{base_url}/auth/login", json={
+                            "email": settings.ADMIN_EMAIL, "password": agent_password,
+                        })
+                    if resp.status_code == 200:
+                        token = resp.json()["token"]
+                        async with httpx.AsyncClient(timeout=10) as client:
+                            resp = await client.get(
+                                f"{base_url}/deploy/current",
+                                headers={"Authorization": f"Bearer {token}"},
+                            )
+                        if resp.status_code == 200:
+                            return json.dumps(resp.json())
+                        return json.dumps({"error": f"Status check failed: {resp.status_code}"})
+                except Exception:
+                    continue
+            return json.dumps({"error": "Cannot reach agent on any address"})
         except Exception as exc:
             return json.dumps({"error": f"Cannot reach agent: {exc}"})
 

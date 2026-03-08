@@ -144,7 +144,17 @@ class FunctionCall:
             return json.dumps({"error": self.error})
 
         try:
-            result = function.callable(**self.arguments)
+            # Filter arguments to only those the function accepts
+            sig = inspect.signature(function.callable)
+            params = sig.parameters
+            has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+            if has_var_keyword:
+                filtered_args = self.arguments
+            else:
+                valid_names = set(params.keys())
+                filtered_args = {k: v for k, v in self.arguments.items() if k in valid_names}
+
+            result = function.callable(**filtered_args)
             if inspect.isawaitable(result):
                 result = await result
 
