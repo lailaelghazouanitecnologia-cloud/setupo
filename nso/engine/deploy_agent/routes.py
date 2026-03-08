@@ -38,13 +38,15 @@ router = APIRouter()
 
 # Supervisor (tool-capable)
 SUPERVISOR_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://inference.baseten.co/v1")
-SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "MiniMaxAI/MiniMax-M2.5")
+SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
+SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "openai/gpt-oss-20b")
+SUPERVISOR_PROVIDER = os.environ.get("DEPLOY_AGENT_PROVIDER", "groq")
 
 # Worker (response generation — optional, enables dual-model mode)
 WORKER_API_KEY = os.environ.get("DEPLOY_AGENT_WORKER_API_KEY", "")
-WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://inference.baseten.co/v1")
+WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://api.groq.com/openai/v1")
 WORKER_MODEL = os.environ.get("DEPLOY_AGENT_WORKER_MODEL", "")
+WORKER_PROVIDER = os.environ.get("DEPLOY_AGENT_WORKER_PROVIDER", "groq")
 
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "5"))
 
@@ -58,7 +60,7 @@ def _get_supervisor() -> OpenAILike:
         id=SUPERVISOR_MODEL,
         api_key=SUPERVISOR_API_KEY,
         base_url=SUPERVISOR_API_URL,
-        provider="baseten",
+        provider=SUPERVISOR_PROVIDER,
     )
 
 
@@ -68,7 +70,7 @@ def _get_worker() -> OpenAILike:
         id=WORKER_MODEL,
         api_key=WORKER_API_KEY,
         base_url=WORKER_API_URL,
-        provider="baseten",
+        provider=WORKER_PROVIDER,
     )
 
 

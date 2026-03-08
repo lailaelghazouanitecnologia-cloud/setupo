@@ -77,18 +77,17 @@ export function ConnectorPicker({ projectId }: { projectId: string }) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const setActiveView = useDashboardStore((s) => s.setActiveView);
 
-  // Close on outside click
+  // Close dropdown on outside click (only when dropdown is open, not modal)
   useEffect(() => {
-    if (!open && !setupConnector) return;
+    if (!open) return;
     const handler = (e: MouseEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setOpen(false);
-        setSetupConnector(null);
       }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open, setupConnector]);
+  }, [open]);
 
   // Load connector states
   const loadStates = useCallback(async () => {
