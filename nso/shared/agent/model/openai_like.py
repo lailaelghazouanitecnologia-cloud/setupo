@@ -122,6 +122,9 @@ class OpenAILike(Model):
             logger.warning("All retries exhausted for 400 error, falling back to no-tools mode")
             params.pop("tools", None)
             params.pop("tool_choice", None)
+            params.pop("parallel_tool_calls", None)
+            # Strip tool messages from history (they cause 400 on some providers)
+            params["messages"] = self._strip_tool_messages(params["messages"])
             stream = await self.client.chat.completions.create(**params)
 
         async for chunk in stream:
@@ -162,6 +165,52 @@ class OpenAILike(Model):
 
             yield response
 
+    @staticmethod
+    def _sanitize_messages(messages: list[Message]) -> list[dict]:
+        """Sanitize messages for API submission.
+
+        Ensures all tool_call arguments in historical messages are valid JSON,
+        which some providers (e.g. Baseten) strictly validate on the request body.
+        """
+        import json as _json
+        sanitized = []
+        for m in messages:
+            d = m.to_dict()
+            if d.get("tool_calls"):
+                clean_tcs = []
+                for tc in d["tool_calls"]:
+                    fn = tc.get("function", {})
+                    args_str = fn.get("arguments", "{}")
+                    # Validate arguments is valid JSON
+                    try:
+                        _json.loads(args_str)
+                    except (ValueError, TypeError):
+                        # Fix: wrap in valid JSON or default to empty
+                        fn["arguments"] = "{}"
+                    clean_tcs.append(tc)
+                d["tool_calls"] = clean_tcs
+            sanitized.append(d)
+        return sanitized
+
+    @staticmethod
+    def _strip_tool_messages(messages: list[dict]) -> list[dict]:
+        """Remove tool_calls and tool result messages for no-tools fallback."""
+        result = []
+        for m in messages:
+            if m.get("role") == "tool":
+                continue
+            if m.get("tool_calls"):
+                # Convert to plain assistant message with content
+                cleaned = {"role": m["role"]}
+                if m.get("content"):
+                    cleaned["content"] = m["content"]
+                else:
+                    cleaned["content"] = "(called tools)"
+                result.append(cleaned)
+            else:
+                result.append(m)
+        return result
+
     def _build_params(
         self,
         messages: list[Message],
@@ -171,7 +220,7 @@ class OpenAILike(Model):
     ) -> dict:
         params: dict[str, Any] = {
             "model": self.id,
-            "messages": [m.to_dict() for m in messages],
+            "messages": self._sanitize_messages(messages),
             "stream": stream,
         }
 
