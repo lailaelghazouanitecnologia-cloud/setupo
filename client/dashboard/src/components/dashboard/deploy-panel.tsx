@@ -26,6 +26,7 @@ import {
 
 export function DeployPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
+  const activeWorkspace = useDashboardStore((s) => s.activeWorkspace);
   const projectId = activeProject?.id || "";
 
   if (!projectId) {
@@ -38,7 +39,7 @@ export function DeployPanel() {
     );
   }
 
-  return <DeployAgentChat projectId={projectId} />;
+  return <DeployAgentChat projectId={projectId} initialWorkspace={activeWorkspace?.name || ""} />;
 }
 
 /* ═══════════════════════════════════════════
@@ -83,7 +84,7 @@ interface Attachment {
    AGENT CHAT
    ═══════════════════════════════════════════ */
 
-function DeployAgentChat({ projectId }: { projectId: string }) {
+function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: string; initialWorkspace?: string }) {
   const [threads, setThreads] = useState<DeployThread[]>([]);
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
@@ -95,7 +96,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(initialWorkspace || null);
   const [workspaces, setWorkspaces] = useState<any[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -166,7 +167,7 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
     // Cleanup current empty thread before creating new one
     await cleanupEmptyThread(activeThreadId);
     try {
-      const t = await createDeployThread(projectId);
+      const t = await createDeployThread(projectId, selectedWorkspace || "");
       setThreads((prev) => [t, ...prev]);
       setActiveThreadId(t.id);
       setMessages([]);
@@ -221,20 +222,28 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
         // Use first message (without attachment tags) as thread title
         const rawText = (override || input).trim();
         const title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
-        const t = await createDeployThread(projectId, "", title);
+        const t = await createDeployThread(projectId, selectedWorkspace || "", title);
         setThreads((prev) => [t, ...prev]);
         setActiveThreadId(t.id);
         await doStream(t.id, content);
       } catch (e: any) { setError(e.message || "Failed to create thread"); }
       return;
     }
-    // Update thread title if it's still empty (created via + button)
+    // Update thread title/workspace if still empty (created via + button)
     const currentThread = threads.find((t) => t.id === activeThreadId);
-    if (currentThread && (!currentThread.title || currentThread.title === "New deploy")) {
-      const rawText = (override || input).trim();
-      const title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
-      setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, title } : t));
-      updateDeployThread(projectId, activeThreadId, { title }).catch(() => {});
+    if (currentThread) {
+      const updates: any = {};
+      if (!currentThread.title || currentThread.title === "New deploy") {
+        const rawText = (override || input).trim();
+        updates.title = rawText.length > 60 ? rawText.slice(0, 57) + "..." : rawText;
+      }
+      if (!currentThread.workspace && selectedWorkspace) {
+        updates.workspace = selectedWorkspace;
+      }
+      if (Object.keys(updates).length > 0) {
+        setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, ...updates } : t));
+        updateDeployThread(projectId, activeThreadId, updates).catch(() => {});
+      }
     }
     await doStream(activeThreadId, content);
   };
