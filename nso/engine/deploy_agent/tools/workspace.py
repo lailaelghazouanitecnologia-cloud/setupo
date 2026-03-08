@@ -317,14 +317,144 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
             "message": f"Workspace '{name}' created successfully",
         })
 
+    async def exec_in_workspace(workspace: str, command: str, timeout: int = 120) -> str:
+        """Execute a shell command inside a workspace directory. Use this for:
+        - npm install, npm run build, pip install, etc.
+        - Any command the user asks you to run
+        - Setting up dependencies, building, testing
+        Always prefer EXECUTING commands over telling the user what to run."""
+        import asyncio as _asyncio
+
+        ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
+        if not ws:
+            return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        ws_path = ws.get("path", "")
+        if not ws_path or not os.path.isdir(ws_path):
+            return json.dumps({"error": f"Workspace path not found: {ws_path}"})
+
+        # Block dangerous commands
+        cmd_lower = command.lower().strip()
+        dangerous = ["rm -rf /", "mkfs", "dd if=", "> /dev/", "shutdown", "reboot", "init 0", "halt"]
+        if any(d in cmd_lower for d in dangerous):
+            return json.dumps({"error": "Command blocked for safety"})
+
+        try:
+            proc = await _asyncio.create_subprocess_shell(
+                command,
+                cwd=ws_path,
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.STDOUT,
+                env={**os.environ, "HOME": "/root", "NODE_ENV": "production"},
+            )
+            try:
+                stdout, _ = await _asyncio.wait_for(proc.communicate(), timeout=timeout)
+            except _asyncio.TimeoutError:
+                proc.kill()
+                return json.dumps({"error": f"Command timed out after {timeout}s", "command": command})
+
+            output = stdout.decode(errors="replace")
+            if len(output) > 5000:
+                output = output[:2000] + "\n...(truncated)...\n" + output[-2000:]
+
+            return json.dumps({
+                "ok": proc.returncode == 0,
+                "exit_code": proc.returncode,
+                "output": output,
+                "command": command,
+                "cwd": ws_path,
+            })
+        except Exception as e:
+            return json.dumps({"error": f"Exec failed: {e}", "command": command})
+
+    async def list_workspace_files(workspace: str, path: str = "") -> str:
+        """List files and directories in a workspace. Returns file names, sizes, types."""
+        ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
+        if not ws:
+            return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        ws_path = ws.get("path", "")
+        target = os.path.join(ws_path, path) if path else ws_path
+
+        if ".." in path or not os.path.abspath(target).startswith(os.path.abspath(ws_path)):
+            return json.dumps({"error": "Path traversal not allowed"})
+
+        if not os.path.isdir(target):
+            return json.dumps({"error": f"Directory not found: {path or '/'}"})
+
+        items = []
+        try:
+            for entry in sorted(os.listdir(target))[:100]:
+                if entry.startswith(".") or entry in ("node_modules", "__pycache__", "venv", ".venv"):
+                    continue
+                full = os.path.join(target, entry)
+                is_dir = os.path.isdir(full)
+                items.append({
+                    "name": entry,
+                    "type": "dir" if is_dir else "file",
+                    "size": os.path.getsize(full) if not is_dir else 0,
+                })
+        except Exception as e:
+            return json.dumps({"error": f"Cannot list: {e}"})
+
+        return json.dumps({"path": path or "/", "items": items, "count": len(items)})
+
+    async def clean_workspace(workspace: str, keep: str = "deploy.toml,config.toml") -> str:
+        """Delete ALL files in a workspace EXCEPT the ones listed in 'keep' (comma-separated).
+        Use this when user says 'delete everything except X' or 'clean the workspace'.
+        Default keeps: deploy.toml, config.toml."""
+        import shutil
+
+        ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
+        if not ws:
+            return json.dumps({"error": f"Workspace '{workspace}' not found"})
+
+        if ws.get("readonly"):
+            return json.dumps({"error": "This workspace is read-only"})
+
+        ws_path = ws.get("path", "")
+        if not ws_path or not os.path.isdir(ws_path):
+            return json.dumps({"error": "Workspace path not found"})
+
+        keep_set = {f.strip() for f in keep.split(",") if f.strip()}
+        keep_set.add("config.toml")  # Always protect config.toml
+
+        deleted = []
+        kept = []
+        for entry in os.listdir(ws_path):
+            if entry.startswith("."):
+                continue
+            if entry in keep_set:
+                kept.append(entry)
+                continue
+            full = os.path.join(ws_path, entry)
+            try:
+                if os.path.isdir(full):
+                    shutil.rmtree(full)
+                else:
+                    os.remove(full)
+                deleted.append(entry)
+            except Exception as e:
+                kept.append(f"{entry} (error: {e})")
+
+        return json.dumps({
+            "ok": True,
+            "deleted": deleted,
+            "kept": kept,
+            "message": f"Deleted {len(deleted)} items, kept {len(kept)}",
+        })
+
     return [
         (analyze_project, "analyze_project", "Analyze workspace to detect stack, files, dependencies, entry points"),
         (generate_deploy_config, "generate_deploy_config", "Generate deploy.toml from analysis"),
         (list_workspaces, "list_workspaces", "List all workspaces in the project"),
         (list_instances, "list_instances", "List all VPS instances in the project"),
         (read_workspace_file, "read_workspace_file", "Read a file from workspace"),
-        (write_workspace_file, "write_workspace_file", "Write a file to workspace (respects protection)"),
+        (write_workspace_file, "write_workspace_file", "Write/create a file in workspace (respects protection)"),
         (delete_workspace_file, "delete_workspace_file", "Delete a file from workspace"),
+        (clean_workspace, "clean_workspace", "Delete ALL files except specified ones (e.g. keep='deploy.toml,config.toml'). Use when user says 'delete everything except X'."),
+        (list_workspace_files, "list_workspace_files", "List files/dirs in a workspace path"),
+        (exec_in_workspace, "exec_in_workspace", "Execute a shell command inside workspace dir (npm install, build, pip install, etc.)"),
         (create_workspace, "create_workspace", "Create a new workspace with stack (python/node/static/custom), optional git URL"),
     ]
 
