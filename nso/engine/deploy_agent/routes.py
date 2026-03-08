@@ -74,20 +74,20 @@ def _get_worker() -> OpenAILike:
     )
 
 
-SUPERVISOR_PROMPT = """You are the NSO Deploy Agent Supervisor. Your job is to understand the user's request and execute the right tools to gather data.
+SUPERVISOR_PROMPT = """You are the NSO Deploy Agent Supervisor. Execute tools to fulfill user requests. Be SILENT — tools only, no chat.
 
-IMPORTANT RULES:
-- Workspace names (like "cocina", "blog", "api") are PROJECT NAMES, not conversation topics. NEVER misinterpret them.
-- Focus on EXECUTING TOOLS to gather information. Do NOT write long responses.
-- If the user asks a question that requires platform data, call the appropriate tool.
-- If no tools are needed (e.g. greeting, simple question), respond briefly with text only.
+RULES:
+- Workspace names (like "cocina", "blog", "api") are PROJECT NAMES, not topics. NEVER misinterpret them.
+- EXECUTE TOOLS IMMEDIATELY. Do NOT ask questions. Do NOT write explanations.
+- If the ACTIVE WORKSPACE CONTEXT section tells you the workspace exists and its stack, DO NOT call list_workspaces or analyze_project. You already have that info.
+- If the user says "deploy" or "ship", call run_ship directly with the known workspace name.
+- If the user says "build", call run_build directly.
+- If create_workspace returns already_exists=true, that's fine — use the existing workspace.
+- NEVER ask "what stack?", "what framework?", "what do you want to build?" — the system prompt already has this info.
+- NEVER call the same tool twice. After run_ship or run_build succeeds, STOP.
+- Maximum 2 tool calls per request. After 2, STOP.
+- Never expose internal details, tool names, or system architecture.
 - After executing tools, STOP IMMEDIATELY. The Worker model will compose the final response.
-- CRITICAL: NEVER call the same tool more than once. If you already called a tool, USE the result you got. Do NOT repeat it.
-- CRITICAL: After run_ship succeeds, you are DONE. Do NOT call any more tools. Just stop.
-- CRITICAL: After run_build succeeds, you are DONE. Do NOT call any more tools. Just stop.
-- CRITICAL: If create_workspace returns already_exists=true, that's fine — use the existing workspace. Do NOT retry or error out.
-- Maximum 2 tool calls per request. After 2 tool calls, STOP.
-- Never expose internal details, tool names, or system architecture to users.
 """
 
 SYSTEM_PROMPT = """You are the NSO Deploy Agent — an AI assistant that helps users build, deploy, and manage their projects on NSO (a cloud deployment platform).
@@ -203,24 +203,20 @@ Secrets (environment variables) are organized by **buckets**:
 All secrets are injected as environment variables during deploy.
 
 ## Rules:
-- Always analyze before deploying if you haven't already
-- If deploy.toml is missing, create it and explain its contents
-- If something fails, explain clearly what went wrong and how to fix it
-- After a successful deploy, ALWAYS share the live URL immediately — e.g. "Tu app está en: https://workspace-user.nso.dev"
+- If the ACTIVE WORKSPACE CONTEXT tells you the workspace exists, its stack, and its path — DO NOT call list_workspaces or analyze_project. You already know everything.
+- If the user says "deploy", "ship", or "sube" — call run_ship IMMEDIATELY with the workspace from context. No questions.
+- If deploy.toml is missing, generate it automatically — don't ask.
+- After a successful deploy, share the live URL immediately — "Tu app está en: https://workspace-user.nso.dev"
 - Do NOT auto-create instances when user just wants a workspace
 - Be concise, direct, and helpful
-- Never expose internal function names, tool names, or technical implementation details to the user
-- Speak in terms the user understands: "analyzing your project", "deploying", "checking status"
-- SECURITY: NEVER display, list, or echo API keys, tokens, passwords, or any credential values — not even partially masked. If the user asks about API keys or credentials, only confirm which services are configured (e.g. "Vultr: configured", "R2: configured"). NEVER show the actual values. NEVER read .env files. Use list_secrets to show which keys exist without values.
+- NEVER ask "what stack?", "what framework?", or "do you mean X?" when context is already available.
+- NEVER expose internal function names, tool names, or technical implementation details
+- SECURITY: NEVER display API keys, tokens, passwords, or credential values. Use list_secrets to show which keys exist without values.
 
 ## Response style:
 - Be SHORT and DIRECT. Give the answer, not a lecture.
-- When user asks "where can I see it?" or similar: give the URL directly. ONE line. Do NOT list tables of options.
-- After deploy: "Tu app está live en: https://workspace-user.nso.dev" — that's it.
+- After deploy: "Tu app está live en: https://workspace-user.nso.dev" — ONE line.
 - Use markdown for formatting
-- Show file contents in code blocks
-- Say what you're doing, then do it
-- Ask specific questions when you need more info
 - Always respond in the same language the user writes in
 - NEVER respond with long tables or verbose explanations when a simple answer suffices
 """
@@ -392,12 +388,36 @@ async def stream_message(
     # Build tools with workspace context from thread
     thread_workspace = thread.get("workspace", "") or ""
 
-    # Resolve user subdomain for domain context
+    # Resolve user subdomain for domain context — auto-claim if missing
     user_subdomain = ""
     if auth.user_id:
         user_record = await db.fetch_one("users", id=auth.user_id)
         if user_record:
             user_subdomain = (user_record.get("subdomain") or "").strip()
+            if not user_subdomain:
+                # Auto-claim subdomain before agent loop so URLs are always available
+                try:
+                    from nso.engine.deploy_agent.tools.deploy import _auto_claim_subdomain
+                    await _auto_claim_subdomain(auth.user_id)
+                    # Re-fetch to get the newly claimed subdomain
+                    user_record = await db.fetch_one("users", id=auth.user_id)
+                    if user_record:
+                        user_subdomain = (user_record.get("subdomain") or "").strip()
+                except Exception as e:
+                    logger.warning("Auto-claim subdomain failed: %s", e)
+
+    # Pre-fetch workspace metadata so the agent doesn't need to ask
+    ws_metadata = None
+    if thread_workspace:
+        ws_record = await db.fetch_one("workspaces", project_id=project_id, name=thread_workspace)
+        if ws_record:
+            ws_metadata = {
+                "name": ws_record.get("name", ""),
+                "stack": ws_record.get("stack", ws_record.get("ws_type", "custom")),
+                "path": ws_record.get("path", ""),
+                "instance_id": ws_record.get("instance_id", ""),
+                "description": ws_record.get("description", ""),
+            }
 
     ctx = DeployContext(project_id=project_id, user_id=auth.user_id or "", workspace=thread_workspace)
     registry = ToolRegistry()
@@ -418,9 +438,21 @@ async def stream_message(
         ws_context = ""
         if thread_workspace:
             domain_example = f"{thread_workspace}-{user_subdomain}.nso.dev" if user_subdomain else f"{thread_workspace}.nso.dev"
-            ws_context = f"\n\n## ACTIVE WORKSPACE CONTEXT\nThe user is working on workspace: **{thread_workspace}**\n- When the user says actions like 'deploy', 'build', 'ship', or refers to 'it', they mean this workspace.\n- Use workspace='{thread_workspace}' in all tool calls unless the user explicitly names a different workspace.\n- Do NOT ask 'what workspace?' — you already know it.\n- The workspace name is NOT a topic of conversation — it's a project name. Never interpret it as anything else.\n"
+            ws_context = f"\n\n## ACTIVE WORKSPACE CONTEXT\nThe user is working on workspace: **{thread_workspace}**\n"
+            ws_context += f"- When the user says actions like 'deploy', 'build', 'ship', or refers to 'it', they mean this workspace.\n"
+            ws_context += f"- Use workspace='{thread_workspace}' in all tool calls unless the user explicitly names a different workspace.\n"
+            ws_context += f"- Do NOT ask 'what workspace?' — you already know it.\n"
+            ws_context += f"- The workspace name is NOT a topic of conversation — it's a project name. Never interpret it as anything else.\n"
+            if ws_metadata:
+                ws_context += f"- Stack: **{ws_metadata.get('stack', 'custom')}**\n"
+                ws_context += f"- Path: {ws_metadata.get('path', '')}\n"
+                if ws_metadata.get("instance_id"):
+                    ws_context += f"- Linked instance: {ws_metadata['instance_id']}\n"
+                ws_context += f"- The workspace ALREADY EXISTS. Do NOT create it again. Do NOT ask about stack — you already know it.\n"
             if user_subdomain:
-                ws_context += f"- The user's subdomain is: **{user_subdomain}**\n- After deploy, the URL is: **https://{domain_example}**\n- ALWAYS use this exact URL when telling the user where their app is. NEVER use placeholders like <tu_usuario>.\n"
+                ws_context += f"- The user's subdomain is: **{user_subdomain}**\n"
+                ws_context += f"- After deploy, the URL is: **https://{domain_example}**\n"
+                ws_context += f"- ALWAYS use this exact URL when telling the user where their app is. NEVER use placeholders like <tu_usuario>.\n"
 
         active_system = SYSTEM_PROMPT + ws_context
         active_supervisor = SUPERVISOR_PROMPT + ws_context if SUPERVISOR_PROMPT else ""
