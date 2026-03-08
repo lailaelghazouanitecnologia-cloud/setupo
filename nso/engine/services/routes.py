@@ -109,12 +109,12 @@ async def deploy_service(
     body: dict = Body(...),
     project_id: str = Depends(require_project),
 ):
-    """Deploy a service to instance(s). Body: {"instance_ids": ["inst_xxx", ...]}"""
-    instance_ids = body.get("instance_ids", [])
-    if not instance_ids:
-        raise HTTPException(422, "instance_ids is required")
+    """Deploy a service to target(s). Body: {"target_ids": ["node_xxx", "inst_xxx", ...]}"""
+    target_ids = body.get("target_ids") or body.get("instance_ids") or body.get("node_ids", [])
+    if not target_ids:
+        raise HTTPException(422, "target_ids (or instance_ids/node_ids) is required")
     try:
-        result = await svc.deploy_service(project_id, service_id, instance_ids)
+        result = await svc.deploy_service(project_id, service_id, target_ids)
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
@@ -147,21 +147,24 @@ async def stop_service(
     service_id: str,
     project_id: str = Depends(require_project),
 ):
-    """Stop all replicas of a service across all instances."""
+    """Stop all replicas of a service across all nodes/instances."""
     try:
-        from nso.engine.compute.supervisor_sync import stop_service as agent_stop
+        from nso.engine.compute.supervisor_sync import stop_on_node
 
         service = await svc.get_service(project_id, service_id)
         replicas = await svc.list_replicas(service_id)
         stopped = 0
         failures = []
         for replica in replicas:
+            if replica.get("status") in ("stopped", "destroyed"):
+                continue
+            rid = replica["instance_id"]
             try:
-                await agent_stop(project_id, replica["instance_id"], service["name"])
+                await stop_on_node(project_id, rid, service["name"])
                 await svc.update_replica(replica["id"], status="stopped")
                 stopped += 1
             except Exception as e:
-                failures.append({"instance_id": replica["instance_id"], "error": str(e)})
+                failures.append({"target_id": rid, "error": str(e)})
         await svc.update_service(project_id, service_id, status="stopped")
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)

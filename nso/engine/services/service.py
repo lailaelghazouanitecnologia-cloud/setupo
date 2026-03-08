@@ -363,8 +363,7 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
     """
     from nso.engine.compute.supervisor_sync import apply_services as apply_to_agent
     from nso.engine.compute.supervisor_sync import apply_to_node
-    from nso.engine.compute.supervisor_sync import stop_service as agent_stop
-    from nso.engine.compute.service import get_instance
+    from nso.engine.compute.supervisor_sync import stop_on_node
 
     svc = await get_service(project_id, service_id)
     policy = await get_scaling_policy(service_id)
@@ -462,13 +461,14 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
         to_remove = sorted(active, key=lambda r: r.get("created_at", ""), reverse=True)[:excess]
 
         for replica in to_remove:
+            rid = replica["instance_id"]
             try:
-                await agent_stop(project_id, replica["instance_id"], svc["name"])
+                await stop_on_node(project_id, rid, svc["name"])
                 await update_replica(replica["id"], status="stopped")
-                actions.append({"instance_id": replica["instance_id"], "action": "stopped"})
+                actions.append({"target_id": rid, "action": "stopped"})
             except Exception as e:
                 logger.error("Scale-down failed for replica %s: %s", replica["id"], e)
-                actions.append({"instance_id": replica["instance_id"], "action": "failed", "error": str(e)})
+                actions.append({"target_id": rid, "action": "failed", "error": str(e)})
 
     await _emit_event(service_id, None, "scaled",
                       f"Scaled from {current} to {replicas} replicas")
@@ -620,13 +620,13 @@ async def get_service_overview(project_id: str, service_id: str) -> dict:
 # ── Deploy service to instance(s) ──
 
 
-async def deploy_service(project_id: str, service_id: str, instance_ids: list[str]) -> dict:
+async def deploy_service(project_id: str, service_id: str, target_ids: list[str]) -> dict:
     """
-    Deploy a service to one or more instances via their agents.
+    Deploy a service to one or more targets (compute nodes or instances).
+    Accepts both node_ids (node_*) and instance_ids (inst_*).
     Creates replicas and sends supervisor apply commands.
     """
-    from nso.engine.compute.supervisor_sync import apply_services as apply_to_agent
-    from nso.engine.compute.service import get_instance
+    from nso.engine.compute.supervisor_sync import apply_to_node, apply_services as apply_to_agent
 
     svc = await get_service(project_id, service_id)
     results = []
@@ -644,37 +644,43 @@ async def deploy_service(project_id: str, service_id: str, instance_ids: list[st
     if isinstance(env, dict):
         spec["env"] = env
 
-    for iid in instance_ids:
+    for tid in target_ids:
         try:
-            inst = await get_instance(project_id, iid)
-
-            # Send to agent supervisor
-            await apply_to_agent(project_id, iid, [spec])
+            # Route to the right agent communication function
+            if tid.startswith("node_"):
+                await apply_to_node(project_id, tid, [spec])
+            else:
+                await apply_to_agent(project_id, tid, [spec])
 
             # Create or update replica record
             existing = await db.fetch_one(
-                "service_replicas", service_id=service_id, instance_id=iid,
+                "service_replicas", service_id=service_id, instance_id=tid,
             )
             if existing:
                 await update_replica(existing["id"], status="pending", version=svc.get("version", ""))
             else:
-                await add_replica(service_id, iid,
+                await add_replica(service_id, tid,
                                   version=svc.get("version", ""),
                                   port=svc.get("port", 0))
 
-            results.append({"instance_id": iid, "status": "deployed"})
+            # Update node allocated resources if it's a compute node
+            if tid.startswith("node_"):
+                from nso.engine.compute.nodes import recalculate_allocated
+                await recalculate_allocated(tid)
+
+            results.append({"target_id": tid, "status": "deployed"})
         except Exception as e:
-            logger.error("Failed to deploy service %s to instance %s: %s", service_id, iid, e)
-            results.append({"instance_id": iid, "status": "failed", "error": str(e)})
+            logger.error("Failed to deploy service %s to %s: %s", service_id, tid, e)
+            results.append({"target_id": tid, "status": "failed", "error": str(e)})
 
     succeeded = sum(1 for r in results if r["status"] == "deployed")
     if succeeded > 0:
         await update_service(project_id, service_id, status="active")
         await _emit_event(service_id, None, "deployed",
-                          f"Deployed to {succeeded}/{len(instance_ids)} instance(s)")
+                          f"Deployed to {succeeded}/{len(target_ids)} target(s)")
     else:
         await _emit_event(service_id, None, "deploy_failed",
-                          f"All {len(instance_ids)} deploy(s) failed")
+                          f"All {len(target_ids)} deploy(s) failed")
 
     return {"service_id": service_id, "results": results}
 

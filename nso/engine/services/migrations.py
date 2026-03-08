@@ -67,7 +67,6 @@ TABLES += """
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (service_id) REFERENCES service_registry(id) ON DELETE CASCADE,
-        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE,
         UNIQUE(service_id, instance_id)
     );
 """
