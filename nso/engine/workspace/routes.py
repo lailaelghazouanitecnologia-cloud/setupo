@@ -130,15 +130,54 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
     return {"workspace": ws_record, "config": config.model_dump()}
 
 
+async def _enrich_workspace_deploy(ws: dict, project_id: str, instances_cache: dict | None = None, domains_cache: list | None = None):
+    """Add deploy status, instance info, and domain to a workspace dict."""
+    instance_id = ws.get("instance_id", "")
+    ws["deployed"] = False
+    ws["deploy_url"] = None
+    ws["instance_label"] = None
+    ws["instance_ip"] = None
+    ws["instance_state"] = None
+
+    if instance_id:
+        if instances_cache is not None and instance_id in instances_cache:
+            inst = instances_cache[instance_id]
+        else:
+            inst = await db.fetch_one("instances", id=instance_id)
+        if inst:
+            ws["instance_label"] = inst.get("label", "")
+            ws["instance_ip"] = inst.get("ip", "")
+            ws["instance_state"] = inst.get("state", "")
+            ws["deployed"] = inst.get("state") in ("ready", "running", "active")
+
+    # Find domain for this workspace
+    if domains_cache is not None:
+        ws_domains = [d for d in domains_cache if ws["name"] in d.get("domain", "")]
+    else:
+        all_domains = await db.fetch_all("domains", project_id=project_id)
+        ws_domains = [d for d in all_domains if ws["name"] in d.get("domain", "")]
+
+    if ws_domains:
+        domain = ws_domains[0].get("domain", "")
+        ws["deploy_url"] = f"https://{domain}" if domain else None
+
+
 @router.get("")
 async def list_workspaces(project_id: str = Depends(require_project)):
     workspaces = await db.fetch_all("workspaces", project_id=project_id)
+
+    # Pre-fetch instances and domains for efficiency
+    all_instances = await db.fetch_all("instances", project_id=project_id)
+    instances_cache = {i["id"]: i for i in all_instances}
+    domains_cache = await db.fetch_all("domains", project_id=project_id)
+
     for ws in workspaces:
         ws_path = ws.get("path", "")
         config = read_config(ws_path)
         ws["config"] = config.model_dump() if config else None
         ws["is_git"] = os.path.isdir(os.path.join(ws_path, ".git"))
         ws["exists"] = os.path.isdir(ws_path)
+        await _enrich_workspace_deploy(ws, project_id, instances_cache, domains_cache)
     return {"workspaces": workspaces}
 
 
@@ -151,6 +190,7 @@ async def get_workspace(name: str, project_id: str = Depends(require_project)):
     config = read_config(ws_path)
     ws["config"] = config.model_dump() if config else None
     ws["exists"] = os.path.isdir(ws_path)
+    await _enrich_workspace_deploy(ws, project_id)
     return {"workspace": ws}
 
 

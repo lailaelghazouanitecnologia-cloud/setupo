@@ -20,6 +20,11 @@ export interface WorkspaceInfo {
   ws_type?: string;
   stack?: string;
   exists?: boolean;
+  deployed?: boolean;
+  deploy_url?: string | null;
+  instance_label?: string | null;
+  instance_ip?: string | null;
+  instance_state?: string | null;
 }
 
 interface DashboardState {
