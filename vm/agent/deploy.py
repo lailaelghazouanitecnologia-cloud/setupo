@@ -797,3 +797,113 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
         "restarted": service,
         "restart_ok": restart_ok,
     }
+
+
+class SetupDomainRequest(BaseModel):
+    domain: str
+    workspace_dir: str
+    port: int = 0  # 0 = static site, >0 = proxy to this port
+    cert_name: str = "nso.dev"  # Let's Encrypt cert to use
+    cert_domains: list[str] = Field(default_factory=list)  # all domains for cert expansion
+
+
+@router.post("/setup-domain")
+async def setup_domain(req: SetupDomainRequest, admin: AdminUser = Depends(require_admin)):
+    """Auto-configure nginx server block + SSL cert for a deployed workspace domain.
+
+    For static sites (port=0): serves files from workspace_dir.
+    For app sites (port>0): reverse proxies to localhost:port.
+    """
+    logger.info("Setting up domain %s → %s (port=%d)", req.domain, req.workspace_dir, req.port)
+
+    # Generate nginx config
+    if req.port > 0:
+        location_block = (
+            f"        proxy_pass http://127.0.0.1:{req.port};\n"
+            f"        proxy_set_header Host $host;\n"
+            f"        proxy_set_header X-Real-IP $remote_addr;\n"
+            f"        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+            f"        proxy_set_header X-Forwarded-Proto $scheme;\n"
+            f"        proxy_http_version 1.1;\n"
+            f"        proxy_set_header Upgrade $http_upgrade;\n"
+            f'        proxy_set_header Connection "upgrade";\n'
+        )
+    else:
+        location_block = (
+            f"        root {req.workspace_dir};\n"
+            f"        try_files $uri $uri/ /index.html;\n"
+        )
+
+    cert_path = f"/etc/letsencrypt/live/{req.cert_name}"
+    nginx_content = (
+        f"server {{\n"
+        f"    listen 80;\n"
+        f"    listen 443 ssl;\n"
+        f"    server_name {req.domain};\n"
+        f"\n"
+        f"    ssl_certificate {cert_path}/fullchain.pem;\n"
+        f"    ssl_certificate_key {cert_path}/privkey.pem;\n"
+        f"    include /etc/letsencrypt/options-ssl-nginx.conf;\n"
+        f"    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;\n"
+        f"\n"
+        f"    location / {{\n"
+        f"{location_block}"
+        f"    }}\n"
+        f"}}\n"
+    )
+
+    # Write nginx config
+    safe_name = req.domain.replace(".", "-")
+    config_path = f"/etc/nginx/sites-available/{safe_name}"
+    link_path = f"/etc/nginx/sites-enabled/{safe_name}"
+
+    Path(config_path).write_text(nginx_content)
+    if not os.path.exists(link_path):
+        os.symlink(config_path, link_path)
+
+    # Test nginx config
+    proc = await asyncio.create_subprocess_shell(
+        "nginx -t 2>&1",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+    nginx_test = stdout.decode(errors="replace")
+
+    if proc.returncode != 0:
+        # Rollback: remove broken config
+        Path(config_path).unlink(missing_ok=True)
+        Path(link_path).unlink(missing_ok=True)
+        raise HTTPException(500, f"Nginx config invalid: {nginx_test}")
+
+    # Reload nginx
+    await asyncio.create_subprocess_shell("systemctl reload nginx")
+
+    # Expand SSL cert to include new domain
+    ssl_ok = False
+    ssl_msg = ""
+    if req.cert_domains:
+        domain_args = " ".join(f"-d {d}" for d in req.cert_domains)
+        proc = await asyncio.create_subprocess_shell(
+            f"certbot certonly --nginx {domain_args} --non-interactive "
+            f"--agree-tos --register-unsafely-without-email --expand 2>&1",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=120)
+        ssl_msg = stdout.decode(errors="replace")
+        ssl_ok = proc.returncode == 0
+
+        if ssl_ok:
+            # Reload nginx with new cert
+            await asyncio.create_subprocess_shell("systemctl reload nginx")
+
+    logger.info("Domain %s setup complete (ssl=%s)", req.domain, ssl_ok)
+
+    return {
+        "ok": True,
+        "domain": req.domain,
+        "nginx_config": config_path,
+        "ssl_expanded": ssl_ok,
+        "ssl_message": ssl_msg[-300:] if ssl_msg else "",
+    }

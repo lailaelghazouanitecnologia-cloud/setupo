@@ -250,6 +250,12 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
             ctx.project_id, ctx.user_id, workspace, instance_id, inst.get("ip", ""), domain,
         )
 
+        # Auto-setup nginx + SSL on the agent for the deploy domain
+        if deploy_domain and "(DNS failed)" not in deploy_domain:
+            await _auto_setup_nginx(
+                agent_url, token, deploy_domain, ws_path or "/opt/app", ws,
+            )
+
         # Send deploy notification to user inbox
         if ctx.user_id:
             await _send_deploy_notification(
@@ -490,7 +496,59 @@ async def _auto_assign_domain(
         return f"{deploy_domain} (DNS failed)"
 
 
-async def _send_deploy_notification(
+async def _auto_setup_nginx(
+    agent_url: str, token: str, domain: str, workspace_dir: str, ws: dict | None,
+):
+    """Tell the agent to set up nginx + SSL for the deploy domain."""
+    import httpx
+
+    # Determine if it's a static site or an app that needs proxying
+    stack = ws.get("stack", "custom") if ws else "custom"
+    port = 0  # static by default
+    if stack in ("python", "node"):
+        port = 3000  # default app port
+
+    # Get existing cert domains to expand
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{agent_url}/exec/",
+                headers={"Authorization": f"Bearer {token}"},
+                json={"command": "openssl x509 -in /etc/letsencrypt/live/nso.dev/fullchain.pem -noout -text 2>&1 | grep -oP 'DNS:\\K[^,\\s]+'", "timeout": 5},
+            )
+        existing_domains = []
+        if resp.status_code == 200:
+            stdout = resp.json().get("stdout", "")
+            existing_domains = [d.strip() for d in stdout.strip().splitlines() if d.strip()]
+    except Exception:
+        existing_domains = ["nso.dev"]
+
+    # Add new domain if not already covered
+    cert_domains = list(set(existing_domains + [domain]))
+
+    try:
+        async with httpx.AsyncClient(timeout=180) as client:
+            resp = await client.post(
+                f"{agent_url}/deploy/setup-domain",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "domain": domain,
+                    "workspace_dir": workspace_dir,
+                    "port": port,
+                    "cert_name": "nso.dev",
+                    "cert_domains": cert_domains,
+                },
+            )
+        if resp.status_code == 200:
+            result = resp.json()
+            logger.info("Auto nginx setup: %s (ssl=%s)", domain, result.get("ssl_expanded"))
+        else:
+            logger.warning("Auto nginx setup failed for %s: %s", domain, resp.text[:300])
+    except Exception as exc:
+        logger.warning("Auto nginx setup error for %s: %s", domain, exc)
+
+
+
     user_id: str, workspace: str, version: str, domain: str, instance_label: str,
 ):
     """Send an in-app notification after a successful deploy."""
