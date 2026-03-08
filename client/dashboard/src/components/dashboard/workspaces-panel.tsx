@@ -12,6 +12,7 @@ import {
   getWorkspaceFiles, readWorkspaceFile, zarVersions,
 } from "@/lib/api/client";
 import { useDashboardStore } from "@/stores/dashboard-store";
+import { FileTokenView } from "@/components/dashboard/file-token-view";
 import { formatSize, timeAgo } from "@/lib/format";
 
 /* ═══════════════════════════════════════════
@@ -310,7 +311,11 @@ export function WorkspacesPanel() {
                   </button>
                 </div>
                 <div className="ws-file-viewer-content">
-                  <pre className="ws-file-pre"><code>{fileContent}</code></pre>
+                  {fileContent !== null && (
+                    <FileTokenView
+                      files={[{ name: viewingFile, path: viewingFile, content: fileContent }]}
+                    />
+                  )}
                 </div>
               </div>
             ) : tab === "files" ? (

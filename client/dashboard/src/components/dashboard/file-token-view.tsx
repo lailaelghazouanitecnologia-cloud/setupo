@@ -71,8 +71,9 @@ const TS_TYPES = new Set([
 
 function detectLang(filename: string): "python" | "typescript" | "toml" | "text" {
   if (filename.endsWith(".py")) return "python";
-  if (filename.endsWith(".ts") || filename.endsWith(".tsx")) return "typescript";
-  if (filename.endsWith(".toml")) return "toml";
+  if (filename.endsWith(".ts") || filename.endsWith(".tsx") || filename.endsWith(".js") || filename.endsWith(".jsx") || filename.endsWith(".mjs") || filename.endsWith(".cjs")) return "typescript";
+  if (filename.endsWith(".toml") || filename.endsWith(".yaml") || filename.endsWith(".yml") || filename.endsWith(".ini") || filename.endsWith(".cfg") || filename.endsWith(".env")) return "toml";
+  if (filename.endsWith(".json") || filename.endsWith(".css") || filename.endsWith(".html") || filename.endsWith(".md") || filename.endsWith(".sh") || filename.endsWith(".bash")) return "typescript";
   return "text";
 }
 

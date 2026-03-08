@@ -448,25 +448,18 @@
 .da-model-indicator-wrap .da-ws-trigger {
   padding: 0 8px; height: 28px; min-width: auto;
   border: none; background: none;
-  font-size: 11px; font-weight: 700;
-  background-image: linear-gradient(to top, #b85c1a, #e8954a, #c97a30, #f0b06a);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  cursor: pointer;
+  font-size: 11px; font-weight: 600;
+  color: var(--muted-foreground);
+  cursor: pointer; transition: color 0.15s;
 }
 .da-model-indicator-wrap .da-ws-trigger:hover {
-  background-image: linear-gradient(to top, #cc6e2a, #f0a85c, #d88c40, #f5c07a);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--foreground);
 }
 .da-model-indicator-wrap .da-ws-trigger-label {
   font-size: 11px;
 }
 .da-model-indicator-wrap .da-ws-trigger svg {
-  color: #e8954a;
-  -webkit-text-fill-color: initial;
+  color: var(--muted-foreground);
 }
 .da-model-indicator-wrap .da-ws-dropdown {
   min-width: 220px; right: 0; left: auto; bottom: 100%; top: auto;
@@ -483,10 +476,10 @@
   width: 28px; height: 28px; border-radius: 7px;
   display: inline-flex; align-items: center; justify-content: center;
   border: none; cursor: pointer; transition: all 0.15s;
-  background: #d4782a; color: #fff;
+  background: #b5631f; color: #fff;
 }
 .da-send-btn.active {
-  background: #d4782a; color: #fff;
+  background: #b5631f; color: #fff;
 }
 .da-send-btn:hover { opacity: 0.85; }
 .da-send-btn:disabled { background: #d4782a; color: #fff; opacity: 0.5; cursor: default; }
