@@ -21,7 +21,7 @@
 
 /* ── Dropdown ── */
 .cp-dropdown {
-  position: absolute; bottom: 100%; left: 0;
+  position: absolute; bottom: 100%; left: 30px;
   min-width: 260px; max-width: 340px;
   background: var(--card); border: none;
   border-radius: 10px; z-index: 30; margin-bottom: 6px;

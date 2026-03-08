@@ -687,7 +687,7 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
                 <button
                   onClick={onSend}
                   disabled={!input.trim() && attachments.length === 0}
-                  className={`da-send-btn ${input.trim() || attachments.length > 0 ? "active" : ""}`}
+                  className="da-send-btn active"
                   title="Send"
                 >
                   <ArrowUp className="h-4 w-4" />
@@ -706,14 +706,16 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
       {/* Attach menu dropdown */}
       {pickerMenu && !showPicker && (
         <div className="da-attach-menu">
-          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); fileInputRef.current?.click(); }}>
-            <FileText className="h-3.5 w-3.5" /> File
+          <div className="da-attach-menu-header">
+            <span className="da-attach-menu-title">Attach</span>
+          </div>
+          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("zar"); }}>
+            <span className="da-attach-menu-icon"><Package className="h-4 w-4" /></span>
+            Workspace
           </button>
           <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); folderInputRef.current?.click(); }}>
-            <FolderClosed className="h-3.5 w-3.5" /> Folder
-          </button>
-          <button className="da-attach-menu-item" onClick={() => { setPickerMenu(false); setShowPicker("zar"); }}>
-            <Package className="h-3.5 w-3.5" /> .zar Package
+            <span className="da-attach-menu-icon"><FolderClosed className="h-4 w-4" /></span>
+            Folder
           </button>
         </div>
       )}
@@ -863,10 +865,14 @@ function WorkspaceDropdown({ workspaces, selected, onSelect }: {
       </button>
       {open && (
         <div className="da-ws-dropdown">
+          <div className="da-ws-dropdown-header">
+            <span className="da-ws-dropdown-title">Workspaces</span>
+          </div>
           <button
             className={`da-ws-option ${!selected ? "active" : ""}`}
             onClick={() => { onSelect(null); setOpen(false); }}
           >
+            <span className="da-ws-option-icon"><Globe className="h-4 w-4" /></span>
             All workspaces
           </button>
           {workspaces.map((ws: any) => (
@@ -875,6 +881,7 @@ function WorkspaceDropdown({ workspaces, selected, onSelect }: {
               className={`da-ws-option ${selected === ws.name ? "active" : ""}`}
               onClick={() => { onSelect(ws.name); setOpen(false); }}
             >
+              <span className="da-ws-option-icon"><Package className="h-4 w-4" /></span>
               {ws.name}
             </button>
           ))}

@@ -75,12 +75,19 @@ async def _execute_single_tool(
 
 
 def _sanitize_tool_name(name: str) -> str:
-    """Strip malformed suffixes like ':{}' from tool names (common with Llama models)."""
-    if ":" in name:
-        base = name.split(":")[0].strip()
-        if base:
-            return base
-    return name
+    """Strip malformed suffixes from tool names (common with Llama/Groq models).
+
+    Handles patterns like:
+      - 'list_instances:{}'
+      - 'list_instances<|channel|>commentary'
+      - 'run_ship\n\nsome text'
+    """
+    import re
+    # Strip everything after special tokens like <|...|>, colons, newlines
+    cleaned = re.split(r'[<:\n]', name)[0].strip()
+    # Only keep valid function name chars (alphanumeric + underscore)
+    cleaned = re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*', cleaned)
+    return cleaned.group(0) if cleaned else name.strip()
 
 
 def _repair_json(raw: str) -> dict:
