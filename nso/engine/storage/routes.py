@@ -1,9 +1,12 @@
+import asyncio
+import io
 import logging
 import os
+import tarfile
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from nso.shared import db
 from nso.shared.models import ZarUploadResult
@@ -11,7 +14,7 @@ from nso.engine.storage.zar_packer import pack, read_manifest
 from nso.engine.storage.service import R2Client
 from nso.engine.workspace.config import read_config, read_package_config
 from nso.config import settings
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_admin, AuthContext
 from nso.engine.build.service import (
     compute_source_hash,
     check_cache as check_build_cache,
@@ -545,6 +548,209 @@ def _detect_build_command(ws_path: str) -> str:
                     continue
             return command
     return ""
+
+
+class BuildFrontendsRequest(BaseModel):
+    branch: str = "main"
+    build_dashboard: bool = True
+    build_admin: bool = True
+
+
+class PlatformUpdateProxyRequest(BaseModel):
+    instance_id: str
+    branch: str = "main"
+    rebuild_dashboard: bool = True
+    rebuild_admin: bool = True
+    restart_services: list[str] = Field(default_factory=lambda: ["nso", "nso-agent"])
+    server_side_build: bool = True  # Build frontends on main server (recommended)
+
+
+@router.post("/build-frontends")
+async def build_frontends(req: BuildFrontendsRequest, auth: AuthContext = Depends(require_admin)):
+    """Build dashboard and admin frontends on the main server.
+
+    Runs npm install + npm run build, packages the output as tar.gz,
+    and uploads to R2 as system artifacts. Returns R2 keys for each.
+    """
+    results: dict = {"ok": True, "artifacts": {}}
+
+    async def _build_one(name: str, source_dir: str) -> dict:
+        """Build one frontend and upload artifact to R2."""
+        if not os.path.exists(os.path.join(source_dir, "package.json")):
+            return {"ok": False, "error": f"No package.json in {source_dir}"}
+
+        proc = await asyncio.create_subprocess_shell(
+            "npm install --legacy-peer-deps 2>&1",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=source_dir,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=180)
+        if proc.returncode != 0:
+            return {"ok": False, "step": "npm_install", "output": stdout.decode(errors="replace")[-500:]}
+
+        proc = await asyncio.create_subprocess_shell(
+            "npm run build 2>&1",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=source_dir,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=300)
+        if proc.returncode != 0:
+            return {"ok": False, "step": "npm_build", "output": stdout.decode(errors="replace")[-500:]}
+
+        # Package the build output as tar.gz
+        out_dir = os.path.join(source_dir, "out")
+        if not os.path.exists(out_dir):
+            # Try .next/static or build/ as fallback
+            for alt in [".next", "build", "dist"]:
+                alt_path = os.path.join(source_dir, alt)
+                if os.path.exists(alt_path):
+                    out_dir = alt_path
+                    break
+
+        if not os.path.exists(out_dir):
+            return {"ok": False, "step": "package", "output": "Build output directory not found"}
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for entry in os.listdir(out_dir):
+                tar.add(os.path.join(out_dir, entry), arcname=entry)
+        artifact_bytes = buf.getvalue()
+
+        # Upload to R2
+        r2_key = f"_system/frontends/{name}/{req.branch}/latest.tar.gz"
+        r2 = _get_r2()
+        try:
+            await r2.upload(r2_key, artifact_bytes, content_type="application/gzip")
+        finally:
+            await r2.close()
+
+        return {
+            "ok": True,
+            "r2_key": r2_key,
+            "size": len(artifact_bytes),
+        }
+
+    # Determine source directories (check repo clone first, then local)
+    base_dirs = ["/opt/nso/repo", os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))]
+    base_dir = None
+    for d in base_dirs:
+        if os.path.exists(os.path.join(d, "client", "dashboard", "package.json")):
+            base_dir = d
+            break
+    if not base_dir:
+        raise HTTPException(400, "Cannot find client source. Expected at /opt/nso/repo/client/ or in project root.")
+
+    # Git pull latest if using repo
+    if base_dir == "/opt/nso/repo":
+        proc = await asyncio.create_subprocess_shell(
+            f"git fetch origin {req.branch} && git reset --hard origin/{req.branch}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=base_dir,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=60)
+        if proc.returncode != 0:
+            raise HTTPException(500, f"Git pull failed: {stdout.decode(errors='replace')[-500:]}")
+
+    if req.build_dashboard:
+        dashboard_result = await _build_one("dashboard", os.path.join(base_dir, "client", "dashboard"))
+        results["artifacts"]["dashboard"] = dashboard_result
+        if not dashboard_result["ok"]:
+            results["ok"] = False
+
+    if req.build_admin:
+        admin_src = os.path.join(base_dir, "client", "admin")
+        if os.path.exists(os.path.join(admin_src, "package.json")):
+            admin_result = await _build_one("admin", admin_src)
+            results["artifacts"]["admin"] = admin_result
+            if not admin_result["ok"]:
+                results["ok"] = False
+        else:
+            results["artifacts"]["admin"] = {"ok": True, "skipped": True, "reason": "No admin package.json"}
+
+    return results
+
+
+@router.post("/platform-update")
+async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthContext = Depends(require_admin)):
+    """Full platform update: build frontends on main server, then update instance.
+
+    Flow:
+      1. If server_side_build: build dashboards here, upload to R2
+      2. Send platform-update to agent with pre-built artifact R2 keys
+      3. Agent pulls code, downloads pre-built frontends, restarts services
+    """
+    r2_cfg = settings.r2_config()
+    prebuilt_dashboard_key = ""
+    prebuilt_admin_key = ""
+
+    # Step 1: Build frontends on this server
+    if req.server_side_build and (req.rebuild_dashboard or req.rebuild_admin):
+        build_req = BuildFrontendsRequest(
+            branch=req.branch,
+            build_dashboard=req.rebuild_dashboard,
+            build_admin=req.rebuild_admin,
+        )
+        build_result = await build_frontends(build_req, auth)
+
+        if build_result["ok"]:
+            dash = build_result["artifacts"].get("dashboard", {})
+            admin = build_result["artifacts"].get("admin", {})
+            if dash.get("ok") and dash.get("r2_key"):
+                prebuilt_dashboard_key = dash["r2_key"]
+            if admin.get("ok") and admin.get("r2_key"):
+                prebuilt_admin_key = admin["r2_key"]
+        else:
+            logger.warning("Server-side frontend build failed, agent will build locally")
+
+    # Step 2: Send platform-update to agent
+    inst = await db.fetch_one("instances", id=req.instance_id)
+    if not inst:
+        raise HTTPException(404, f"Instance {req.instance_id} not found")
+    ip = inst.get("ip", "")
+    if not ip:
+        raise HTTPException(400, "Instance has no IP address")
+    agent_url = f"http://{ip}:8081"
+    token = await _get_agent_token(agent_url)
+
+    try:
+        async with _agent_client(600.0) as client:
+            resp = await client.post(
+                f"{agent_url}/deploy/platform-update",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "branch": req.branch,
+                    "rebuild_dashboard": req.rebuild_dashboard,
+                    "rebuild_admin": req.rebuild_admin,
+                    "restart_services": req.restart_services,
+                    "prebuilt_dashboard_r2_key": prebuilt_dashboard_key,
+                    "prebuilt_admin_r2_key": prebuilt_admin_key,
+                    "r2_endpoint": r2_cfg.endpoint,
+                    "r2_bucket": r2_cfg.bucket,
+                    "r2_access_key_id": r2_cfg.access_key_id,
+                    "r2_secret_access_key": r2_cfg.secret_access_key,
+                },
+            )
+    except httpx.ConnectError:
+        raise HTTPException(502, "Cannot connect to agent")
+    except httpx.TimeoutException:
+        raise HTTPException(504, "Platform update timed out")
+    except httpx.HTTPError as exc:
+        raise HTTPException(502, f"Agent connection error: {exc}")
+
+    if resp.status_code != 200:
+        raise HTTPException(502, f"Platform update failed: {resp.text[:500]}")
+    try:
+        result = resp.json()
+        result["server_side_build"] = {
+            "dashboard_r2_key": prebuilt_dashboard_key,
+            "admin_r2_key": prebuilt_admin_key,
+        }
+        return result
+    except ValueError:
+        raise HTTPException(502, "Agent returned invalid response")
 
 
 @router.post("/self-update")

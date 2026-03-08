@@ -571,11 +571,37 @@ async def _handoff_to_supervisor(config: dict, working_dir: str, version: str):
         )
 
 
+def _extract_tar_gz(data: bytes, target_dir: str):
+    """Extract a tar.gz artifact to the target directory."""
+    with tarfile.open(fileobj=BytesIO(data), mode="r:gz") as tar:
+        tar.extractall(target_dir, filter="data")
+
+
+async def _local_npm_build(source_dir: str, dest_dir: str, label: str, _run, _step):
+    """Run npm install + build locally (fallback when prebuilt artifacts unavailable)."""
+    # Ensure swap for OOM protection on low-memory VPS
+    out, code = await _run("npm install --legacy-peer-deps", cwd=source_dir, timeout=120)
+    _step(f"npm_install_{label}", out, code)
+    if code == 0:
+        out, code = await _run("npm run build", cwd=source_dir, timeout=180)
+        _step(f"build_{label}", out, code)
+        if code == 0:
+            out, code = await _run(f"cp -r {source_dir}/out/* {dest_dir}")
+            _step(f"deploy_{label}", out, code)
+
+
 class PlatformUpdateRequest(BaseModel):
     branch: str = "main"
     rebuild_dashboard: bool = True
     rebuild_admin: bool = True
     restart_services: list[str] = Field(default_factory=lambda: ["nso", "nso-agent"])
+    # Pre-built frontend artifacts from R2 (skip local npm builds)
+    prebuilt_dashboard_r2_key: str = ""
+    prebuilt_admin_r2_key: str = ""
+    r2_endpoint: str = ""
+    r2_bucket: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
 
 
 @router.post("/platform-update")
@@ -650,34 +676,59 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
     out, code = await _run("/opt/nso/venv/bin/pip install -r /opt/nso/requirements.txt --quiet")
     _step("pip_install", out, code)
 
-    # 4. Rebuild main dashboard
+    # 4. Deploy main dashboard (prebuilt from R2 or local npm build)
     if req.rebuild_dashboard:
-        dashboard_dir = "/opt/nso/repo/client/dashboard"
-        out, code = await _run("npm install --legacy-peer-deps", cwd=dashboard_dir, timeout=120)
-        _step("npm_install_dashboard", out, code)
-        if code == 0:
-            out, code = await _run("npm run build", cwd=dashboard_dir, timeout=180)
-            _step("build_dashboard", out, code)
-            if code == 0:
-                out, code = await _run(
-                    f"cp -r {dashboard_dir}/out/* /opt/nso/client/dashboard/"
+        if req.prebuilt_dashboard_r2_key and req.r2_endpoint:
+            # Download pre-built dashboard from R2 (built on main server)
+            try:
+                artifact = await _download_from_r2(
+                    req.r2_endpoint, req.r2_bucket, req.prebuilt_dashboard_r2_key,
+                    req.r2_access_key_id, req.r2_secret_access_key,
                 )
-                _step("deploy_dashboard", out, code)
+                dashboard_dest = Path("/opt/nso/client/dashboard")
+                dashboard_dest.mkdir(parents=True, exist_ok=True)
+                _extract_tar_gz(artifact, str(dashboard_dest))
+                _step("deploy_dashboard_prebuilt", f"Extracted prebuilt dashboard ({len(artifact)} bytes)", 0)
+            except Exception as e:
+                _step("deploy_dashboard_prebuilt", f"Failed to download prebuilt dashboard: {e}", 1)
+                logger.warning("Prebuilt dashboard download failed, falling back to local build: %s", e)
+                # Fallback to local build
+                await _local_npm_build(
+                    "/opt/nso/repo/client/dashboard", "/opt/nso/client/dashboard/",
+                    "dashboard", _run, _step,
+                )
+        else:
+            await _local_npm_build(
+                "/opt/nso/repo/client/dashboard", "/opt/nso/client/dashboard/",
+                "dashboard", _run, _step,
+            )
 
-    # 5. Rebuild admin dashboard
+    # 5. Deploy admin dashboard (prebuilt from R2 or local npm build)
     if req.rebuild_admin:
         admin_dir = "/opt/nso/repo/client/admin"
-        if os.path.exists(os.path.join(admin_dir, "package.json")):
-            out, code = await _run("npm install --legacy-peer-deps", cwd=admin_dir, timeout=120)
-            _step("npm_install_admin", out, code)
-            if code == 0:
-                out, code = await _run("npm run build", cwd=admin_dir, timeout=180)
-                _step("build_admin", out, code)
-                if code == 0:
-                    out, code = await _run(
-                        f"cp -r {admin_dir}/out/* /opt/nso/client/admin/"
+        if req.prebuilt_admin_r2_key and req.r2_endpoint:
+            try:
+                artifact = await _download_from_r2(
+                    req.r2_endpoint, req.r2_bucket, req.prebuilt_admin_r2_key,
+                    req.r2_access_key_id, req.r2_secret_access_key,
+                )
+                admin_dest = Path("/opt/nso/client/admin")
+                admin_dest.mkdir(parents=True, exist_ok=True)
+                _extract_tar_gz(artifact, str(admin_dest))
+                _step("deploy_admin_prebuilt", f"Extracted prebuilt admin ({len(artifact)} bytes)", 0)
+            except Exception as e:
+                _step("deploy_admin_prebuilt", f"Failed to download prebuilt admin: {e}", 1)
+                logger.warning("Prebuilt admin download failed, falling back to local build: %s", e)
+                if os.path.exists(os.path.join(admin_dir, "package.json")):
+                    await _local_npm_build(
+                        admin_dir, "/opt/nso/client/admin/",
+                        "admin", _run, _step,
                     )
-                    _step("deploy_admin", out, code)
+        elif os.path.exists(os.path.join(admin_dir, "package.json")):
+            await _local_npm_build(
+                admin_dir, "/opt/nso/client/admin/",
+                "admin", _run, _step,
+            )
 
     # 6. Restart services
     for svc in req.restart_services:
