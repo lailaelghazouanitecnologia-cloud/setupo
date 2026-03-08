@@ -45,6 +45,7 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id);
     CREATE INDEX IF NOT EXISTS idx_activity_action ON activity_log(action);
     CREATE INDEX IF NOT EXISTS idx_activity_created ON activity_log(created_at);
+    CREATE INDEX IF NOT EXISTS idx_activity_user_created ON activity_log(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_snapshots_type ON analytics_snapshots(snapshot_type);
     CREATE INDEX IF NOT EXISTS idx_snapshots_created ON analytics_snapshots(created_at);
 """

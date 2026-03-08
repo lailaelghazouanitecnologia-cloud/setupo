@@ -61,7 +61,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
         for p in orphans:
             await db.update("projects", p["id"], {"owner": auth.user_id})
         projects = owned + orphans
-    return {"projects": projects}
+    return {"projects": [pm._safe_project(p) for p in projects]}
 
 
 @router.get("/{project_id}")

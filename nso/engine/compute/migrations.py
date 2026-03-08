@@ -38,12 +38,14 @@ TABLES += """
         load_1m REAL DEFAULT 0,
         uptime INTEGER DEFAULT 0,
         history TEXT DEFAULT '[]',
-        collected_at TEXT DEFAULT ''
+        collected_at TEXT DEFAULT '',
+        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
     );
 """
 
 INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
     CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
+    CREATE INDEX IF NOT EXISTS idx_instances_project_state ON instances(project_id, state);
     CREATE INDEX IF NOT EXISTS idx_instance_metrics_instance ON instance_metrics(instance_id);
 """

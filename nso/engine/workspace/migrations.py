@@ -52,6 +52,7 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_ws_members_workspace ON workspace_members(workspace_id);
     CREATE INDEX IF NOT EXISTS idx_ws_members_user ON workspace_members(user_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_members_unique ON workspace_members(workspace_id, user_id);
+    CREATE INDEX IF NOT EXISTS idx_workspaces_instance ON workspaces(project_id, instance_id);
 """
 
 

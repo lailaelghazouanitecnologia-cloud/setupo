@@ -8,14 +8,16 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 
 def _get_jwt_secret() -> str:
     """Get JWT secret from env, file, or generate and persist one."""
+    from nso.config import settings
     env_secret = os.environ.get("NSO_JWT_SECRET", "")
     if env_secret:
         return env_secret
     # Persist to file so tokens survive restarts
-    secret_file = os.path.join(os.environ.get("NSO_DATA_DIR", "/opt/nso/data"), ".jwt_secret")
+    secret_file = os.path.join(str(settings.DATA_DIR), ".jwt_secret")
     try:
         if os.path.isfile(secret_file):
-            return open(secret_file).read().strip()
+            with open(secret_file) as f:
+                return f.read().strip()
     except Exception:
         pass
     new_secret = secrets.token_hex(32)
@@ -23,6 +25,7 @@ def _get_jwt_secret() -> str:
         os.makedirs(os.path.dirname(secret_file), exist_ok=True)
         with open(secret_file, "w") as f:
             f.write(new_secret)
+        os.chmod(secret_file, 0o600)
     except Exception:
         pass
     return new_secret

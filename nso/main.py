@@ -21,17 +21,19 @@ _ADMIN_SECRET_EXEMPT = {"/api/health", "/api/billing/stripe/webhook"}
 
 
 class AdminHostMiddleware(BaseHTTPMiddleware):
-    ADMIN_HOSTS = {"sonfazt.nso.dev", "localhost", "127.0.0.1"}
+    def __init__(self, app):
+        super().__init__(app)
+        self._admin_hosts = frozenset(settings.ADMIN_HOSTS)
 
     async def dispatch(self, request: Request, call_next):
         host = request.headers.get("host", "").split(":")[0]
-        is_admin_host = host in self.ADMIN_HOSTS
+        is_admin_host = host in self._admin_hosts
 
         # Block /api/admin/* from non-admin hosts
         if request.url.path.startswith("/api/admin") and not is_admin_host:
             return JSONResponse(
                 status_code=403,
-                content={"error": "Admin panel is only accessible via sonfazt.nso.dev"},
+                content={"error": "Admin panel is only accessible from configured admin hosts"},
             )
 
         # Tag request so login route knows if this is an admin-allowed host
@@ -53,13 +55,17 @@ class ServerModeMiddleware(BaseHTTPMiddleware):
                     provided = request.headers.get("x-admin-secret", "")
                     if not provided or not hmac.compare_digest(provided, admin_secret):
                         return JSONResponse(status_code=403, content={"error": "Access denied"})
+                else:
+                    # No admin secret configured — block all non-exempt requests in admin mode
+                    logger.warning("NSO_ADMIN_SECRET not set — blocking request to %s in admin mode", path)
+                    return JSONResponse(status_code=403, content={"error": "Admin secret not configured"})
 
-                allowed = [ip.strip() for ip in settings.ADMIN_ALLOWED_IPS if ip.strip()]
+                allowed = settings.ADMIN_ALLOWED_IPS
                 if allowed:
                     client_ip = request.client.host if request.client else ""
                     forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
                     real_ip = forwarded or client_ip
-                    if real_ip not in allowed and real_ip != "127.0.0.1":
+                    if real_ip not in allowed:
                         return JSONResponse(status_code=403, content={"error": "Access denied"})
 
         return await call_next(request)
@@ -184,6 +190,7 @@ from nso.engine.compute import ready_routes
 from nso.engine.compute import pool_routes
 from nso.engine.infrastructure.database import routes as infra_db_routes
 from nso.engine.infrastructure.storage import routes as infra_storage_routes
+from nso.engine.validator import routes as validator_routes
 
 app.include_router(auth_routes.router, prefix="/api/auth", tags=["auth"])
 app.include_router(subdomain_routes.router, prefix="/api/subdomain", tags=["subdomain"])
@@ -212,6 +219,7 @@ app.include_router(ready_routes.project_router, prefix="/api/projects/{project_i
 app.include_router(pool_routes.router, prefix="/api/compute/pool", tags=["compute-pool"])
 app.include_router(infra_db_routes.router, prefix="/api/projects/{project_id}/databases", tags=["databases"])
 app.include_router(infra_storage_routes.router, prefix="/api/projects/{project_id}/storage", tags=["user-storage"])
+app.include_router(validator_routes.router, prefix="/api/projects/{project_id}/validate", tags=["validator"])
 
 if SERVER_MODE in ("admin", "full"):
     from nso.engine.admin import routes as admin_routes
@@ -294,7 +302,7 @@ async def download_cli():
     )
 
 
-if os.environ.get("NSO_SERVE_STATIC"):
+if settings.SERVE_STATIC:
     from fastapi.staticfiles import StaticFiles
     dashboard_dir = os.path.join(os.path.dirname(__file__), "..", "client", "dashboard", "static")
     if os.path.isdir(dashboard_dir):

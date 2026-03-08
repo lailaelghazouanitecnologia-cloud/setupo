@@ -140,6 +140,9 @@ class Workspace(BaseModel):
     instance_id: Optional[str] = None
     git_url: Optional[str] = None
     branch: Optional[str] = None
+    agent_visible: bool = True
+    readonly: bool = False
+    protected_files: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

@@ -48,15 +48,21 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
     return project, api_key
 
 
+def _safe_project(project: dict) -> dict:
+    """Strip sensitive fields from project dict before returning to client."""
+    return {k: v for k, v in project.items() if k != "api_key_hash"}
+
+
 async def get_project(project_id: str) -> dict:
     project = await db.fetch_one("projects", id=project_id)
     if not project:
         raise NotFoundError("Project", project_id)
-    return project
+    return _safe_project(project)
 
 
 async def list_projects() -> list[dict]:
-    return await db.fetch_all("projects")
+    projects = await db.fetch_all("projects")
+    return [_safe_project(p) for p in projects]
 
 
 async def delete_project(project_id: str):

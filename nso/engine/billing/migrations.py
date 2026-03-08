@@ -207,9 +207,10 @@ TABLES = """
         event_type TEXT NOT NULL,
         resource_type TEXT DEFAULT '',
         resource_id TEXT DEFAULT '',
-        user_id TEXT DEFAULT '',
+        user_id TEXT NOT NULL DEFAULT '',
         data TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 """
 
@@ -237,4 +238,8 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_billing_events_type ON billing_events(event_type);
     CREATE INDEX IF NOT EXISTS idx_billing_events_resource ON billing_events(resource_type, resource_id);
     CREATE INDEX IF NOT EXISTS idx_billing_events_user ON billing_events(user_id);
+    CREATE INDEX IF NOT EXISTS idx_billing_events_created ON billing_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_billing_subs_status_cancelled ON billing_subscriptions(status, cancelled_at);
+    CREATE INDEX IF NOT EXISTS idx_billing_inv_number ON billing_invoices(number);
+    CREATE INDEX IF NOT EXISTS idx_billing_usage_created ON billing_usage_events(created_at);
 """

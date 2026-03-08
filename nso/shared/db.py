@@ -18,11 +18,14 @@ _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 JSON_FIELDS = frozenset({
     "settings", "metadata", "config", "config_schema",
     "features", "properties", "plan_codes", "items",
-    "data", "filters",
+    "data", "filters", "protected_files", "headers",
+    "tool_calls", "tool_results", "history",
 })
 BOOL_FIELDS = frozenset({
     "proxied", "managed", "enabled", "published",
     "verified", "read", "is_default", "active", "recurring",
+    "agent_visible", "readonly", "reachable", "auto_renew",
+    "auto_deploy", "sticky_sessions", "notify_slack", "notify_email",
 })
 
 

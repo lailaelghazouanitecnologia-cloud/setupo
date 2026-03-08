@@ -168,7 +168,8 @@ TABLES = """
         last_run TEXT DEFAULT '',
         next_run TEXT DEFAULT '',
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS task_executions (
@@ -207,5 +208,9 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_ssl_certs_project ON ssl_certificates(project_id);
     CREATE INDEX IF NOT EXISTS idx_ssl_certs_domain ON ssl_certificates(domain);
     CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_project ON scheduled_tasks(project_id);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled ON scheduled_tasks(enabled, next_run);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_instance ON scheduled_tasks(instance_id);
     CREATE INDEX IF NOT EXISTS idx_task_executions_task ON task_executions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_uptime_targets_enabled ON uptime_targets(enabled);
+    CREATE INDEX IF NOT EXISTS idx_addons_enabled ON addons(project_id, enabled);
 """

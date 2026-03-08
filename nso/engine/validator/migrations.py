@@ -7,9 +7,7 @@ Tables:
   validation_results — individual check results per run
 """
 
-MIGRATIONS = [
-    # ── Validation definitions (optional persistence) ──
-    """
+TABLES = """
     CREATE TABLE IF NOT EXISTS validations (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -20,15 +18,12 @@ MIGRATIONS = [
         metadata TEXT DEFAULT '{}',
         enabled INTEGER DEFAULT 1,
         created_by TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         UNIQUE(project_id, name)
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_validations_project ON validations(project_id)",
+    );
 
-    # ── Validation runs (a batch execution) ──
-    """
     CREATE TABLE IF NOT EXISTS validation_runs (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
@@ -42,14 +37,11 @@ MIGRATIONS = [
         skipped INTEGER DEFAULT 0,
         duration_ms INTEGER DEFAULT 0,
         metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now')),
-        completed_at TEXT
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_validation_runs_project ON validation_runs(project_id)",
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        completed_at TEXT,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+    );
 
-    # ── Individual check results ──
-    """
     CREATE TABLE IF NOT EXISTS validation_results (
         id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
@@ -62,9 +54,15 @@ MIGRATIONS = [
         error TEXT DEFAULT '',
         config TEXT DEFAULT '{}',
         metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (run_id) REFERENCES validation_runs(id) ON DELETE CASCADE
-    )
-    """,
-    "CREATE INDEX IF NOT EXISTS idx_validation_results_run ON validation_results(run_id)",
-]
+    );
+"""
+
+INDEXES = """
+    CREATE INDEX IF NOT EXISTS idx_validations_project ON validations(project_id);
+    CREATE INDEX IF NOT EXISTS idx_validation_runs_project ON validation_runs(project_id);
+    CREATE INDEX IF NOT EXISTS idx_validation_runs_status ON validation_runs(status);
+    CREATE INDEX IF NOT EXISTS idx_validation_results_run ON validation_results(run_id);
+    CREATE INDEX IF NOT EXISTS idx_validation_results_status ON validation_results(status);
+"""

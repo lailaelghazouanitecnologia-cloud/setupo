@@ -55,7 +55,7 @@ TABLES = """
     CREATE TABLE IF NOT EXISTS lb_pools (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
-        project_id TEXT DEFAULT '',
+        project_id TEXT NOT NULL DEFAULT '',
         algorithm TEXT DEFAULT 'round_robin',
         health_check_path TEXT DEFAULT '/api/health',
         health_check_interval INTEGER DEFAULT 30,
