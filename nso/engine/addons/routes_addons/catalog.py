@@ -29,6 +29,8 @@ async def _ensure_catalog_seeded():
     )
     valid_keys = {(e["addon_id"], t) for e, t in all_defaults}
 
+    existing_keys = {(e["addon_id"], e["addon_type"]) for e in existing}
+
     # Remove catalog entries that are no longer in defaults
     for entry in existing:
         key = (entry["addon_id"], entry["addon_type"])
@@ -36,28 +38,31 @@ async def _ensure_catalog_seeded():
             await db.delete("addon_catalog", entry["id"])
             logger.info("Removed stale catalog entry: %s (%s)", entry["addon_id"], entry["addon_type"])
 
-    if existing:
-        return
-
+    # Add missing catalog entries
     now = datetime.now(timezone.utc).isoformat()
+    added = 0
     for entry, addon_type in all_defaults:
-        await db.insert("addon_catalog", {
-            "id": f"cat_{token_gen.token_hex(8)}",
-            "addon_id": entry["addon_id"],
-            "addon_type": addon_type,
-            "name": entry["name"],
-            "description": entry["description"],
-            "version": "1.0.0",
-            "category": entry.get("category", ""),
-            "icon": entry.get("icon", ""),
-            "author": entry.get("author", "nso"),
-            "published": True,
-            "config_schema": entry.get("config_schema", {}),
-            "created_at": now,
-            "updated_at": now,
-        })
+        key = (entry["addon_id"], addon_type)
+        if key not in existing_keys:
+            await db.insert("addon_catalog", {
+                "id": f"cat_{token_gen.token_hex(8)}",
+                "addon_id": entry["addon_id"],
+                "addon_type": addon_type,
+                "name": entry["name"],
+                "description": entry["description"],
+                "version": "1.0.0",
+                "category": entry.get("category", ""),
+                "icon": entry.get("icon", ""),
+                "author": entry.get("author", "nso"),
+                "published": True,
+                "config_schema": entry.get("config_schema", {}),
+                "created_at": now,
+                "updated_at": now,
+            })
+            added += 1
 
-    logger.info("Seeded addon catalog with %d entries", len(all_defaults))
+    if added:
+        logger.info("Seeded %d new addon catalog entries", added)
 
 
 # Also keep old plugin_catalog seeded for backwards compat during migration
