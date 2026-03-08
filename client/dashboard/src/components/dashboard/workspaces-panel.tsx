@@ -6,7 +6,6 @@ import {
   File, Folder, ChevronRight,
   ArrowLeft, FileText, Code, Image,
   GitBranch, Package, Copy, Check,
-  Lock, Globe, Settings, Link,
 } from "lucide-react";
 import {
   listWorkspaces, createWorkspace, deleteWorkspace as apiDeleteWorkspace,
@@ -88,10 +87,8 @@ export function WorkspacesPanel() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newStack, setNewStack] = useState("custom");
   const [newDesc, setNewDesc] = useState("");
   const [newGitUrl, setNewGitUrl] = useState("");
-  const [newReadonly, setNewReadonly] = useState(false);
 
   const [tab, setTab] = useState<"files" | "versions">("files");
 
@@ -159,12 +156,10 @@ export function WorkspacesPanel() {
     const name = newName.trim();
     if (!name || !activeProject) return;
     try {
-      await createWorkspace(activeProject.id, name, newStack, newDesc, newGitUrl);
+      await createWorkspace(activeProject.id, name, newDesc, newGitUrl);
       setNewName("");
-      setNewStack("custom");
       setNewDesc("");
       setNewGitUrl("");
-      setNewReadonly(false);
       setCreating(false);
       fetchWorkspaces();
     } catch (e: any) { alert(e.message || "Failed to create workspace"); }
@@ -244,24 +239,6 @@ export function WorkspacesPanel() {
               autoFocus
             />
 
-            {/* Stack selector */}
-            <div className="ws-create-stacks">
-              {(["python", "node", "static", "custom"] as const).map((s) => {
-                const info = STACK_LABELS[s];
-                return (
-                  <button
-                    key={s}
-                    className={`ws-stack-chip ${newStack === s ? "active" : ""}`}
-                    onClick={() => setNewStack(s)}
-                    style={newStack === s ? { borderColor: info.color, color: info.color } : {}}
-                  >
-                    <span className="ws-stack-dot" style={{ background: info.color }} />
-                    {info.label}
-                  </button>
-                );
-              })}
-            </div>
-
             {/* Git URL (optional) */}
             <input
               className="ws-create-input"
@@ -277,17 +254,6 @@ export function WorkspacesPanel() {
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
             />
-
-            {/* Readonly toggle */}
-            <label className="ws-create-toggle">
-              <input
-                type="checkbox"
-                checked={newReadonly}
-                onChange={(e) => setNewReadonly(e.target.checked)}
-              />
-              <Lock className="h-3 w-3" />
-              <span>Read-only (protect config files)</span>
-            </label>
 
             <div className="ws-create-actions">
               <button className="ws-btn ws-btn-primary" onClick={handleCreate}>Create</button>

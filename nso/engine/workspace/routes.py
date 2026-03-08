@@ -33,6 +33,26 @@ def _ws_path(name: str) -> str:
     return str(settings.workspace_path(name))
 
 
+def _detect_stack(ws_path: str) -> str:
+    """Auto-detect stack from workspace files."""
+    if not os.path.isdir(ws_path):
+        return "custom"
+    files = set(os.listdir(ws_path))
+    if "package.json" in files or "yarn.lock" in files or "pnpm-lock.yaml" in files:
+        return "node"
+    if "requirements.txt" in files or "setup.py" in files or "pyproject.toml" in files or "Pipfile" in files:
+        return "python"
+    if "Cargo.toml" in files:
+        return "rust"
+    if "go.mod" in files:
+        return "go"
+    if "Dockerfile" in files or "docker-compose.yml" in files:
+        return "docker"
+    if "index.html" in files and not any(f.endswith((".py", ".js", ".ts", ".rs", ".go")) for f in files):
+        return "static"
+    return "custom"
+
+
 def _scaffold_workspace(ws_path: str, stack: str, name: str) -> None:
     if not stack or stack == "custom":
         return
@@ -97,15 +117,22 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
     else:
         os.makedirs(ws_path, exist_ok=True)
 
-    _scaffold_workspace(ws_path, req.stack, req.name)
+    # Auto-detect stack from files if not explicitly provided
+    stack = req.stack
+    if not stack or stack == "custom":
+        detected = _detect_stack(ws_path)
+        if detected != "custom":
+            stack = detected
+
+    _scaffold_workspace(ws_path, stack, req.name)
 
     config = WorkspaceConfig(
         name=req.name,
-        type=req.stack or "custom",
+        type=stack or "custom",
         description=req.description,
         git=WorkspaceGitConfig(url=req.git_url, branch=req.branch),
         deploy=WorkspaceDeployConfig(instance_id=req.instance_id),
-        services={"nginx": WorkspaceServiceConfig()} if req.stack != "custom" else {},
+        services={"nginx": WorkspaceServiceConfig()} if stack != "custom" else {},
     )
     write_config(ws_path, config)
 
@@ -116,7 +143,7 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
         "name": req.name,
         "path": ws_path,
         "ws_type": ws_type.value,
-        "stack": req.stack,
+        "stack": stack,
         "description": req.description,
         "instance_id": req.instance_id,
         "git_url": req.git_url,
