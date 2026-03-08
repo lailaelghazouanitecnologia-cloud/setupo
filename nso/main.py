@@ -119,7 +119,13 @@ async def lifespan(app: FastAPI):
         await services.start_all()
         app.state.services = services
 
+    # Start metrics collector (runs in all modes)
+    from nso.engine.compute.metrics import start_collector, stop_collector
+    start_collector()
+
     yield
+
+    stop_collector()
 
     logger.info("NSO shutting down...")
     if services:

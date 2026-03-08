@@ -300,8 +300,15 @@ export async function writeWorkspaceFile(projectId: string, name: string, path: 
   });
 }
 
-export async function listInstances(projectId: string) {
-  return centralApi<{ instances: any[] }>(`/api/projects/${projectId}/instances`);
+export async function listInstances(projectId: string, withMetrics = false) {
+  const url = withMetrics
+    ? `/api/projects/${projectId}/instances?metrics=true`
+    : `/api/projects/${projectId}/instances`;
+  return centralApi<{ instances: any[]; metrics?: any[] }>(url);
+}
+
+export async function getInstanceMetrics(projectId: string, instanceId: string) {
+  return centralApi<any>(`/api/projects/${projectId}/instances/${instanceId}/metrics`);
 }
 
 export async function createInstance(projectId: string, opts: {

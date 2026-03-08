@@ -13,7 +13,7 @@ import {
   listInstances, createInstance, deleteInstance,
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
-  listWorkspaces,
+  listWorkspaces, getInstanceMetrics,
 } from "@/lib/api/client";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -389,11 +389,62 @@ const selectStyle: React.CSSProperties = {
    INSTANCES TAB
    ═══════════════════════════════════════════ */
 
+interface InstanceMetrics {
+  instance_id: string;
+  cpu_percent: number;
+  mem_percent: number;
+  disk_percent: number;
+  load_1m: number;
+  uptime: number;
+  reachable: boolean;
+  collected_at: string;
+}
+
+function MetricBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ flex: 1, minWidth: 50 }}>
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        fontSize: 9, color: "var(--muted-foreground)", marginBottom: 2,
+      }}>
+        <span>{label}</span>
+        <span style={{ fontFamily: "monospace", color: value > 80 ? "var(--color-red)" : "inherit" }}>
+          {value}%
+        </span>
+      </div>
+      <div style={{
+        height: 3, background: "var(--border)", borderRadius: 2, overflow: "hidden",
+      }}>
+        <div style={{
+          height: "100%", width: `${Math.min(value, 100)}%`,
+          background: value > 90 ? "var(--color-red)" : value > 70 ? "var(--color-yellow)" : color,
+          borderRadius: 2, transition: "width 0.3s ease",
+        }} />
+      </div>
+    </div>
+  );
+}
+
+function InstanceMetricsBar({ metrics }: { metrics?: InstanceMetrics }) {
+  if (!metrics || !metrics.reachable) return null;
+  return (
+    <div style={{
+      display: "flex", gap: 8, padding: "4px 0 0",
+      marginTop: 4,
+    }}>
+      <MetricBar label="CPU" value={metrics.cpu_percent} color="var(--color-blue)" />
+      <MetricBar label="RAM" value={metrics.mem_percent} color="var(--color-green)" />
+      <MetricBar label="Disk" value={metrics.disk_percent} color="var(--color-yellow)" />
+    </div>
+  );
+}
+
 export function InstancesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || null;
   const [loading, setLoading] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [metrics, setMetrics] = useState<Record<string, InstanceMetrics>>({});
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<Instance | null>(null);
   const [panel, setPanel] = useState<"terminal" | "files" | null>(null);
@@ -409,8 +460,16 @@ export function InstancesTab() {
     setLoading(true);
     setError("");
     try {
-      const instRes = await listInstances(projectId);
+      const instRes = await listInstances(projectId, true);
       setInstances(instRes.instances || []);
+      // Map metrics by instance_id
+      if (instRes.metrics) {
+        const m: Record<string, InstanceMetrics> = {};
+        for (const item of instRes.metrics) {
+          m[item.instance_id] = item;
+        }
+        setMetrics(m);
+      }
     } catch {
       setInstances([]);
     }
@@ -564,6 +623,7 @@ export function InstancesTab() {
                 {inst.metadata?.source_type === "repository" ? " · github" : ""}
                 {inst.metadata?.source_type === "zar" ? ` · ${inst.metadata.zar_name || "zar"}` : ""}
               </div>
+              <InstanceMetricsBar metrics={metrics[inst.id]} />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
               {(inst.state === "creating" || inst.state === "installing") && (
@@ -644,6 +704,29 @@ export function InstancesTab() {
               </div>
             ))}
           </div>
+
+          {/* Metrics detail */}
+          {metrics[selected.id]?.reachable && (
+            <div className="sys-grid" style={{ marginBottom: 12 }}>
+              {[
+                { label: "CPU", value: `${metrics[selected.id].cpu_percent}%` },
+                { label: "Memory", value: `${metrics[selected.id].mem_percent}%` },
+                { label: "Disk", value: `${metrics[selected.id].disk_percent}%` },
+                { label: "Load", value: `${metrics[selected.id].load_1m}` },
+                { label: "Uptime", value: metrics[selected.id].uptime > 86400
+                  ? `${Math.floor(metrics[selected.id].uptime / 86400)}d`
+                  : metrics[selected.id].uptime > 3600
+                  ? `${Math.floor(metrics[selected.id].uptime / 3600)}h`
+                  : `${Math.floor(metrics[selected.id].uptime / 60)}m` },
+                { label: "Status", value: metrics[selected.id].reachable ? "Online" : "Offline" },
+              ].map((item) => (
+                <div key={item.label} className="sys-card">
+                  <div className="sys-label">{item.label}</div>
+                  <div className="sys-value">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Sub-panels */}
           {panel === "terminal" && projectId && (

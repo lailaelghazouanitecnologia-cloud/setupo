@@ -28,6 +28,27 @@ logger = logging.getLogger("nso.deploy_agent.tools.infrastructure")
 def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
     """Create infrastructure management tools bound to project context."""
 
+    async def list_instances() -> str:
+        """List all existing instances for this project. Always call this BEFORE considering create_instance.
+        Returns instances with their state, IP, workspace, and capacity info."""
+        instances = await db.fetch_all("instances", project_id=ctx.project_id)
+        result = []
+        for inst in instances:
+            result.append({
+                "id": inst["id"],
+                "label": inst.get("label", ""),
+                "state": inst.get("state", "unknown"),
+                "ip": inst.get("ip", ""),
+                "workspace": inst.get("workspace", ""),
+                "plan": inst.get("plan", ""),
+                "region": inst.get("region", ""),
+            })
+        return json.dumps({
+            "instances": result,
+            "count": len(result),
+            "hint": "Use an existing running/ready instance for deploys. Only create a new one if the user explicitly requests it.",
+        })
+
     async def create_instance(
         label: str = "",
         region: str = "ewr",
@@ -36,8 +57,29 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
         source_type: str = "",
         git_url: str = "",
         git_branch: str = "main",
+        force: bool = False,
     ) -> str:
-        """Create a new VPS instance. Provisions via Vultr. Optional: link to workspace, deploy from git."""
+        """Create a new VPS instance (Vultr). IMPORTANT: Only use this if the user explicitly asks to create a new instance.
+        For deploys, use an existing instance instead — call list_instances first.
+        Set force=True only if the user confirms they want a new VPS."""
+
+        # Guard: check for existing usable instances unless force=True
+        if not force:
+            instances = await db.fetch_all("instances", project_id=ctx.project_id)
+            usable = [i for i in instances if i.get("state") in ("ready", "running", "active")]
+            if usable:
+                info = [{
+                    "id": i["id"], "label": i.get("label", ""), "ip": i.get("ip", ""),
+                    "state": i.get("state"), "workspace": i.get("workspace", ""),
+                } for i in usable]
+                return json.dumps({
+                    "blocked": True,
+                    "reason": "There are existing instances available. Use one of them for deploy instead of creating a new VPS.",
+                    "existing_instances": info,
+                    "hint": "To deploy, use link_workspace_instance to link the workspace, then run the deploy. "
+                            "Only create a new instance if the user explicitly requests it (set force=True).",
+                })
+
         from nso.shared.models import CreateInstanceRequest, InstanceType
         from nso.engine.compute.service import create_instance as _create
 
@@ -232,7 +274,8 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
         })
 
     return [
-        (create_instance, "create_instance", "Create a new VPS instance (Vultr). Specify label, region, plan, workspace."),
+        (list_instances, "list_instances", "List all existing instances. ALWAYS call this before create_instance to check what's available."),
+        (create_instance, "create_instance", "Create a new VPS instance (Vultr). Only use if user explicitly requests it — check list_instances first."),
         (manage_service, "manage_service", "Start/stop/restart/status a systemd service on an instance"),
         (manage_domain, "manage_domain", "Manage domain: auto-assign workspace.user.nso.dev, set custom domain, remove, or list domains"),
         (link_workspace_instance, "link_workspace_instance", "Link a workspace to an instance for deployments"),

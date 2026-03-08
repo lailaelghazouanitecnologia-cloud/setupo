@@ -22,7 +22,28 @@ TABLES = """
     );
 """
 
+TABLES += """
+    CREATE TABLE IF NOT EXISTS instance_metrics (
+        id TEXT PRIMARY KEY,
+        instance_id TEXT NOT NULL UNIQUE,
+        ip TEXT DEFAULT '',
+        reachable INTEGER DEFAULT 0,
+        cpu_percent REAL DEFAULT 0,
+        mem_percent REAL DEFAULT 0,
+        mem_used_mb INTEGER DEFAULT 0,
+        mem_total_mb INTEGER DEFAULT 0,
+        disk_percent REAL DEFAULT 0,
+        disk_used_gb REAL DEFAULT 0,
+        disk_total_gb REAL DEFAULT 0,
+        load_1m REAL DEFAULT 0,
+        uptime INTEGER DEFAULT 0,
+        history TEXT DEFAULT '[]',
+        collected_at TEXT DEFAULT ''
+    );
+"""
+
 INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
     CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);
+    CREATE INDEX IF NOT EXISTS idx_instance_metrics_instance ON instance_metrics(instance_id);
 """

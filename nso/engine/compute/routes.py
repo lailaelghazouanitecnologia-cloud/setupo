@@ -29,9 +29,13 @@ async def create_instance(req: CreateInstanceRequest, project_id: str = Depends(
 
 
 @router.get("")
-async def list_instances(project_id: str = Depends(require_project)):
+async def list_instances(project_id: str = Depends(require_project), metrics: bool = False):
     instances = await im.list_instances(project_id)
-    return {"instances": instances}
+    result = {"instances": instances}
+    if metrics:
+        from nso.engine.compute.metrics import get_project_metrics
+        result["metrics"] = await get_project_metrics(project_id)
+    return result
 
 
 @router.get("/{instance_id}")
@@ -77,6 +81,15 @@ async def exec_on_instance(instance_id: str, req: InstanceExecRequest, project_i
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"output": output, "exit_code": exit_code}
+
+
+@router.get("/{instance_id}/metrics")
+async def get_instance_metrics(instance_id: str, project_id: str = Depends(require_project)):
+    from nso.engine.compute.metrics import get_instance_metrics as _get
+    result = await _get(project_id, instance_id)
+    if not result:
+        raise HTTPException(404, "Instance not found")
+    return result
 
 
 @router.get("/{instance_id}/logs")

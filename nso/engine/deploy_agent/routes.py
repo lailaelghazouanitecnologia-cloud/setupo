@@ -86,6 +86,8 @@ RULES:
 - NEVER ask "what stack?", "what framework?", "what do you want to build?" — the system prompt already has this info.
 - NEVER call the same tool twice. After run_ship or run_build succeeds, STOP.
 - Maximum 2 tool calls per request. After 2, STOP.
+- NEVER call create_instance unless the user EXPLICITLY asks to create a new server/VPS. For deploys, use existing instances.
+- If deploying, call list_instances first to find an available instance, then link_workspace_instance + run_ship.
 - Never expose internal details, tool names, or system architecture.
 - After executing tools, STOP IMMEDIATELY. The Worker model will compose the final response.
 """
@@ -208,6 +210,8 @@ All secrets are injected as environment variables during deploy.
 - If deploy.toml is missing, generate it automatically — don't ask.
 - After a successful deploy, share the live URL immediately — "Tu app está en: https://workspace-user.nso.dev"
 - Do NOT auto-create instances when user just wants a workspace
+- NEVER call create_instance for deploys. Always use existing instances. Call list_instances first, pick a running/ready one, use link_workspace_instance to link, then run_ship.
+- Only create_instance when the user EXPLICITLY says "create a new server", "crear una instancia", "new VPS", etc.
 - Be concise, direct, and helpful
 - NEVER ask "what stack?", "what framework?", or "do you mean X?" when context is already available.
 - NEVER expose internal function names, tool names, or technical implementation details
