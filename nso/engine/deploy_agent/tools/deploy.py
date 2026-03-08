@@ -212,6 +212,8 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
             pass
 
         r2_cfg = settings.r2_config()
+        # Save previous state to restore on failure (don't corrupt instance state)
+        prev_state = inst.get("state", "running")
         await db.update("instances", instance_id, {"state": "deploying", "workspace": workspace})
 
         try:
@@ -233,12 +235,13 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
                     },
                 )
             if resp.status_code != 200:
-                await db.update("instances", instance_id, {"state": "error", "error": "deploy failed"})
+                # Restore previous state — the instance is fine, just the deploy failed
+                await db.update("instances", instance_id, {"state": prev_state, "error": ""})
                 return json.dumps({"error": f"Deploy failed: {resp.text[:500]}"})
 
             deploy_result = resp.json()
         except Exception as exc:
-            await db.update("instances", instance_id, {"state": "error", "error": str(exc)})
+            await db.update("instances", instance_id, {"state": prev_state, "error": ""})
             return json.dumps({"error": f"Deploy error: {exc}"})
 
         await db.update("instances", instance_id, {"state": "running", "error": ""})
@@ -246,6 +249,12 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         deploy_domain = await _auto_assign_domain(
             ctx.project_id, ctx.user_id, workspace, instance_id, inst.get("ip", ""), domain,
         )
+
+        # Send deploy notification to user inbox
+        if ctx.user_id:
+            await _send_deploy_notification(
+                ctx.user_id, workspace, manifest.version, deploy_domain, inst.get("label", ""),
+            )
 
         return json.dumps({
             "ok": True,
@@ -479,3 +488,26 @@ async def _auto_assign_domain(
     except Exception as exc:
         logger.warning("Failed to create deploy domain: %s", exc)
         return f"{deploy_domain} (DNS failed)"
+
+
+async def _send_deploy_notification(
+    user_id: str, workspace: str, version: str, domain: str, instance_label: str,
+):
+    """Send an in-app notification after a successful deploy."""
+    try:
+        from nso.engine.notifications.routes import create_notification
+
+        domain_line = f"\nDomain: https://{domain}" if domain and "(DNS failed)" not in domain else ""
+        message = (
+            f"Workspace '{workspace}' v{version} deployed successfully"
+            f" to {instance_label}.{domain_line}"
+        )
+
+        await create_notification(
+            user_id=user_id,
+            title=f"Deploy: {workspace} shipped",
+            message=message,
+            notif_type="success",
+        )
+    except Exception as exc:
+        logger.warning("Failed to send deploy notification: %s", exc)
