@@ -429,54 +429,118 @@ pack workspace → push .zar to R2 → agent pulls from R2 → snapshot → extr
 Workspaces depend on others via `[package.dependencies]` in config.toml.
 Resolved recursively (max depth 5) from R2.
 
-## Database Tables
+## Database Tables (49 total)
 
-### Core
-| Table | Purpose |
-|-------|---------|
-| `projects` | Project metadata + API key hash |
-| `instances` | VPS instances per project |
-| `workspaces` | Workspace metadata per project |
-| `domains` | Domain records per project |
-| `deploy_logs` | Deploy log entries per instance |
-| `plugins` | Installed plugins per project (legacy) |
-| `plugin_catalog` | Admin-published plugin definitions (legacy) |
-| `addon_catalog` | Unified addon catalog (connectors, plugins, marketplace) |
-| `addons` | Installed addons per project (connectors, plugins, marketplace) |
-| `modules` | System module catalog (server, core, agent, dashboard) |
+```
+AUTH (2)
+├── users                    — accounts (email, password_hash, role, balance, subdomain)
+└── email_tokens             → users CASCADE — verification/reset tokens
 
-### Users & Auth
-| Table | Purpose |
-|-------|---------|
-| `users` | User accounts (email, password_hash, role, balance, subdomain) |
-| `email_tokens` | Single-use tokens for verification/reset |
-| `notifications` | Per-user notification inbox |
-| `activity_log` | User activity tracking + admin audit trail |
-| `analytics_snapshots` | Periodic analytics snapshots |
+PROJECTS (2)
+├── projects                 — metadata + api_key_hash (UNIQUE)
+└── project_secrets          → projects CASCADE — per-project env vars (UNIQUE project+key+scope)
 
-### Billing (Lago-inspired)
-| Table | Purpose |
-|-------|---------|
-| `billing_plans` | Plan definitions (code, interval, amount) |
-| `billing_subscriptions` | Active subscriptions per user |
-| `billing_invoices` | Invoice records |
-| `billing_invoice_items` | Line items per invoice |
-| `billing_payment_methods` | Stripe payment methods |
-| `billing_usage_events` | Metered usage events |
-| `billing_coupons` | Coupon definitions |
-| `billing_applied_coupons` | Coupons applied to users |
-| `billing_credit_notes` | Refunds and credits |
-| `billing_billable_metrics` | Custom billing metrics |
-| `billing_taxes` | Tax rate definitions |
-| `billing_wallets` | Prepaid credit wallets |
-| `billing_wallet_transactions` | Wallet transaction log |
-| `billing_events` | Billing event audit trail |
-| `transactions` | Legacy balance transactions |
+COMPUTE (6)
+├── instances                → projects CASCADE — VPS instances (state machine)
+├── instance_metrics         → instances CASCADE (UNIQUE instance_id) — CPU/mem/disk
+├── compute_hosts            — multi-tenant host machines (no FK)
+├── compute_vms              → hosts FK, projects FK (⚠ NO CASCADE) — tenant VMs
+├── compute_plans            — VM plan catalog (standalone)
+└── compute_quotas           → projects CASCADE — per-project VM limits
 
-### Blockchain Ledger
-| Table | Purpose |
-|-------|---------|
-| `ledger_blocks` | Hash-linked transaction blocks per user |
+WORKSPACE (3)
+├── workspaces               → projects CASCADE (UNIQUE project+name)
+├── workspace_shares         → workspaces CASCADE — join codes
+└── workspace_members        → workspaces CASCADE, users CASCADE — collaboration
+
+DNS (1)
+└── domains                  → projects CASCADE, instances CASCADE
+
+DEPLOY (3)
+├── deploy_logs              → instances CASCADE — deploy log entries
+├── deploy_threads           → projects CASCADE — AI deploy conversations
+└── deploy_messages          → deploy_threads CASCADE — thread messages
+
+BUILD (2)
+├── build_cache              → projects CASCADE (UNIQUE project+workspace+hash)
+└── build_logs               → projects CASCADE
+
+ORCHESTRATOR (10)
+├── instance_pool            → instances CASCADE (UNIQUE instance_id) — build nodes
+├── build_queue              → projects CASCADE, instance_pool SET NULL
+├── orchestrator_alerts      → instance_pool CASCADE
+├── lb_pools                 — load balancer pools (⚠ project_id has NO FK)
+├── lb_backends              → lb_pools CASCADE, instances CASCADE
+├── lb_rules                 → lb_pools CASCADE — routing rules
+├── instance_specs           — desired state (⚠ project_id has NO FK)
+├── workspace_specs          — desired state (⚠ project_id has NO FK)
+├── system_specs             — desired state (project_id PK, NO FK)
+└── reconcile_log            — reconciliation audit (standalone)
+
+BILLING (15)
+├── billing_plans            — plan catalog (UNIQUE code, standalone)
+├── billing_subscriptions    → users CASCADE, plans RESTRICT
+├── billing_invoices         → users CASCADE
+├── billing_invoice_items    → invoices CASCADE
+├── billing_payment_methods  → users CASCADE — Stripe methods
+├── billing_usage_events     → users CASCADE (⚠ NO project_id)
+├── billing_coupons          — coupon definitions (UNIQUE code)
+├── billing_applied_coupons  → users CASCADE, coupons CASCADE
+├── billing_credit_notes     → users CASCADE, invoices SET NULL
+├── billing_billable_metrics — metric definitions (UNIQUE code)
+├── billing_taxes            — tax rates (UNIQUE code)
+├── billing_wallets          → users CASCADE — prepaid credit
+├── billing_wallet_transactions → wallets CASCADE
+├── billing_events           → users CASCADE — audit trail
+└── transactions (legacy)    → users CASCADE
+
+ADDONS (9)
+├── plugin_catalog (legacy)  — standalone
+├── plugins (legacy)         → projects CASCADE (UNIQUE project+plugin_id)
+├── addon_catalog            — standalone (UNIQUE addon_id+type)
+├── addons                   → projects CASCADE (UNIQUE project+addon_id+type)
+├── modules                  — system module catalog (UNIQUE name)
+├── webhook_configs          → projects CASCADE — GitHub webhook config
+├── webhook_deliveries       → webhook_configs CASCADE
+├── uptime_targets           → projects CASCADE — uptime monitoring
+├── uptime_results           → uptime_targets CASCADE
+├── ssl_certificates         → projects CASCADE
+├── scheduled_tasks          → projects CASCADE, instances CASCADE — cron
+└── task_executions          → scheduled_tasks CASCADE
+
+ADMIN (3)
+├── ledger_blocks            → users CASCADE — blockchain audit trail
+├── activity_log             → users CASCADE — user actions
+└── analytics_snapshots      — periodic snapshots (standalone)
+
+NOTIFICATIONS (1)
+└── notifications            → users CASCADE — inbox
+
+VALIDATOR (3)
+├── validations              → projects CASCADE (UNIQUE project+name)
+├── validation_runs          → projects CASCADE
+└── validation_results       → validation_runs CASCADE
+
+INFRASTRUCTURE (2)
+├── managed_databases        → projects CASCADE, instances CASCADE
+└── storage_buckets          → projects CASCADE (UNIQUE project+name)
+
+SYSTEM (1)
+└── system_events            — event log (standalone)
+```
+
+### Known Schema Issues
+
+| # | Severity | Issue |
+|---|----------|-------|
+| 1 | CRITICAL | `compute_vms` FK has NO CASCADE — deleting project/host orphans running VMs |
+| 2 | CRITICAL | `users.balance` (float) vs `billing_wallets.balance_cents` (int) — dual source of truth for money |
+| 3 | HIGH | `billing_usage_events` has no `project_id` — cannot bill per project |
+| 4 | HIGH | `lb_pools`, `instance_specs`, `workspace_specs`, `system_specs` — project_id without FK |
+| 5 | MEDIUM | `projects.owner` has no FK to users — orphaned projects on user delete |
+| 6 | MEDIUM | `billing_invoices.subscription_id` has no FK — can reference deleted subs |
+| 7 | LOW | Legacy duplication: `plugin_catalog`+`plugins` AND `addon_catalog`+`addons` |
+| 8 | LOW | Triple money tracking: `transactions` + `billing_wallet_transactions` + `ledger_blocks` |
 
 ## Environment Variables
 
