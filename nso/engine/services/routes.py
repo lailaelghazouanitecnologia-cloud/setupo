@@ -150,22 +150,25 @@ async def stop_service(
     """Stop all replicas of a service across all instances."""
     try:
         from nso.engine.compute.supervisor_sync import stop_service as agent_stop
-        from nso.engine.compute.service import get_instance
 
         service = await svc.get_service(project_id, service_id)
         replicas = await svc.list_replicas(service_id)
         stopped = 0
+        failures = []
         for replica in replicas:
             try:
                 await agent_stop(project_id, replica["instance_id"], service["name"])
                 await svc.update_replica(replica["id"], status="stopped")
                 stopped += 1
-            except Exception:
-                pass
+            except Exception as e:
+                failures.append({"instance_id": replica["instance_id"], "error": str(e)})
         await svc.update_service(project_id, service_id, status="stopped")
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
-    return {"stopped": stopped, "service_id": service_id}
+    result = {"stopped": stopped, "service_id": service_id}
+    if failures:
+        result["failures"] = failures
+    return result
 
 
 # ── Health ──

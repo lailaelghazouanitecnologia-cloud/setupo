@@ -28,6 +28,26 @@ def _now() -> str:
 
 async def create_service(project_id: str, name: str, **kwargs) -> dict:
     """Register a new service in the project."""
+    import re
+    if not name or len(name) > 128:
+        raise ValidationError("Service name must be 1-128 characters")
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_.-]*$', name):
+        raise ValidationError("Service name must start with a letter and contain only alphanumeric, dash, dot, or underscore")
+
+    port = kwargs.get("port")
+    if port is not None and (not isinstance(port, int) or port < 0 or port > 65535):
+        raise ValidationError("Port must be an integer between 0 and 65535")
+
+    scaling_min = kwargs.get("scaling_min")
+    scaling_max = kwargs.get("scaling_max")
+    if scaling_min is not None and scaling_max is not None and scaling_min > scaling_max:
+        raise ValidationError("scaling_min cannot exceed scaling_max")
+
+    valid_types = {"web", "worker", "cron", "daemon", "task"}
+    stype = kwargs.get("service_type")
+    if stype and stype not in valid_types:
+        raise ValidationError(f"Invalid service_type: {stype}. Must be one of: {valid_types}")
+
     existing = await db.fetch_one("service_registry", project_id=project_id, name=name)
     if existing:
         raise ConflictError(f"Service '{name}' already exists in this project")
@@ -339,8 +359,12 @@ async def evaluate_scaling(service_id: str) -> dict:
 async def scale_service(project_id: str, service_id: str, replicas: int) -> dict:
     """
     Manually set the desired replica count for a service.
-    Updates the scaling policy min/max to match.
+    Updates the scaling policy and provisions/terminates replicas as needed.
     """
+    from nso.engine.compute.supervisor_sync import apply_services as apply_to_agent
+    from nso.engine.compute.supervisor_sync import stop_service as agent_stop
+    from nso.engine.compute.service import get_instance
+
     svc = await get_service(project_id, service_id)
     policy = await get_scaling_policy(service_id)
 
@@ -349,8 +373,11 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
     if replicas > 50:
         raise ValidationError("Maximum 50 replicas per service")
 
-    current = await get_replica_count(service_id)
+    current_replicas = await list_replicas(service_id)
+    active = [r for r in current_replicas if r.get("status") not in ("stopped", "failed", "destroyed")]
+    current = len(active)
 
+    # Update scaling policy
     if policy:
         await db.update("scaling_policies", policy["id"], {
             "min_replicas": replicas,
@@ -360,6 +387,60 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
     else:
         await set_scaling_policy(service_id, min_replicas=replicas, max_replicas=replicas)
 
+    actions = []
+
+    if replicas > current:
+        # Scale up — find available instances in the project
+        all_instances = await db.fetch_all("instances", project_id=project_id)
+        running_instances = [i for i in all_instances
+                            if i.get("state") in ("running", "ready", "active") and i.get("ip")]
+        used_instance_ids = {r["instance_id"] for r in active}
+        available = [i for i in running_instances if i["id"] not in used_instance_ids]
+
+        needed = replicas - current
+        to_deploy = available[:needed]
+
+        spec = {
+            "name": svc["name"],
+            "command": svc.get("command", ""),
+            "port": svc.get("port", 0),
+            "working_dir": svc.get("working_dir", "/opt/app"),
+            "health_path": svc.get("health_path", ""),
+            "restart_policy": svc.get("restart_policy", "always"),
+            "version": svc.get("version", ""),
+        }
+        env = svc.get("env")
+        if isinstance(env, dict):
+            spec["env"] = env
+
+        for inst in to_deploy:
+            try:
+                await apply_to_agent(project_id, inst["id"], [spec])
+                await add_replica(service_id, inst["id"],
+                                  version=svc.get("version", ""),
+                                  port=svc.get("port", 0))
+                actions.append({"instance_id": inst["id"], "action": "added"})
+            except Exception as e:
+                logger.error("Scale-up failed for instance %s: %s", inst["id"], e)
+                actions.append({"instance_id": inst["id"], "action": "failed", "error": str(e)})
+
+        if len(to_deploy) < needed:
+            actions.append({"warning": f"Only {len(to_deploy)} instances available, needed {needed}"})
+
+    elif replicas < current:
+        # Scale down — stop excess replicas (newest first)
+        excess = current - replicas
+        to_remove = sorted(active, key=lambda r: r.get("created_at", ""), reverse=True)[:excess]
+
+        for replica in to_remove:
+            try:
+                await agent_stop(project_id, replica["instance_id"], svc["name"])
+                await update_replica(replica["id"], status="stopped")
+                actions.append({"instance_id": replica["instance_id"], "action": "stopped"})
+            except Exception as e:
+                logger.error("Scale-down failed for replica %s: %s", replica["id"], e)
+                actions.append({"instance_id": replica["instance_id"], "action": "failed", "error": str(e)})
+
     await _emit_event(service_id, None, "scaled",
                       f"Scaled from {current} to {replicas} replicas")
 
@@ -367,6 +448,7 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
         "service_id": service_id,
         "previous_replicas": current,
         "target_replicas": replicas,
+        "actions": actions,
     }
 
 
@@ -385,6 +467,21 @@ async def create_connection(
         raise ValidationError(f"Invalid source_type: {source_type}. Must be one of: {valid_types}")
     if target_type not in valid_types:
         raise ValidationError(f"Invalid target_type: {target_type}. Must be one of: {valid_types}")
+
+    # Validate that referenced resources exist (skip 'external' type)
+    _type_table = {
+        "service": "service_registry",
+        "database": "managed_databases",
+        "bucket": "storage_buckets",
+        "instance": "instances",
+        "workspace": "workspaces",
+    }
+    for rtype, rid, label in [(source_type, source_id, "Source"), (target_type, target_id, "Target")]:
+        table = _type_table.get(rtype)
+        if table:
+            resource = await db.fetch_one(table, id=rid)
+            if not resource:
+                raise NotFoundError(f"{label} {rtype}", rid)
 
     # Check for duplicate
     existing = await db.fetch_one(
