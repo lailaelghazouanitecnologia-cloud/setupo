@@ -6,6 +6,7 @@ import {
   File, Folder, ChevronRight,
   ArrowLeft, FileText, Code, Image,
   GitBranch, Package, Copy, Check,
+  Lock, Globe, Settings, Link,
 } from "lucide-react";
 import {
   listWorkspaces, createWorkspace, deleteWorkspace as apiDeleteWorkspace,
@@ -62,6 +63,9 @@ const STACK_LABELS: Record<string, { label: string; color: string }> = {
   node: { label: "Node.js", color: "#22c55e" },
   python: { label: "Python", color: "#3b82f6" },
   static: { label: "Static", color: "#8b5cf6" },
+  go: { label: "Go", color: "#06b6d4" },
+  rust: { label: "Rust", color: "#f97316" },
+  docker: { label: "Docker", color: "#2496ed" },
   custom: { label: "Custom", color: "var(--muted-foreground)" },
 };
 
@@ -79,7 +83,10 @@ export function WorkspacesPanel() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newStack] = useState("custom");
+  const [newStack, setNewStack] = useState("custom");
+  const [newDesc, setNewDesc] = useState("");
+  const [newGitUrl, setNewGitUrl] = useState("");
+  const [newReadonly, setNewReadonly] = useState(false);
 
   const [tab, setTab] = useState<"files" | "versions">("files");
 
@@ -147,8 +154,12 @@ export function WorkspacesPanel() {
     const name = newName.trim();
     if (!name || !activeProject) return;
     try {
-      await createWorkspace(activeProject.id, name, newStack);
+      await createWorkspace(activeProject.id, name, newStack, newDesc, newGitUrl);
       setNewName("");
+      setNewStack("custom");
+      setNewDesc("");
+      setNewGitUrl("");
+      setNewReadonly(false);
       setCreating(false);
       fetchWorkspaces();
     } catch (e: any) { alert(e.message || "Failed to create workspace"); }
@@ -223,10 +234,56 @@ export function WorkspacesPanel() {
               className="ws-create-input"
               placeholder="workspace-name"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => setNewName(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               autoFocus
             />
+
+            {/* Stack selector */}
+            <div className="ws-create-stacks">
+              {(["python", "node", "static", "custom"] as const).map((s) => {
+                const info = STACK_LABELS[s];
+                return (
+                  <button
+                    key={s}
+                    className={`ws-stack-chip ${newStack === s ? "active" : ""}`}
+                    onClick={() => setNewStack(s)}
+                    style={newStack === s ? { borderColor: info.color, color: info.color } : {}}
+                  >
+                    <span className="ws-stack-dot" style={{ background: info.color }} />
+                    {info.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Git URL (optional) */}
+            <input
+              className="ws-create-input"
+              placeholder="Git URL (optional) — user/repo or https://..."
+              value={newGitUrl}
+              onChange={(e) => setNewGitUrl(e.target.value)}
+            />
+
+            {/* Description (optional) */}
+            <input
+              className="ws-create-input"
+              placeholder="Description (optional)"
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+            />
+
+            {/* Readonly toggle */}
+            <label className="ws-create-toggle">
+              <input
+                type="checkbox"
+                checked={newReadonly}
+                onChange={(e) => setNewReadonly(e.target.checked)}
+              />
+              <Lock className="h-3 w-3" />
+              <span>Read-only (protect config files)</span>
+            </label>
+
             <div className="ws-create-actions">
               <button className="ws-btn ws-btn-primary" onClick={handleCreate}>Create</button>
               <button className="ws-btn ws-btn-ghost" onClick={() => setCreating(false)}>Cancel</button>
@@ -255,10 +312,14 @@ export function WorkspacesPanel() {
                     <FolderOpen className="h-3.5 w-3.5" />
                   </div>
                   <div className="ws-sidebar-item-info">
-                    <span className="ws-sidebar-item-name">{ws.name}</span>
+                    <span className="ws-sidebar-item-name">
+                      {ws.name}
+                      {ws.readonly ? <Lock className="h-2.5 w-2.5" style={{ opacity: 0.4, marginLeft: 4 }} /> : null}
+                    </span>
                     <span className="ws-sidebar-item-meta">
                       <span className="ws-stack-dot" style={{ background: stack.color }} />
                       {stack.label}
+                      {ws.description ? <span className="ws-sidebar-item-desc"> — {ws.description}</span> : null}
                     </span>
                   </div>
                   <button

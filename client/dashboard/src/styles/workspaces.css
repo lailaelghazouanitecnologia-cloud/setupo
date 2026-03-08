@@ -108,6 +108,40 @@
 }
 .ws-create-input:focus, .ws-create-select:focus { border-color: var(--foreground); }
 .ws-create-input::placeholder { color: var(--muted-foreground); opacity: 0.5; }
+/* Stack chips */
+.ws-create-stacks {
+  display: flex; gap: 4px; flex-wrap: wrap;
+}
+.ws-stack-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; font-size: 10px; font-weight: 500;
+  border: 1px solid var(--border); border-radius: 6px;
+  background: none; cursor: pointer;
+  color: var(--muted-foreground);
+  transition: all 0.15s;
+}
+.ws-stack-chip:hover { border-color: var(--foreground); color: var(--foreground); }
+.ws-stack-chip.active { background: color-mix(in srgb, var(--foreground) 8%, transparent); }
+
+/* Toggle */
+.ws-create-toggle {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted-foreground);
+  cursor: pointer;
+}
+.ws-create-toggle input[type="checkbox"] {
+  width: 14px; height: 14px; accent-color: var(--foreground);
+}
+
+/* Description in sidebar */
+.ws-sidebar-item-desc {
+  opacity: 0.5; font-size: 9px;
+  max-width: 100px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ws-sidebar-item-name {
+  display: flex; align-items: center;
+}
+
 .ws-create-actions { display: flex; gap: 4px; }
 .ws-btn {
   padding: 4px 12px; font-size: 11px; border-radius: 6px;

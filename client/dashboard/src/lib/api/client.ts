@@ -270,10 +270,12 @@ export async function listWorkspaces(projectId: string) {
   return centralApi<{ workspaces: any[] }>(`/api/projects/${projectId}/workspaces`);
 }
 
-export async function createWorkspace(projectId: string, name: string, stack = "node", description = "") {
+export async function createWorkspace(projectId: string, name: string, stack = "node", description = "", git_url = "") {
+  const body: Record<string, string> = { name, stack, description };
+  if (git_url) body.git_url = git_url;
   return centralApi<any>(`/api/projects/${projectId}/workspaces`, {
     method: "POST",
-    body: JSON.stringify({ name, stack, description }),
+    body: JSON.stringify(body),
   });
 }
 
