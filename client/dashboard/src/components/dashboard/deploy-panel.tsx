@@ -95,6 +95,8 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -113,18 +115,20 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
     ta.style.height = Math.min(ta.scrollHeight, 200) + "px";
   }, []);
 
-  // Load threads
+  // Load threads + workspaces
   useEffect(() => {
     setLoading(true);
     setActiveThreadId(null);
     setMessages([]);
-    listDeployThreads(projectId)
-      .then((r) => {
-        setThreads(r.threads || []);
-        if (r.threads?.length > 0) setActiveThreadId(r.threads[0].id);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    setSelectedWorkspace(null);
+    Promise.all([
+      listDeployThreads(projectId).catch(() => ({ threads: [] })),
+      listWorkspaces(projectId).catch(() => ({ workspaces: [] })),
+    ]).then(([threadRes, wsRes]) => {
+      setThreads(threadRes.threads || []);
+      setWorkspaces(wsRes.workspaces || []);
+      if (threadRes.threads?.length > 0) setActiveThreadId(threadRes.threads[0].id);
+    }).finally(() => setLoading(false));
   }, [projectId]);
 
   // Load messages when thread changes
@@ -192,6 +196,10 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
   const sendMessage = async (override?: string) => {
     let content = (override || input).trim();
     if (!content || streaming) return;
+    // Prepend workspace context if selected
+    if (selectedWorkspace) {
+      content = `[workspace: ${selectedWorkspace}]\n${content}`;
+    }
     // Prepend attachment context
     if (attachments.length > 0) {
       const ctx = attachments.map((a) => {
@@ -354,6 +362,31 @@ function DeployAgentChat({ projectId }: { projectId: string }) {
           <div className="da-welcome">
             <div className="da-welcome-inner">
               <h2 className="da-welcome-title">What can I help you deploy?</h2>
+
+              {/* Workspace selector */}
+              {workspaces.length > 0 && (
+                <div className="da-ws-selector">
+                  <span className="da-ws-selector-label">Workspace</span>
+                  <div className="da-ws-selector-chips">
+                    <button
+                      className={`da-ws-chip ${!selectedWorkspace ? "active" : ""}`}
+                      onClick={() => setSelectedWorkspace(null)}
+                    >
+                      All
+                    </button>
+                    {workspaces.map((ws: any) => (
+                      <button
+                        key={ws.name}
+                        className={`da-ws-chip ${selectedWorkspace === ws.name ? "active" : ""}`}
+                        onClick={() => setSelectedWorkspace(ws.name === selectedWorkspace ? null : ws.name)}
+                      >
+                        {ws.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="da-welcome-suggestions">
                 {SUGGESTIONS.map((s) => (
                   <button key={s.text} className="da-suggestion" onClick={() => sendMessage(s.text)}>
@@ -649,7 +682,6 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
             <div className="da-toolbar-right">
               {/* Model indicator */}
               <button type="button" className="da-model-indicator" title="Deploy Agent">
-                <Sparkles className="h-3 w-3" />
                 <span>Deploy Agent</span>
               </button>
               {/* Send / Stop */}

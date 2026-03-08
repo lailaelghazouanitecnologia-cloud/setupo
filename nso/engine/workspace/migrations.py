@@ -10,6 +10,7 @@ TABLES = """
         instance_id TEXT,
         git_url TEXT,
         branch TEXT,
+        agent_visible INTEGER DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -50,3 +51,12 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_ws_members_user ON workspace_members(user_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_members_unique ON workspace_members(workspace_id, user_id);
 """
+
+
+async def run_alterations(conn, logger):
+    """Add columns that may be missing from older schema versions."""
+    try:
+        await conn.execute("SELECT agent_visible FROM workspaces LIMIT 1")
+    except Exception:
+        await conn.execute("ALTER TABLE workspaces ADD COLUMN agent_visible INTEGER DEFAULT 1")
+        logger.info("Added agent_visible column to workspaces")

@@ -74,6 +74,15 @@ async def _execute_single_tool(
     return result_str, call_result.error
 
 
+def _sanitize_tool_name(name: str) -> str:
+    """Strip malformed suffixes like ':{}' from tool names (common with Llama models)."""
+    if ":" in name:
+        base = name.split(":")[0].strip()
+        if base:
+            return base
+    return name
+
+
 async def run_agent_loop(
     *,
     model: Model,
@@ -96,6 +105,8 @@ async def run_agent_loop(
     full_messages: list[Message] = [Message.system(system_prompt)] + list(messages)
     tool_schemas = registry.schemas if registry.has_tools() else None
     final_text = ""
+    # Track executed tool calls to prevent duplicate loops
+    _executed_tool_keys: set[str] = set()
 
     if tool_schemas:
         logger.debug("Tool schemas (%d tools): %s", len(tool_schemas), [t.get("function", {}).get("name", "MISSING") for t in tool_schemas])
@@ -196,6 +207,8 @@ async def run_agent_loop(
             # Parse and validate tool calls
             parsed_calls: list[tuple[ToolCall, dict]] = []
             for tc in tool_calls_list:
+                # Sanitize tool name (Llama models sometimes append ':{}')
+                tc.function.name = _sanitize_tool_name(tc.function.name)
                 tool_name = tc.function.name
                 try:
                     args = json.loads(tc.function.arguments)
@@ -208,6 +221,18 @@ async def run_agent_loop(
                     yield RunEvent("tool_result", {"id": tc.id, "name": tool_name, "result": error_msg[:2000]})
                     full_messages.append(Message.tool_result(tool_call_id=tc.id, content=error_msg))
                     continue
+
+                # Deduplicate: skip tools already called with same args
+                dedup_key = f"{tool_name}:{json.dumps(args, sort_keys=True)}"
+                if dedup_key in _executed_tool_keys:
+                    dup_msg = json.dumps({"error": f"Tool '{tool_name}' already called with these arguments. Use the previous result instead of calling again."})
+                    yield RunEvent("tool_call", {"id": tc.id, "name": tool_name, "arguments": args})
+                    yield RunEvent("tool_result", {"id": tc.id, "name": tool_name, "result": dup_msg})
+                    full_messages.append(Message.tool_result(tool_call_id=tc.id, content=dup_msg))
+                    logger.warning("Duplicate tool call skipped: %s", dedup_key[:200])
+                    continue
+                _executed_tool_keys.add(dedup_key)
+
                 parsed_calls.append((tc, args))
 
             # Approval checks
@@ -321,6 +346,7 @@ async def run_dual_agent_loop(
     tool_results_context: list[dict] = []
     supervisor_text = ""
     total_steps = 0
+    _executed_tool_keys: set[str] = set()
 
     yield RunEvent("thinking", {"step": 1, "run_id": run_id, "phase": "supervisor"})
 
@@ -408,6 +434,9 @@ async def run_dual_agent_loop(
             ))
 
             for tc in tool_calls_list:
+                # Sanitize tool name
+                tc.function.name = _sanitize_tool_name(tc.function.name)
+
                 try:
                     args = json.loads(tc.function.arguments)
                 except json.JSONDecodeError:
@@ -417,6 +446,17 @@ async def run_dual_agent_loop(
                     yield RunEvent("tool_result", {"id": tc.id, "name": tc.function.name, "result": error_msg})
                     sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=error_msg))
                     continue
+
+                # Deduplicate: skip tools already called with same args
+                dedup_key = f"{tc.function.name}:{json.dumps(args, sort_keys=True)}"
+                if dedup_key in _executed_tool_keys:
+                    dup_msg = json.dumps({"error": f"Tool '{tc.function.name}' already called with these arguments. Use the previous result."})
+                    yield RunEvent("tool_call", {"id": tc.id, "name": tc.function.name, "arguments": args})
+                    yield RunEvent("tool_result", {"id": tc.id, "name": tc.function.name, "result": dup_msg})
+                    sup_messages.append(Message.tool_result(tool_call_id=tc.id, content=dup_msg))
+                    logger.warning("Duplicate tool call skipped: %s", dedup_key[:200])
+                    continue
+                _executed_tool_keys.add(dedup_key)
 
                 yield RunEvent("tool_call", {"id": tc.id, "name": tc.function.name, "arguments": args})
 

@@ -38,12 +38,12 @@ router = APIRouter()
 
 # Supervisor (tool-capable)
 SUPERVISOR_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
-SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
+SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://inference.baseten.co/v1")
+SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "MiniMaxAI/MiniMax-M2.5")
 
 # Worker (response generation — optional, enables dual-model mode)
 WORKER_API_KEY = os.environ.get("DEPLOY_AGENT_WORKER_API_KEY", "")
-WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "")
+WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://inference.baseten.co/v1")
 WORKER_MODEL = os.environ.get("DEPLOY_AGENT_WORKER_MODEL", "")
 
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "15"))
@@ -58,7 +58,7 @@ def _get_supervisor() -> OpenAILike:
         id=SUPERVISOR_MODEL,
         api_key=SUPERVISOR_API_KEY,
         base_url=SUPERVISOR_API_URL,
-        provider="groq",
+        provider="baseten",
     )
 
 
@@ -68,7 +68,7 @@ def _get_worker() -> OpenAILike:
         id=WORKER_MODEL,
         api_key=WORKER_API_KEY,
         base_url=WORKER_API_URL,
-        provider="worker",
+        provider="baseten",
     )
 
 
@@ -80,6 +80,8 @@ IMPORTANT RULES:
 - If no tools are needed (e.g. greeting, simple question), respond briefly.
 - After executing tools, stop. The Worker model will compose the final response.
 - Be efficient: call multiple tools in one step if possible.
+- CRITICAL: NEVER call the same tool twice with the same arguments. If you already called a tool and got a result, use that result. Do NOT repeat tool calls.
+- After gathering data (1-3 tool calls max), STOP and let the worker respond.
 - Never expose internal details, tool names, or system architecture to users.
 """
 

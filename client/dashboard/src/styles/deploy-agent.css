@@ -107,6 +107,33 @@
 .da-suggestion-icon { color: var(--da-accent); flex-shrink: 0; }
 .da-input-container { width: 100%; }
 
+/* Workspace selector */
+.da-ws-selector {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.da-ws-selector-label {
+  font-size: 11px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted-foreground); opacity: 0.6;
+}
+.da-ws-selector-chips {
+  display: flex; flex-wrap: wrap; gap: 6px; justify-content: center;
+}
+.da-ws-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 20px;
+  border: 1px solid var(--border); background: var(--background);
+  color: var(--muted-foreground); font-size: 13px; font-weight: 500;
+  cursor: pointer; transition: all 0.2s;
+}
+.da-ws-chip:hover {
+  background: var(--accent); color: var(--foreground);
+  border-color: color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+}
+.da-ws-chip.active {
+  background: linear-gradient(to top, #06b6d4, #1e3a5f);
+  color: #fff; border-color: transparent;
+}
+
 /* ── Messages area ── */
 .da-messages { flex: 1; overflow-y: auto; overflow-x: hidden; padding-top: 24px; }
 .da-messages-inner {
@@ -392,12 +419,12 @@
 .da-attach-btn:hover { color: var(--foreground); background: var(--accent); }
 .da-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Model indicator — Deploy Agent blue gradient */
+/* Model indicator — Deploy Agent aqua→navy gradient */
 .da-model-indicator {
   display: inline-flex; align-items: center; gap: 4px;
   height: 28px; padding: 0 10px; border-radius: 7px;
   border: none; cursor: default;
-  background: linear-gradient(135deg, #3b82f6, #1e40af);
+  background: linear-gradient(to top, #06b6d4, #1e3a5f);
   color: #fff; font-size: 11px; font-weight: 600;
   white-space: nowrap; user-select: none;
   transition: opacity 0.15s;

@@ -79,10 +79,13 @@ def create_workspace_tools(ctx: DeployContext) -> list[tuple]:
         })
 
     async def list_workspaces() -> str:
-        """List all workspaces in the project."""
+        """List all workspaces in the project that are visible to the agent."""
         workspaces = await db.fetch_all("workspaces", project_id=ctx.project_id)
         result = []
         for ws in workspaces:
+            # Skip workspaces hidden from agent
+            if not ws.get("agent_visible", 1):
+                continue
             result.append({
                 "name": ws.get("name", ""),
                 "path": ws.get("path", ""),
