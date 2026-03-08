@@ -104,7 +104,7 @@ async def get_user_activity(
         "SELECT * FROM activity_log WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
         (user_id, limit, offset),
     )
-    return [db._row_to_dict(dict(r)) for r in await cursor.fetchall()]
+    return [db.row_to_dict(dict(r)) for r in await cursor.fetchall()]
 
 
 async def get_recent_activity(limit: int = 100, action: str = "") -> list[dict]:
@@ -123,7 +123,7 @@ async def get_recent_activity(limit: int = 100, action: str = "") -> list[dict]:
             "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ?",
             (limit,),
         )
-    return [db._row_to_dict(dict(r)) for r in await cursor.fetchall()]
+    return [db.row_to_dict(dict(r)) for r in await cursor.fetchall()]
 
 
 # ── Admin user management ──
@@ -171,7 +171,7 @@ async def admin_list_users(
         f"ORDER BY {sort_col} {sort_dir} LIMIT ? OFFSET ?",
         params + [limit, offset],
     )
-    users = [db._row_to_dict(dict(r)) for r in await cursor.fetchall()]
+    users = [db.row_to_dict(dict(r)) for r in await cursor.fetchall()]
 
     return {"users": users, "total": total, "limit": limit, "offset": offset}
 
@@ -194,7 +194,7 @@ async def admin_get_user(user_id: str) -> dict:
         (user_id,),
     )
     sub_row = await cursor.fetchone()
-    safe["subscription"] = db._row_to_dict(dict(sub_row)) if sub_row else None
+    safe["subscription"] = db.row_to_dict(dict(sub_row)) if sub_row else None
 
     cursor = await d.execute(
         "SELECT COUNT(*) FROM billing_invoices WHERE user_id = ?", (user_id,),
@@ -615,7 +615,7 @@ async def get_snapshots(limit: int = 24) -> list[dict]:
         "SELECT * FROM analytics_snapshots ORDER BY created_at DESC LIMIT ?",
         (limit,),
     )
-    return [db._row_to_dict(dict(r)) for r in await cursor.fetchall()]
+    return [db.row_to_dict(dict(r)) for r in await cursor.fetchall()]
 
 
 async def get_dashboard_overview() -> dict:
@@ -680,7 +680,7 @@ async def get_dashboard_overview() -> dict:
     row = await cursor.fetchone()
     last_fraud_status = "unknown"
     if row:
-        snap_data = db._row_to_dict(dict(row)).get("data", {})
+        snap_data = db.row_to_dict(dict(row)).get("data", {})
         if isinstance(snap_data, dict):
             last_fraud_status = snap_data.get("fraud", {}).get("status", "unknown")
 

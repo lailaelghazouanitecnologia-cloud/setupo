@@ -148,12 +148,19 @@ async def list_replicas(service_id: str) -> list[dict]:
 
 
 async def add_replica(service_id: str, instance_id: str, **kwargs) -> dict:
-    """Add a replica of a service on an instance."""
+    """Add a replica of a service on an instance, or update if it already exists."""
     existing = await db.fetch_one(
         "service_replicas", service_id=service_id, instance_id=instance_id,
     )
     if existing:
-        raise ConflictError(f"Service already has a replica on instance {instance_id}")
+        # Update existing replica instead of raising conflict
+        update_data = {k: v for k, v in kwargs.items()
+                       if k in ("status", "pid", "port", "version", "cpu_percent",
+                                "rss_mb", "uptime", "error", "collected_at")}
+        if update_data:
+            update_data["updated_at"] = _now()
+            await db.update("service_replicas", existing["id"], update_data)
+        return await db.fetch_one("service_replicas", id=existing["id"])
 
     replica_id = _gen_id("rep")
     now = _now()
@@ -170,7 +177,6 @@ async def add_replica(service_id: str, instance_id: str, **kwargs) -> dict:
     }
     await db.insert("service_replicas", data)
 
-    svc = await db.fetch_one("service_registry", id=service_id)
     await _emit_event(service_id, instance_id, "replica_added",
                       f"Replica added on instance {instance_id}")
     logger.info("Added replica %s for service %s on instance %s", replica_id, service_id, instance_id)
@@ -424,7 +430,7 @@ async def list_connections(project_id: str, resource_type: str = "", resource_id
             (project_id, resource_type, resource_id, resource_type, resource_id),
         )
         rows = await cursor.fetchall()
-        return [db._row_to_dict(r) for r in rows]
+        return [db.row_to_dict(r) for r in rows]
 
     return await db.fetch_all("resource_connections", project_id=project_id)
 
@@ -448,7 +454,7 @@ async def list_events(service_id: str, limit: int = 50) -> list[dict]:
         (service_id, limit),
     )
     rows = await cursor.fetchall()
-    return [db._row_to_dict(r) for r in rows]
+    return [db.row_to_dict(r) for r in rows]
 
 
 # ── Service overview (aggregate) ──
@@ -493,7 +499,7 @@ async def deploy_service(project_id: str, service_id: str, instance_ids: list[st
     Deploy a service to one or more instances via their agents.
     Creates replicas and sends supervisor apply commands.
     """
-    from nso.engine.compute.services import apply_services as apply_to_agent
+    from nso.engine.compute.supervisor_sync import apply_services as apply_to_agent
     from nso.engine.compute.service import get_instance
 
     svc = await get_service(project_id, service_id)
@@ -535,9 +541,14 @@ async def deploy_service(project_id: str, service_id: str, instance_ids: list[st
             logger.error("Failed to deploy service %s to instance %s: %s", service_id, iid, e)
             results.append({"instance_id": iid, "status": "failed", "error": str(e)})
 
-    await update_service(project_id, service_id, status="active")
-    await _emit_event(service_id, None, "deployed",
-                      f"Deployed to {len(instance_ids)} instance(s)")
+    succeeded = sum(1 for r in results if r["status"] == "deployed")
+    if succeeded > 0:
+        await update_service(project_id, service_id, status="active")
+        await _emit_event(service_id, None, "deployed",
+                          f"Deployed to {succeeded}/{len(instance_ids)} instance(s)")
+    else:
+        await _emit_event(service_id, None, "deploy_failed",
+                          f"All {len(instance_ids)} deploy(s) failed")
 
     return {"service_id": service_id, "results": results}
 

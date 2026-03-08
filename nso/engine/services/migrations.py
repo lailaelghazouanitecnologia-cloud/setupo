@@ -36,6 +36,7 @@ TABLES = """
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE SET NULL,
         UNIQUE(project_id, name)
     );
 """
@@ -116,8 +117,10 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_service_registry_workspace ON service_registry(workspace_id);
     CREATE INDEX IF NOT EXISTS idx_service_replicas_service ON service_replicas(service_id);
     CREATE INDEX IF NOT EXISTS idx_service_replicas_instance ON service_replicas(instance_id);
+    CREATE INDEX IF NOT EXISTS idx_service_replicas_status ON service_replicas(status);
     CREATE INDEX IF NOT EXISTS idx_service_events_service ON service_events(service_id);
     CREATE INDEX IF NOT EXISTS idx_service_events_type ON service_events(event_type);
+    CREATE INDEX IF NOT EXISTS idx_service_events_created ON service_events(created_at);
     CREATE INDEX IF NOT EXISTS idx_resource_connections_project ON resource_connections(project_id);
     CREATE INDEX IF NOT EXISTS idx_resource_connections_source ON resource_connections(source_type, source_id);
     CREATE INDEX IF NOT EXISTS idx_resource_connections_target ON resource_connections(target_type, target_id);

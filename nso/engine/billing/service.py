@@ -141,7 +141,7 @@ async def list_billing_events(
         params + [limit],
     )
     rows = await cursor.fetchall()
-    return [db._row_to_dict(r) for r in rows]
+    return [db.row_to_dict(r) for r in rows]
 
 
 # ──────────────────────────────────────────────
@@ -1420,7 +1420,7 @@ async def list_invoices(user_id: str) -> list[dict]:
             (inv["id"],),
         )
         rows = await cursor.fetchall()
-        inv["items"] = [db._row_to_dict(r) for r in rows]
+        inv["items"] = [db.row_to_dict(r) for r in rows]
     return invoices
 
 
@@ -1435,7 +1435,7 @@ async def get_invoice(invoice_id: str) -> dict:
         (inv["id"],),
     )
     rows = await cursor.fetchall()
-    inv["items"] = [db._row_to_dict(r) for r in rows]
+    inv["items"] = [db.row_to_dict(r) for r in rows]
     return inv
 
 

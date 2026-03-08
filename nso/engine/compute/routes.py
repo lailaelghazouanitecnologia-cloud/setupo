@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 
 from nso.shared.models import CreateInstanceRequest, InstanceExecRequest
 from nso.engine.compute import service as im
-from nso.engine.compute import services as svc_mgr
+from nso.engine.compute import supervisor_sync as svc_mgr
 from nso.shared.errors import NsoError
 from nso.shared.deps import require_project
 

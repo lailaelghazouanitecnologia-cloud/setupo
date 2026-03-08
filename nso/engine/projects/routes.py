@@ -56,7 +56,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
         cursor = await d.execute(
             "SELECT * FROM projects WHERE owner = '' OR owner IS NULL",
         )
-        orphans = [db._row_to_dict(dict(r)) for r in await cursor.fetchall()]
+        orphans = [db.row_to_dict(dict(r)) for r in await cursor.fetchall()]
         # Auto-claim orphans for this user
         for p in orphans:
             await db.update("projects", p["id"], {"owner": auth.user_id})

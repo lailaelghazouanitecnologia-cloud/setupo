@@ -210,7 +210,7 @@ async def get_healthy_backends(pool_id: str) -> list[Backend]:
         (pool_id,),
     )
     rows = await cursor.fetchall()
-    return [Backend(**db._row_to_dict(r)) for r in rows]
+    return [Backend(**db.row_to_dict(r)) for r in rows]
 
 
 # ── Rules ─────────────────────────────────────────────────

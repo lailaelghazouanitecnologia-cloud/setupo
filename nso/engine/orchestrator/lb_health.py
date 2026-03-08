@@ -54,7 +54,7 @@ async def _check_all_pools():
     rows = await cursor.fetchall()
 
     for row in rows:
-        pool = db._row_to_dict(row)
+        pool = db.row_to_dict(row)
         pool_id = pool["id"]
         hc_path = pool.get("health_check_path", "/api/health")
         hc_timeout = pool.get("health_check_timeout", 5)
@@ -68,7 +68,7 @@ async def _check_all_pools():
 
         async with httpx.AsyncClient(timeout=hc_timeout) as client:
             tasks = [
-                _check_backend(client, db._row_to_dict(b), hc_path, max_fails)
+                _check_backend(client, db.row_to_dict(b), hc_path, max_fails)
                 for b in backends
             ]
             await asyncio.gather(*tasks, return_exceptions=True)

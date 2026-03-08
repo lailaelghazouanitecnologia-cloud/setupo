@@ -165,4 +165,4 @@ async def get_available_builders() -> list[PoolNode]:
            ORDER BY cpu_percent ASC, active_builds ASC""",
     )
     rows = await cursor.fetchall()
-    return [PoolNode(**db._row_to_dict(r)) for r in rows]
+    return [PoolNode(**db.row_to_dict(r)) for r in rows]

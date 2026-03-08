@@ -143,4 +143,4 @@ async def get_node_history(node_id: str, hours: int = 24) -> list[dict]:
         (node_id, cutoff),
     )
     rows = await cursor.fetchall()
-    return [db._row_to_dict(r) for r in rows]
+    return [db.row_to_dict(r) for r in rows]

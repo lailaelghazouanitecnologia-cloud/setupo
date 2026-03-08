@@ -77,7 +77,7 @@ async def remove_node_from_lb(instance_id: str):
     rows = await cursor.fetchall()
 
     for row in rows:
-        backend = db._row_to_dict(row)
+        backend = db.row_to_dict(row)
         await pool_manager.remove_backend(backend["id"])
         logger.info("Removed LB backend %s (instance=%s) from pool %s",
                      backend["id"], instance_id, backend["pool_id"])
@@ -96,7 +96,7 @@ async def drain_node_in_lb(instance_id: str):
     rows = await cursor.fetchall()
 
     for row in rows:
-        backend_id = db._row_to_dict(row)["id"]
+        backend_id = db.row_to_dict(row)["id"]
         await db.update("lb_backends", backend_id, {
             "status": BackendStatus.DRAINING.value,
         })
@@ -119,7 +119,7 @@ async def full_sync():
 
     synced = 0
     for row in nodes:
-        node = db._row_to_dict(row)
+        node = db.row_to_dict(row)
         ip = node.get("ip")
         if not ip:
             continue
@@ -146,7 +146,7 @@ async def full_sync():
     )
     stale = await cursor.fetchall()
     for row in stale:
-        stale_backend = db._row_to_dict(row)
+        stale_backend = db.row_to_dict(row)
         await pool_manager.remove_backend(stale_backend["id"])
         logger.info("Removed stale LB backend %s", stale_backend["id"])
 

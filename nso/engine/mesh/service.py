@@ -390,7 +390,7 @@ async def get_device_logs(project_id: str, device_id: str,
         (device_id, limit),
     )
     rows = await cursor.fetchall()
-    return [db._row_to_dict(r) for r in rows]
+    return [db.row_to_dict(r) for r in rows]
 
 
 # ── Group operations ────────────────────────────────────────────

@@ -24,7 +24,7 @@ AGENT_TIMEOUT = 15
 
 
 def _gen_id() -> str:
-    return f"svc_{secrets.token_hex(8)}"
+    return f"isvc_{secrets.token_hex(8)}"
 
 
 # ── Read operations ──
@@ -234,5 +234,66 @@ async def sync_services_from_agent(instance_id: str, ip: str) -> int:
     for db_svc in db_services:
         if db_svc["name"] not in all_names:
             await db.delete("instance_services", db_svc["id"])
+
+    return synced
+
+
+async def sync_replicas_from_agent(instance_id: str, ip: str) -> int:
+    """
+    After syncing instance_services, update service_replicas for any
+    registered services that match by name. This bridges the gap between
+    the raw agent state and the service registry.
+    """
+    # Get all instance_services for this instance
+    agent_services = await db.fetch_all("instance_services", instance_id=instance_id)
+    if not agent_services:
+        return 0
+
+    # Get all service_replicas that reference this instance
+    replicas = await db.fetch_all("service_replicas", instance_id=instance_id)
+    replica_by_service = {r["service_id"]: r for r in replicas}
+
+    # Get all registered services to match by name
+    all_registries = await db.fetch_all("service_registry")
+    registry_by_name = {}
+    for svc in all_registries:
+        registry_by_name[svc["name"]] = svc
+
+    now = datetime.now(timezone.utc).isoformat()
+    synced = 0
+
+    for agent_svc in agent_services:
+        name = agent_svc["name"]
+        reg = registry_by_name.get(name)
+        if not reg:
+            continue  # Not a registered service
+
+        service_id = reg["id"]
+        replica = replica_by_service.get(service_id)
+
+        update_data = {
+            "status": agent_svc.get("status", "pending"),
+            "pid": agent_svc.get("pid", 0),
+            "port": agent_svc.get("port", 0),
+            "version": agent_svc.get("version", ""),
+            "cpu_percent": agent_svc.get("cpu_percent", 0),
+            "rss_mb": agent_svc.get("rss_mb", 0),
+            "uptime": agent_svc.get("uptime", 0),
+            "error": agent_svc.get("error", ""),
+            "collected_at": now,
+            "updated_at": now,
+        }
+
+        if replica:
+            await db.update("service_replicas", replica["id"], update_data)
+        else:
+            import secrets as _secrets
+            update_data["id"] = f"rep_{_secrets.token_hex(8)}"
+            update_data["service_id"] = service_id
+            update_data["instance_id"] = instance_id
+            update_data["created_at"] = now
+            await db.insert("service_replicas", update_data)
+
+        synced += 1
 
     return synced

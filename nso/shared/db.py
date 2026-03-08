@@ -110,7 +110,7 @@ def _validate_order_by(order_by: str):
             raise ValueError(f"Invalid ORDER BY direction: {tokens[1]!r}")
 
 
-def _row_to_dict(row: aiosqlite.Row) -> dict:
+def row_to_dict(row: aiosqlite.Row) -> dict:
     d = dict(row)
     for key in JSON_FIELDS:
         if key in d and isinstance(d[key], str):
@@ -158,7 +158,7 @@ async def fetch_one(table: str, **where) -> dict | None:
     row = await cursor.fetchone()
     if not row:
         return None
-    return _row_to_dict(row)
+    return row_to_dict(row)
 
 
 async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> list[dict]:
@@ -176,7 +176,7 @@ async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> l
     else:
         cursor = await conn.execute(f"SELECT * FROM {table} ORDER BY {order_by}")
     rows = await cursor.fetchall()
-    return [_row_to_dict(r) for r in rows]
+    return [row_to_dict(r) for r in rows]
 
 
 async def delete(table: str, id_val: str):

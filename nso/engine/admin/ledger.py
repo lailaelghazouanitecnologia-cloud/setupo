@@ -114,7 +114,7 @@ async def _get_last_block(user_id: str) -> dict | None:
     row = await cursor.fetchone()
     if not row:
         return None
-    return db._row_to_dict(dict(row))
+    return db.row_to_dict(dict(row))
 
 
 async def _get_genesis_or_create(user_id: str) -> dict:
@@ -214,7 +214,7 @@ async def get_chain(user_id: str, limit: int = 100, offset: int = 0) -> list[dic
         (user_id, limit, offset),
     )
     rows = await cursor.fetchall()
-    return [db._row_to_dict(dict(r)) for r in rows]
+    return [db.row_to_dict(dict(r)) for r in rows]
 
 
 async def get_chain_length(user_id: str) -> int:
@@ -241,7 +241,7 @@ async def verify_chain(user_id: str) -> dict:
         (user_id,),
     )
     rows = await cursor.fetchall()
-    blocks = [db._row_to_dict(dict(r)) for r in rows]
+    blocks = [db.row_to_dict(dict(r)) for r in rows]
 
     if not blocks:
         return {"valid": True, "length": 0, "errors": []}

@@ -95,12 +95,13 @@ async def _poll_all():
     tasks = [poll_with_sem(inst) for inst in instances]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    # Also sync service state from supervisor
-    from nso.engine.compute.services import sync_services_from_agent
+    # Sync service state from supervisor → instance_services + service_replicas
+    from nso.engine.compute.supervisor_sync import sync_services_from_agent, sync_replicas_from_agent
     for inst in instances:
         if inst.get("ip"):
             try:
                 await sync_services_from_agent(inst["id"], inst["ip"])
+                await sync_replicas_from_agent(inst["id"], inst["ip"])
             except Exception as e:
                 logger.debug("Service sync failed for %s: %s", inst.get("label", ""), e)
 

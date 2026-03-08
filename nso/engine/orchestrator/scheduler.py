@@ -238,7 +238,7 @@ async def list_builds(
         params + [limit],
     )
     rows = await cursor.fetchall()
-    return [BuildJob(**db._row_to_dict(r)) for r in rows]
+    return [BuildJob(**db.row_to_dict(r)) for r in rows]
 
 
 async def cancel_build(build_id: str):

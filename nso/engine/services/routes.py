@@ -36,11 +36,12 @@ async def create_service(
     project_id: str = Depends(require_project),
 ):
     """Register a new service."""
-    name = body.pop("name", None)
+    name = body.get("name")
     if not name:
         raise HTTPException(422, "name is required")
+    kwargs = {k: v for k, v in body.items() if k != "name"}
     try:
-        service = await svc.create_service(project_id, name, **body)
+        service = await svc.create_service(project_id, name, **kwargs)
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return {"service": service}
@@ -117,6 +118,92 @@ async def deploy_service(
     except NsoError as e:
         raise HTTPException(e.status_code, e.message)
     return result
+
+
+# ── Start / Stop ──
+
+
+@router.post("/{service_id}/start")
+async def start_service(
+    service_id: str,
+    body: dict = Body(default={}),
+    project_id: str = Depends(require_project),
+):
+    """Re-deploy a stopped service to its existing replicas' instances."""
+    try:
+        service = await svc.get_service(project_id, service_id)
+        replicas = await svc.list_replicas(service_id)
+        instance_ids = [r["instance_id"] for r in replicas]
+        if not instance_ids:
+            raise HTTPException(422, "No replicas found — use deploy first")
+        result = await svc.deploy_service(project_id, service_id, instance_ids)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return result
+
+
+@router.post("/{service_id}/stop")
+async def stop_service(
+    service_id: str,
+    project_id: str = Depends(require_project),
+):
+    """Stop all replicas of a service across all instances."""
+    try:
+        from nso.engine.compute.supervisor_sync import stop_service as agent_stop
+        from nso.engine.compute.service import get_instance
+
+        service = await svc.get_service(project_id, service_id)
+        replicas = await svc.list_replicas(service_id)
+        stopped = 0
+        for replica in replicas:
+            try:
+                await agent_stop(project_id, replica["instance_id"], service["name"])
+                await svc.update_replica(replica["id"], status="stopped")
+                stopped += 1
+            except Exception:
+                pass
+        await svc.update_service(project_id, service_id, status="stopped")
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+    return {"stopped": stopped, "service_id": service_id}
+
+
+# ── Health ──
+
+
+@router.get("/{service_id}/health")
+async def get_service_health(
+    service_id: str,
+    project_id: str = Depends(require_project),
+):
+    """Get aggregated health status for a service."""
+    try:
+        await svc.get_service(project_id, service_id)
+        replicas = await svc.list_replicas(service_id)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+    total = len(replicas)
+    running = sum(1 for r in replicas if r.get("status") == "running")
+    failed = sum(1 for r in replicas if r.get("status") in ("failed", "crashed"))
+    pending = sum(1 for r in replicas if r.get("status") in ("pending", "starting"))
+
+    if total == 0:
+        health = "unknown"
+    elif running == total:
+        health = "healthy"
+    elif running > 0:
+        health = "degraded"
+    elif failed > 0:
+        health = "unhealthy"
+    else:
+        health = "starting"
+
+    return {
+        "service_id": service_id,
+        "health": health,
+        "replicas": {"total": total, "running": running, "failed": failed, "pending": pending},
+    }
 
 
 # ── Scaling ──

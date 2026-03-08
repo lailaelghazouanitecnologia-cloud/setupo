@@ -164,7 +164,7 @@ async def user_projects(user_id: str, auth: AuthContext = Depends(require_admin)
     rows = await cursor.fetchall()
     projects = []
     for row in rows:
-        p = db._row_to_dict(row)
+        p = db.row_to_dict(row)
         ws_cursor = await d.execute(
             "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
         )
@@ -364,7 +364,7 @@ async def admin_list_projects(
 
     projects = []
     for row in rows:
-        p = db._row_to_dict(row)
+        p = db.row_to_dict(row)
         # Count workspaces
         ws_cursor = await d.execute(
             "SELECT COUNT(*) FROM workspaces WHERE project_id = ?", (p["id"],),
@@ -410,7 +410,7 @@ async def admin_list_workspaces(
         (project_id,),
     )
     rows = await cursor.fetchall()
-    workspaces = [db._row_to_dict(r) for r in rows]
+    workspaces = [db.row_to_dict(r) for r in rows]
 
     return {"workspaces": workspaces, "project": {
         "id": project["id"],
@@ -461,7 +461,7 @@ async def admin_list_all_workspaces(
 
     workspaces = []
     for row in rows:
-        w = db._row_to_dict(row)
+        w = db.row_to_dict(row)
         # Get owner email
         owner_id = w.pop("owner_id", "")
         if owner_id:
@@ -510,7 +510,7 @@ async def admin_list_all_instances(
     )
     total = (await count_cursor.fetchone())[0]
 
-    instances = [db._row_to_dict(r) for r in rows]
+    instances = [db.row_to_dict(r) for r in rows]
     return {"instances": instances, "total": total}
 
 
@@ -571,7 +571,7 @@ async def database_table_detail(
 
     # Get rows
     row_cursor = await d.execute(f'SELECT * FROM "{table_name}" LIMIT ? OFFSET ?', (limit, offset))
-    rows = [db._row_to_dict(r) for r in await row_cursor.fetchall()]
+    rows = [db.row_to_dict(r) for r in await row_cursor.fetchall()]
 
     # Total count
     count_cursor = await d.execute(f'SELECT COUNT(*) FROM "{table_name}"')
@@ -678,7 +678,7 @@ async def instance_action(
     if not row:
         raise HTTPException(404, "Instance not found")
 
-    inst = db._row_to_dict(row)
+    inst = db.row_to_dict(row)
     project_id = inst["project_id"]
 
     try:

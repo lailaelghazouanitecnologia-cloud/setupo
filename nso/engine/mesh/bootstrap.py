@@ -150,7 +150,7 @@ async def generate_install_script(install_token: str) -> str:
     if not row:
         raise NsoError("Invalid or expired install token", 404)
 
-    device = db._row_to_dict(row)
+    device = db.row_to_dict(row)
 
     if device["status"] not in ("pending", "provisioning", "error"):
         raise NsoError("Device already activated", 400)

@@ -227,7 +227,7 @@ async def get_active_alerts(node_id: str | None = None) -> list[ScaleAlert]:
             "SELECT * FROM orchestrator_alerts WHERE resolved = 0 ORDER BY created_at DESC LIMIT 100"
         )
     rows = await cursor.fetchall()
-    return [ScaleAlert(**db._row_to_dict(r)) for r in rows]
+    return [ScaleAlert(**db.row_to_dict(r)) for r in rows]
 
 
 async def resolve_alert(alert_id: str):

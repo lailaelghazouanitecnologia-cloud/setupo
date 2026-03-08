@@ -69,7 +69,7 @@ async def _health_loop():
                 "SELECT * FROM mesh_devices WHERE status IN ('online', 'offline')"
             )
             rows = await cursor.fetchall()
-            devices = [db._row_to_dict(r) for r in rows]
+            devices = [db.row_to_dict(r) for r in rows]
 
             if not devices:
                 continue
