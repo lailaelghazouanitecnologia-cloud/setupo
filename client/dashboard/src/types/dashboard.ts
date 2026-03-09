@@ -59,3 +59,34 @@ export interface Secret {
   value?: string;
   masked: boolean;
 }
+
+export interface ComputeNode {
+  id: string;
+  project_id: string;
+  label: string;
+  provider: string;
+  instance_id: string | null;
+  ip: string;
+  agent_port: number;
+  agent_reachable: boolean;
+  status: string;
+  role: string;
+  cpu_cores: number;
+  mem_total_mb: number;
+  disk_total_gb: number;
+  cpu_allocated: number;
+  mem_allocated_mb: number;
+  cpu_used_percent: number;
+  mem_used_percent: number;
+  disk_used_percent: number;
+  load_1m: number;
+  reserved_for: string | null;
+  max_services: number;
+  tags: string;
+  capabilities: string;
+  labels: string;
+  agent_version: string;
+  last_heartbeat: string;
+  created_at: string;
+  updated_at: string;
+}

@@ -5,6 +5,7 @@ import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader, Globe,
+  Cpu, Pause, ShieldCheck, ShieldOff, Download,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -14,6 +15,8 @@ import {
   stopInstance, startInstance, execOnInstance,
   execCommand, manageService, listFiles,
   listWorkspaces, getInstanceMetrics,
+  listComputeNodes, registerComputeNode, deleteComputeNode,
+  drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
 } from "@/lib/api/client";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -912,6 +915,377 @@ function FilesPanel({ instance }: { instance: Instance }) {
 /* ═══════════════════════════════════════════
    SERVICES TAB
    ═══════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════
+   NODES TAB
+   ═══════════════════════════════════════════ */
+
+interface ComputeNode {
+  id: string;
+  label: string;
+  provider: string;
+  instance_id: string | null;
+  ip: string;
+  agent_port: number;
+  agent_reachable: number;
+  status: string;
+  role: string;
+  cpu_cores: number;
+  mem_total_mb: number;
+  disk_total_gb: number;
+  cpu_allocated: number;
+  mem_allocated_mb: number;
+  cpu_used_percent: number;
+  mem_used_percent: number;
+  disk_used_percent: number;
+  load_1m: number;
+  reserved_for: string | null;
+  tags: string;
+  agent_version: string;
+  last_heartbeat: string;
+  created_at: string;
+}
+
+function nodeStatusColor(status: string): string {
+  switch (status) {
+    case "online": return "var(--color-green)";
+    case "draining": return "var(--color-yellow)";
+    case "maintenance": return "var(--color-yellow)";
+    case "offline": return "var(--color-red)";
+    case "pending": return "var(--muted-foreground)";
+    default: return "var(--muted-foreground)";
+  }
+}
+
+export function NodesTab() {
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const projectId = activeProject?.id || null;
+  const [loading, setLoading] = useState(true);
+  const [nodes, setNodes] = useState<ComputeNode[]>([]);
+  const [selected, setSelected] = useState<ComputeNode | null>(null);
+  const [showRegister, setShowRegister] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState("");
+
+  const fetchNodes = async () => {
+    if (!projectId) { setNodes([]); setLoading(false); return; }
+    setLoading(true);
+    try {
+      const res = await listComputeNodes(projectId);
+      setNodes(res.nodes || []);
+    } catch {
+      setNodes([]);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchNodes(); }, [projectId]);
+
+  const handleSync = async () => {
+    if (!projectId) return;
+    setSyncing(true);
+    setSyncResult("");
+    try {
+      const res = await syncInstancesToNodes(projectId);
+      setSyncResult(`Registered ${res.registered}, skipped ${res.skipped}`);
+      fetchNodes();
+    } catch (e: any) {
+      setSyncResult(e.message || "Sync failed");
+    }
+    setSyncing(false);
+  };
+
+  const handleDelete = async (node: ComputeNode) => {
+    if (!projectId) return;
+    if (!confirm(`Delete node "${node.label}"? This removes the node from the cluster.`)) return;
+    try {
+      await deleteComputeNode(projectId, node.id);
+      setNodes((prev) => prev.filter((n) => n.id !== node.id));
+      if (selected?.id === node.id) setSelected(null);
+    } catch (e: any) {
+      alert(e.message || "Delete failed");
+    }
+  };
+
+  const handleDrain = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try {
+      await drainNode(projectId, node.id);
+      fetchNodes();
+    } catch (e: any) { alert(e.message || "Drain failed"); }
+  };
+
+  const handleCordon = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try {
+      await cordonNode(projectId, node.id);
+      fetchNodes();
+    } catch (e: any) { alert(e.message || "Cordon failed"); }
+  };
+
+  const handleUncordon = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try {
+      await uncordonNode(projectId, node.id);
+      fetchNodes();
+    } catch (e: any) { alert(e.message || "Uncordon failed"); }
+  };
+
+  if (!projectId) {
+    return <div className="panel-empty"><div className="panel-empty-sub">Select a project first</div></div>;
+  }
+
+  if (loading && nodes.length === 0) {
+    return (
+      <div className="panel-empty">
+        <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-sub">Loading nodes...</div>
+      </div>
+    );
+  }
+
+  if (nodes.length === 0 && !showRegister) {
+    return (
+      <div className="panel-empty">
+        <Cpu className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+        <div className="panel-empty-title">No compute nodes</div>
+        <div className="panel-empty-sub">Register a node or sync from existing instances.</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn" onClick={() => setShowRegister(true)}>
+            <Plus className="h-3.5 w-3.5" /><span>Register Node</span>
+          </button>
+          <button className="panel-btn" onClick={handleSync} disabled={syncing}>
+            <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync Instances"}</span>
+          </button>
+        </div>
+        {syncResult && <div className="panel-empty-sub" style={{ marginTop: 8 }}>{syncResult}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ padding: "16px 0" }}>
+      {/* Header */}
+      <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
+        <span className="panel-count">
+          {nodes.length} node{nodes.length !== 1 ? "s" : ""}
+        </span>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn-sm" onClick={fetchNodes} disabled={loading}>
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
+          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync instances as nodes">
+            <Download className="h-3 w-3" />
+            <span>{syncing ? "..." : "Sync"}</span>
+          </button>
+          <button className="panel-btn-sm" onClick={() => setShowRegister(true)}>
+            <Plus className="h-3 w-3" /><span>Register</span>
+          </button>
+        </div>
+      </div>
+
+      {syncResult && (
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", padding: "0 0 8px" }}>
+          {syncResult}
+        </div>
+      )}
+
+      {/* Register form */}
+      {showRegister && projectId && (
+        <RegisterNodeForm
+          projectId={projectId}
+          onCreated={() => { setShowRegister(false); fetchNodes(); }}
+          onCancel={() => setShowRegister(false)}
+        />
+      )}
+
+      {/* Node cards */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {nodes.map((node) => (
+          <div
+            key={node.id}
+            className={`proj-card ${selected?.id === node.id ? "active" : ""}`}
+            onClick={() => setSelected(node)}
+          >
+            <div className="proj-card-icon">
+              <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(node.status) }} />
+            </div>
+            <div className="proj-card-info" style={{ flex: 1 }}>
+              <div className="proj-card-name">{node.label}</div>
+              <div className="proj-card-meta">
+                {node.ip || "no ip"} — {node.provider} / {node.role}
+                {node.reserved_for ? ` · reserved` : ""}
+              </div>
+              {node.status === "online" && (
+                <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+                  <MetricBar label="CPU" value={node.cpu_used_percent} color="var(--color-blue)" />
+                  <MetricBar label="RAM" value={node.mem_used_percent} color="var(--color-green)" />
+                  <MetricBar label="Disk" value={node.disk_used_percent} color="var(--color-yellow)" />
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span className={`inst-badge ${node.status === "online" ? "badge-success" : node.status === "offline" ? "badge-error" : "badge-warning"}`}>
+                {node.status}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Selected node detail */}
+      {selected && (
+        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(selected.status) }} />
+              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>{selected.label}</span>
+              {selected.ip && (
+                <span style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", fontFamily: "monospace" }}>
+                  {selected.ip}:{selected.agent_port}
+                </span>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 4 }}>
+              {selected.status === "online" && (
+                <>
+                  <button className="svc-btn yellow" title="Drain (stop scheduling)" onClick={() => handleDrain(selected)}>
+                    <Pause className="h-3.5 w-3.5" />
+                  </button>
+                  <button className="svc-btn yellow" title="Cordon (maintenance)" onClick={() => handleCordon(selected)}>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+              {(selected.status === "draining" || selected.status === "maintenance") && (
+                <button className="svc-btn green" title="Uncordon (restore)" onClick={() => handleUncordon(selected)}>
+                  <ShieldOff className="h-3.5 w-3.5" />
+                </button>
+              )}
+              <button className="svc-btn red" title="Delete node" onClick={() => handleDelete(selected)}>
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          {/* Info grid */}
+          <div className="sys-grid" style={{ marginBottom: 12 }}>
+            {[
+              { label: "Provider", value: selected.provider },
+              { label: "Role", value: selected.role },
+              { label: "CPU", value: `${selected.cpu_allocated}/${selected.cpu_cores} cores` },
+              { label: "Memory", value: `${selected.mem_allocated_mb}/${selected.mem_total_mb} MB` },
+              { label: "Disk", value: `${selected.disk_total_gb} GB` },
+              { label: "Agent", value: selected.agent_reachable ? `v${selected.agent_version || "?"}` : "unreachable" },
+              { label: "Heartbeat", value: selected.last_heartbeat ? selected.last_heartbeat.split("T")[0] : "never" },
+              { label: "Created", value: selected.created_at?.split("T")[0] || "—" },
+            ].map((item) => (
+              <div key={item.label} className="sys-card">
+                <div className="sys-label">{item.label}</div>
+                <div className="sys-value">{item.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Register Node Form ── */
+
+function RegisterNodeForm({ projectId, onCreated, onCancel }: {
+  projectId: string;
+  onCreated: () => void;
+  onCancel: () => void;
+}) {
+  const [label, setLabel] = useState("");
+  const [provider, setProvider] = useState("manual");
+  const [ip, setIp] = useState("");
+  const [agentPort, setAgentPort] = useState("8081");
+  const [cpuCores, setCpuCores] = useState("1");
+  const [memMb, setMemMb] = useState("1024");
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async () => {
+    if (!label.trim()) { setError("Label is required"); return; }
+    setCreating(true);
+    setError("");
+    try {
+      await registerComputeNode(projectId, {
+        label: label.trim(),
+        provider,
+        ip: ip.trim() || undefined,
+        agent_port: parseInt(agentPort) || 8081,
+        cpu_cores: parseFloat(cpuCores) || 1,
+        mem_total_mb: parseInt(memMb) || 1024,
+      });
+      onCreated();
+    } catch (e: any) {
+      setError(e.message || "Failed to register node");
+    }
+    setCreating(false);
+  };
+
+  return (
+    <div style={{
+      border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+      marginBottom: 16, background: "var(--sidebar-background)",
+    }}>
+      <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", marginBottom: 12 }}>Register Node</div>
+
+      {error && (
+        <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12 }}>
+          {error}
+        </div>
+      )}
+
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Label</label>
+        <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Provider</label>
+          <select className="proj-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ width: "100%" }}>
+            <option value="manual">Manual</option>
+            <option value="mesh">Mesh</option>
+            <option value="vultr">Vultr</option>
+          </select>
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>IP Address</label>
+          <input className="proj-input" type="text" placeholder="10.0.0.1" value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: "100%" }} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Agent Port</label>
+          <input className="proj-input" type="number" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} style={{ width: "100%" }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>CPU Cores</label>
+          <input className="proj-input" type="number" value={cpuCores} onChange={(e) => setCpuCores(e.target.value)} style={{ width: "100%" }} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Memory (MB)</label>
+          <input className="proj-input" type="number" value={memMb} onChange={(e) => setMemMb(e.target.value)} style={{ width: "100%" }} />
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 6 }}>
+        <button className="deploy-action-btn teal" onClick={submit} disabled={creating} style={{ padding: "5px 14px" }}>
+          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Cpu className="h-3.5 w-3.5" />}
+          <span>{creating ? "Registering..." : "Register"}</span>
+        </button>
+        <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
+      </div>
+    </div>
+  );
+}
 
 export function ServicesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);

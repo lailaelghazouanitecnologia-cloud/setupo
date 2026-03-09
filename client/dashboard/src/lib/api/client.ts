@@ -350,6 +350,62 @@ export async function execOnInstance(projectId: string, instanceId: string, comm
   });
 }
 
+// ═══════════════════════════════════════════
+//  COMPUTE NODES API
+// ═══════════════════════════════════════════
+
+export async function listComputeNodes(projectId: string, status = "", role = "") {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (role) params.set("role", role);
+  const qs = params.toString() ? `?${params.toString()}` : "";
+  return centralApi<{ nodes: any[] }>(`/api/projects/${projectId}/nodes${qs}`);
+}
+
+export async function registerComputeNode(projectId: string, opts: { label: string; provider?: string; ip?: string; agent_port?: number; cpu_cores?: number; mem_total_mb?: number; instance_id?: string }) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function getComputeNode(projectId: string, nodeId: string) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes/${nodeId}`);
+}
+
+export async function updateComputeNode(projectId: string, nodeId: string, updates: Record<string, any>) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes/${nodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function deleteComputeNode(projectId: string, nodeId: string) {
+  return centralApi<{ deleted: boolean }>(`/api/projects/${projectId}/nodes/${nodeId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function drainNode(projectId: string, nodeId: string) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes/${nodeId}/drain`, { method: "POST" });
+}
+
+export async function cordonNode(projectId: string, nodeId: string) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes/${nodeId}/cordon`, { method: "POST" });
+}
+
+export async function uncordonNode(projectId: string, nodeId: string) {
+  return centralApi<{ node: any }>(`/api/projects/${projectId}/nodes/${nodeId}/uncordon`, { method: "POST" });
+}
+
+export async function syncInstancesToNodes(projectId: string) {
+  return centralApi<{ registered: number; skipped: number; node_ids: string[] }>(`/api/projects/${projectId}/nodes/sync-instances`, { method: "POST" });
+}
+
+export async function getNodeResources(projectId: string, nodeId: string) {
+  return centralApi<{ resources: any }>(`/api/projects/${projectId}/nodes/${nodeId}/resources`);
+}
+
 export async function zarPack(projectId: string, name: string) {
   return centralApi<{ ok: boolean; manifest: any; size: number }>(
     `/api/projects/${projectId}/zar/${name}/pack`,
@@ -364,17 +420,17 @@ export async function zarPush(projectId: string, name: string, branch = "main") 
   );
 }
 
-export async function zarDeploy(projectId: string, name: string, opts: { branch?: string; version?: string; instance_id?: string } = {}) {
+export async function zarDeploy(projectId: string, name: string, opts: { branch?: string; version?: string; instance_id?: string; node_id?: string } = {}) {
   return centralApi<any>(
     `/api/projects/${projectId}/zar/${name}/deploy`,
-    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", version: opts.version || "", instance_id: opts.instance_id || "" }) },
+    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", version: opts.version || "", instance_id: opts.instance_id || "", node_id: opts.node_id || "" }) },
   );
 }
 
-export async function zarShip(projectId: string, name: string, opts: { branch?: string; instance_id?: string } = {}) {
+export async function zarShip(projectId: string, name: string, opts: { branch?: string; instance_id?: string; node_id?: string } = {}) {
   return centralApi<any>(
     `/api/projects/${projectId}/zar/${name}/ship`,
-    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", instance_id: opts.instance_id || "" }) },
+    { method: "POST", body: JSON.stringify({ branch: opts.branch || "main", instance_id: opts.instance_id || "", node_id: opts.node_id || "" }) },
   );
 }
 
