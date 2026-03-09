@@ -35,6 +35,12 @@ curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
 apt-get install -y nodejs
 echo "Node $(node --version), npm $(npm --version)"
 
+# Bun (faster builds)
+curl -fsSL https://bun.sh/install | bash
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+echo "Bun $(bun --version 2>/dev/null || echo 'not installed')"
+
 # ── 1b. Swap (prevents OOM during npm build on 1GB VPS) ─────────
 if [ ! -f /swapfile ]; then
   fallocate -l 2G /swapfile
@@ -120,6 +126,7 @@ NSO_ADMIN_EMAIL=${NSO_ADMIN_EMAIL}
 AGENT_ADMIN_PASSWORD=${AGENT_ADMIN_PASSWORD}
 NSO_AGENT_HOST=0.0.0.0
 NSO_AGENT_PORT=8081
+NSO_CORS_ORIGINS=https://${NSO_DOMAIN},https://sonfazt.${NSO_DOMAIN},http://localhost:3000
 AGENTEOF
 chmod 600 /opt/nso/config/agent.env
 
@@ -128,6 +135,7 @@ echo "Building main dashboard..."
 cd /opt/nso/repo/client/dashboard
 npm install --legacy-peer-deps
 if npm run build; then
+  rm -rf /opt/nso/client/dashboard/*
   cp -r out/* /opt/nso/client/dashboard/
   echo "Dashboard build OK"
 else
@@ -139,6 +147,7 @@ echo "Building admin dashboard..."
 cd /opt/nso/repo/client/admin
 npm install --legacy-peer-deps
 if npm run build; then
+  rm -rf /opt/nso/client/admin/*
   cp -r out/* /opt/nso/client/admin/
   echo "Admin dashboard build OK"
 else
