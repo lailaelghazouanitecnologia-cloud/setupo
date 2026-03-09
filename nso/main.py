@@ -253,6 +253,10 @@ if SERVER_MODE in ("admin", "full"):
 from nso.engine.workspace import share_routes
 app.include_router(share_routes.join_router, prefix="/api", tags=["workspace-sharing"])
 
+from nso.engine.projects import member_routes
+app.include_router(member_routes.router, prefix="/api/projects/{project_id}/members", tags=["project-members"])
+app.include_router(member_routes.join_router, prefix="/api", tags=["project-join"])
+
 # ── Download / Install endpoints (public) ──
 
 @app.get("/api/install", tags=["download"])

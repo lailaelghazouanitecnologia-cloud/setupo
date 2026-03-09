@@ -1811,3 +1811,66 @@ export function streamDeployAgent(projectId: string, threadId: string, message: 
   return { eventSource: controller, response };
 }
 
+/* ═══════════════════════════════════════════
+   PROJECT MEMBERS
+   ═══════════════════════════════════════════ */
+
+export interface ProjectMember {
+  id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+  email: string;
+  name: string;
+}
+
+export interface ProjectInvite {
+  id: string;
+  project_id: string;
+  join_code: string;
+  role: string;
+  max_uses: number;
+  uses: number;
+  created_by: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export async function listProjectMembers(projectId: string) {
+  return centralApi<{ members: ProjectMember[] }>(`/api/projects/${projectId}/members`);
+}
+
+export async function createProjectInvite(projectId: string, opts: { role?: string; max_uses?: number; expires_hours?: number } = {}) {
+  return centralApi<{ ok: boolean; invite: ProjectInvite }>(`/api/projects/${projectId}/members/invite`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function listProjectInvites(projectId: string) {
+  return centralApi<{ invites: ProjectInvite[] }>(`/api/projects/${projectId}/members/invites`);
+}
+
+export async function revokeProjectInvite(projectId: string, inviteId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/invites/${inviteId}`, { method: "DELETE" });
+}
+
+export async function updateMemberRole(projectId: string, userId: string, role: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function removeProjectMember(projectId: string, userId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/${userId}`, { method: "DELETE" });
+}
+
+export async function previewProjectInvite(code: string) {
+  return centralApi<{ project_name: string; role: string; expired: boolean; uses_remaining: number | null }>(`/api/join/project/${code}`);
+}
+
+export async function redeemProjectInvite(code: string) {
+  return centralApi<{ ok: boolean; member: ProjectMember }>(`/api/join/project/${code}`, { method: "POST" });
+}
+

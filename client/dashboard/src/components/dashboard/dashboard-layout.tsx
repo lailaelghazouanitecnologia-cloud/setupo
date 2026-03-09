@@ -6,6 +6,7 @@ import {
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
   FolderOpen, Plus, Check, Layers, Shield, Cpu,
+  Users, Copy, Link, Trash2, Crown, Pencil, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -398,6 +399,337 @@ function UserProfile() {
 }
 
 /* ═══════════════════════════════════════════
+   MEMBERS POPOVER
+   ═══════════════════════════════════════════ */
+import type { ProjectMember, ProjectInvite } from "@/lib/api/client";
+
+function MembersPopover() {
+  const activeProject = useDashboardStore((s) => s.activeProject);
+  const [open, setOpen] = useState(false);
+  const [members, setMembers] = useState<ProjectMember[]>([]);
+  const [invites, setInvites] = useState<ProjectInvite[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteLink, setInviteLink] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  const projectId = activeProject?.id;
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setShowInvite(false);
+        setInviteLink("");
+      }
+    }
+    if (open) document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  const refresh = useCallback(async () => {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const { listProjectMembers, listProjectInvites } = await import("@/lib/api/client");
+      const [mRes, iRes] = await Promise.all([
+        listProjectMembers(projectId),
+        listProjectInvites(projectId).catch(() => ({ invites: [] })),
+      ]);
+      setMembers(mRes.members || []);
+      setInvites(iRes.invites || []);
+    } catch { }
+    setLoading(false);
+  }, [projectId]);
+
+  const handleOpen = () => {
+    if (!open) refresh();
+    setOpen(!open);
+    setShowInvite(false);
+    setInviteLink("");
+  };
+
+  const handleCreateInvite = async () => {
+    if (!projectId) return;
+    setCreating(true);
+    try {
+      const { createProjectInvite } = await import("@/lib/api/client");
+      const res = await createProjectInvite(projectId, { role: inviteRole });
+      const code = res.invite.join_code;
+      const link = `${window.location.origin}/api/join/project/${code}`;
+      setInviteLink(link);
+      refresh();
+    } catch (e: any) {
+      alert(e.message || "Failed to create invite");
+    }
+    setCreating(false);
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(inviteLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (!projectId) return;
+    try {
+      const { revokeProjectInvite } = await import("@/lib/api/client");
+      await revokeProjectInvite(projectId, inviteId);
+      refresh();
+    } catch { }
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    if (!projectId) return;
+    if (!confirm("Remove this member from the project?")) return;
+    try {
+      const { removeProjectMember } = await import("@/lib/api/client");
+      await removeProjectMember(projectId, userId);
+      refresh();
+    } catch (e: any) {
+      alert(e.message || "Failed to remove member");
+    }
+  };
+
+  const handleChangeRole = async (userId: string, newRole: string) => {
+    if (!projectId) return;
+    try {
+      const { updateMemberRole } = await import("@/lib/api/client");
+      await updateMemberRole(projectId, userId, newRole);
+      refresh();
+    } catch (e: any) {
+      alert(e.message || "Failed to update role");
+    }
+  };
+
+  const roleIcon = (role: string) => {
+    if (role === "owner") return <Crown className="h-3 w-3" style={{ color: "var(--color-amber, #f59e0b)" }} />;
+    if (role === "editor") return <Pencil className="h-3 w-3" style={{ color: "var(--color-teal, #14b8a6)" }} />;
+    return <Eye className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />;
+  };
+
+  return (
+    <div ref={popRef} style={{ position: "relative" }}>
+      <button
+        className="header-action-btn"
+        title="Project members"
+        onClick={handleOpen}
+        style={{ position: "relative" }}
+      >
+        <Users className="h-3.5 w-3.5" />
+        {members.length > 0 && (
+          <span style={{
+            fontSize: 9, fontWeight: 600,
+            background: "var(--color-teal, #14b8a6)", color: "#fff",
+            borderRadius: 6, padding: "0 4px", minWidth: 14,
+            height: 14, display: "flex", alignItems: "center", justifyContent: "center",
+            position: "absolute", top: -2, right: -4,
+          }}>
+            {members.length}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", right: 0,
+          width: 320, maxHeight: 440, overflowY: "auto",
+          background: "var(--popover)", border: "1px solid var(--border)",
+          borderRadius: 10, boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
+          zIndex: 100, padding: "8px 0",
+        }}>
+          {/* Header */}
+          <div style={{ padding: "6px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: 12, fontWeight: 600 }}>Members</span>
+            <button
+              onClick={() => { setShowInvite(!showInvite); setInviteLink(""); }}
+              style={{
+                fontSize: 11, padding: "3px 10px", borderRadius: 6,
+                background: "var(--accent)", border: "1px solid var(--border)",
+                color: "var(--foreground)", cursor: "pointer",
+                display: "flex", alignItems: "center", gap: 4,
+              }}
+            >
+              <Plus className="h-3 w-3" /> Invite
+            </button>
+          </div>
+
+          {/* Invite form */}
+          {showInvite && (
+            <div style={{ padding: "0 14px 10px", borderBottom: "1px solid var(--border)" }}>
+              {!inviteLink ? (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <select
+                    value={inviteRole}
+                    onChange={(e) => setInviteRole(e.target.value)}
+                    style={{
+                      fontSize: 11, padding: "4px 8px", borderRadius: 6,
+                      background: "var(--input)", border: "1px solid var(--border)",
+                      color: "var(--foreground)", flex: 1,
+                    }}
+                  >
+                    <option value="viewer">Viewer</option>
+                    <option value="editor">Editor</option>
+                  </select>
+                  <button
+                    onClick={handleCreateInvite}
+                    disabled={creating}
+                    style={{
+                      fontSize: 11, padding: "4px 12px", borderRadius: 6,
+                      background: "var(--color-teal, #14b8a6)", border: "none",
+                      color: "#fff", cursor: "pointer", whiteSpace: "nowrap",
+                    }}
+                  >
+                    <Link className="h-3 w-3" style={{ display: "inline", verticalAlign: "-2px", marginRight: 4 }} />
+                    {creating ? "..." : "Generate link"}
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input
+                    readOnly
+                    value={inviteLink}
+                    style={{
+                      fontSize: 10, padding: "4px 8px", borderRadius: 6,
+                      background: "var(--input)", border: "1px solid var(--border)",
+                      color: "var(--foreground)", flex: 1, fontFamily: "monospace",
+                    }}
+                  />
+                  <button
+                    onClick={handleCopy}
+                    style={{
+                      fontSize: 11, padding: "4px 8px", borderRadius: 6,
+                      background: copied ? "var(--color-teal, #14b8a6)" : "var(--accent)",
+                      border: "1px solid var(--border)", color: copied ? "#fff" : "var(--foreground)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Copy className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Members list */}
+          {loading ? (
+            <div style={{ padding: "16px 14px", fontSize: 11, opacity: 0.5, textAlign: "center" }}>Loading...</div>
+          ) : members.length === 0 ? (
+            <div style={{ padding: "16px 14px", fontSize: 11, opacity: 0.5, textAlign: "center" }}>No members yet</div>
+          ) : (
+            <div style={{ padding: "4px 0" }}>
+              {members.map((m) => (
+                <div
+                  key={m.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "6px 14px", fontSize: 12,
+                  }}
+                >
+                  <div style={{
+                    width: 26, height: 26, borderRadius: "50%",
+                    background: "var(--accent)", display: "flex",
+                    alignItems: "center", justifyContent: "center",
+                    fontSize: 11, fontWeight: 600, flexShrink: 0,
+                  }}>
+                    {(m.name || m.email || "?")[0].toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {m.name || m.email}
+                    </div>
+                    <div style={{ fontSize: 10, opacity: 0.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {m.email}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                    {roleIcon(m.role)}
+                    <span style={{ fontSize: 10, opacity: 0.6 }}>{m.role}</span>
+                    {m.role !== "owner" && (
+                      <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
+                        <button
+                          onClick={() => handleChangeRole(m.user_id, m.role === "editor" ? "viewer" : "editor")}
+                          title={m.role === "editor" ? "Demote to viewer" : "Promote to editor"}
+                          style={{
+                            width: 20, height: 20, borderRadius: 4,
+                            background: "transparent", border: "none",
+                            cursor: "pointer", display: "flex",
+                            alignItems: "center", justifyContent: "center",
+                            color: "var(--muted-foreground)",
+                          }}
+                        >
+                          {m.role === "editor" ? <Eye className="h-2.5 w-2.5" /> : <Pencil className="h-2.5 w-2.5" />}
+                        </button>
+                        <button
+                          onClick={() => handleRemoveMember(m.user_id)}
+                          title="Remove member"
+                          style={{
+                            width: 20, height: 20, borderRadius: 4,
+                            background: "transparent", border: "none",
+                            cursor: "pointer", display: "flex",
+                            alignItems: "center", justifyContent: "center",
+                            color: "var(--destructive, #ef4444)",
+                          }}
+                        >
+                          <X className="h-2.5 w-2.5" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Active invites */}
+          {invites.length > 0 && (
+            <>
+              <div style={{ height: 1, background: "var(--border)", margin: "4px 14px", opacity: 0.3 }} />
+              <div style={{ padding: "6px 14px 4px" }}>
+                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.5, textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Active invites
+                </span>
+              </div>
+              {invites.map((inv) => (
+                <div
+                  key={inv.id}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 8,
+                    padding: "4px 14px", fontSize: 11,
+                  }}
+                >
+                  <Link className="h-3 w-3" style={{ opacity: 0.4, flexShrink: 0 }} />
+                  <span style={{ flex: 1, opacity: 0.6 }}>
+                    {inv.role} &middot; {inv.uses}/{inv.max_uses || "\u221E"} uses
+                  </span>
+                  <button
+                    onClick={() => handleRevokeInvite(inv.id)}
+                    title="Revoke invite"
+                    style={{
+                      width: 20, height: 20, borderRadius: 4,
+                      background: "transparent", border: "none",
+                      cursor: "pointer", display: "flex",
+                      alignItems: "center", justifyContent: "center",
+                      color: "var(--destructive, #ef4444)",
+                    }}
+                  >
+                    <Trash2 className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    MAIN LAYOUT
    ═══════════════════════════════════════════ */
 export function DashboardLayout() {
@@ -491,6 +823,9 @@ export function DashboardLayout() {
           <span className="fheader-title">{viewTitles[activeView]}</span>
         </div>
         <div className="fheader-right">
+          {/* Members */}
+          <MembersPopover />
+
           {/* Balance */}
           <button
             className="header-action-btn"
