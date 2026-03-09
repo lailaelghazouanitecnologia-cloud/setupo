@@ -24,7 +24,7 @@ async def _get_user_role(auth: AuthContext, project_id: str) -> str:
             return "admin"
         member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
         if member:
-            return "member"
+            return member.get("role", "member")
     raise HTTPException(403, "Access denied")
 
 

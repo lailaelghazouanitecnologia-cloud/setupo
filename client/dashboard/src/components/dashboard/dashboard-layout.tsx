@@ -544,17 +544,19 @@ function MembersPopover() {
           {/* Header */}
           <div style={{ padding: "6px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Members</span>
-            <button
-              onClick={() => { setShowInvite(!showInvite); setInviteLink(""); }}
-              style={{
-                fontSize: 11, padding: "3px 10px", borderRadius: 6,
-                background: "var(--accent)", border: "1px solid var(--border)",
-                color: "var(--foreground)", cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 4,
-              }}
-            >
-              <Plus className="h-3 w-3" /> Invite
-            </button>
+            {activeProject?.role === "admin" && (
+              <button
+                onClick={() => { setShowInvite(!showInvite); setInviteLink(""); }}
+                style={{
+                  fontSize: 11, padding: "3px 10px", borderRadius: 6,
+                  background: "var(--accent)", border: "1px solid var(--border)",
+                  color: "var(--foreground)", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}
+              >
+                <Plus className="h-3 w-3" /> Invite
+              </button>
+            )}
           </div>
 
           {/* Invite form */}
@@ -648,7 +650,7 @@ function MembersPopover() {
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                     {roleIcon(m.role)}
                     <span style={{ fontSize: 10, opacity: 0.6 }}>{m.role}</span>
-                    {m.role !== "admin" && (
+                    {activeProject?.role === "admin" && m.role !== "admin" && (
                       <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
                         <button
                           onClick={() => handleChangeRole(m.user_id, m.role === "member" ? "admin" : "member")}
@@ -705,19 +707,21 @@ function MembersPopover() {
                   <span style={{ flex: 1, opacity: 0.6 }}>
                     {inv.role} &middot; {inv.uses}/{inv.max_uses || "\u221E"} uses
                   </span>
-                  <button
-                    onClick={() => handleRevokeInvite(inv.id)}
-                    title="Revoke invite"
-                    style={{
-                      width: 20, height: 20, borderRadius: 4,
-                      background: "transparent", border: "none",
-                      cursor: "pointer", display: "flex",
-                      alignItems: "center", justifyContent: "center",
-                      color: "var(--destructive, #ef4444)",
-                    }}
-                  >
-                    <Trash2 className="h-2.5 w-2.5" />
-                  </button>
+                  {activeProject?.role === "admin" && (
+                    <button
+                      onClick={() => handleRevokeInvite(inv.id)}
+                      title="Revoke invite"
+                      style={{
+                        width: 20, height: 20, borderRadius: 4,
+                        background: "transparent", border: "none",
+                        cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center",
+                        color: "var(--destructive, #ef4444)",
+                      }}
+                    >
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </>
