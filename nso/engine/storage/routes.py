@@ -61,7 +61,11 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
     ip = inst.get("ip")
     if not ip:
         raise HTTPException(400, "Instance has no IP address yet")
-    return f"http://{ip}:8081"
+
+    # Check if there's a compute node with a custom agent_port for this instance
+    node = await db.fetch_one("compute_nodes", instance_id=instance_id)
+    port = node.get("agent_port", 8081) if node else 8081
+    return f"http://{ip}:{port}"
 
 
 async def _get_agent_token(agent_url: str) -> str:

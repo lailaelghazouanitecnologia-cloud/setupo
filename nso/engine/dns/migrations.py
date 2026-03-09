@@ -11,8 +11,7 @@ TABLES = """
         proxied INTEGER DEFAULT 0,
         managed INTEGER DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 """
 

@@ -86,16 +86,19 @@ async def _check_deploy_limit(project_id: str) -> None:
         if max_deploys == -1:
             return
 
-        # Count today's deploys for this project
+        # Count today's deploys for this project (instances + compute nodes)
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         conn = await db.get_db()
         cursor = await conn.execute(
             "SELECT COUNT(*) as c FROM deploy_logs "
-            "WHERE instance_id IN (SELECT id FROM instances WHERE project_id = ?) "
+            "WHERE instance_id IN ("
+            "  SELECT id FROM instances WHERE project_id = ? "
+            "  UNION SELECT id FROM compute_nodes WHERE project_id = ?"
+            ") "
             "AND message LIKE 'Syncing workspace%' "
             "AND created_at >= ?",
-            (project_id, today),
+            (project_id, project_id, today),
         )
         row = await cursor.fetchone()
         today_count = row["c"] if row else 0

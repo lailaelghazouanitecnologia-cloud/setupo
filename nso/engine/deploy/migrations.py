@@ -4,8 +4,7 @@ TABLES = """
         instance_id TEXT NOT NULL,
         level TEXT DEFAULT 'info',
         message TEXT NOT NULL,
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
 """
 

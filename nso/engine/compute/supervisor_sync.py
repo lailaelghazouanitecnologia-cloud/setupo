@@ -21,10 +21,19 @@ from nso.engine.compute.service import get_instance, _agent_login, _ipv4_client
 logger = logging.getLogger("nso.compute.services")
 
 AGENT_TIMEOUT = 15
+DEFAULT_AGENT_PORT = 8081
 
 
 def _gen_id() -> str:
     return f"isvc_{secrets.token_hex(8)}"
+
+
+async def _resolve_agent_port(instance_id: str) -> int:
+    """Look up agent_port from compute_nodes if the instance has one, else default."""
+    node = await db.fetch_one("compute_nodes", instance_id=instance_id)
+    if node:
+        return node.get("agent_port", DEFAULT_AGENT_PORT) or DEFAULT_AGENT_PORT
+    return DEFAULT_AGENT_PORT
 
 
 # ── Read operations ──
@@ -56,10 +65,11 @@ async def get_live_status(project_id: str, instance_id: str) -> dict:
     if not ip:
         raise ProviderError("agent", "Instance has no IP address")
 
+    port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
     async with _ipv4_client(AGENT_TIMEOUT) as client:
         resp = await client.get(
-            f"http://{ip}:8081/supervisor/status",
+            f"http://{ip}:{port}/supervisor/status",
             headers={"Authorization": f"Bearer {token}"},
         )
         if resp.status_code != 200:
@@ -77,12 +87,13 @@ async def restart_service(project_id: str, instance_id: str, service_name: str) 
     if not ip:
         raise ProviderError("agent", "Instance has no IP address")
 
+    port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
 
     # Get current desired spec from supervisor
     async with _ipv4_client(AGENT_TIMEOUT) as client:
         resp = await client.get(
-            f"http://{ip}:8081/supervisor/status",
+            f"http://{ip}:{port}/supervisor/status",
             headers={"Authorization": f"Bearer {token}"},
         )
         if resp.status_code != 200:
@@ -95,9 +106,8 @@ async def restart_service(project_id: str, instance_id: str, service_name: str) 
 
     # Stop then re-apply (supervisor will restart it)
     async with _ipv4_client(AGENT_TIMEOUT) as client:
-        # Stop the service
         resp = await client.post(
-            f"http://{ip}:8081/supervisor/stop/{service_name}",
+            f"http://{ip}:{port}/supervisor/stop/{service_name}",
             headers={"Authorization": f"Bearer {token}"},
         )
         if resp.status_code not in (200, 404):
@@ -106,7 +116,7 @@ async def restart_service(project_id: str, instance_id: str, service_name: str) 
     # Re-apply with same specs (will start it again)
     async with _ipv4_client(AGENT_TIMEOUT + 10) as client:
         resp = await client.post(
-            f"http://{ip}:8081/supervisor/apply",
+            f"http://{ip}:{port}/supervisor/apply",
             headers={"Authorization": f"Bearer {token}"},
             json={"processes": list(desired.values())},
         )
@@ -124,10 +134,11 @@ async def stop_service(project_id: str, instance_id: str, service_name: str) -> 
     if not ip:
         raise ProviderError("agent", "Instance has no IP address")
 
+    port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
     async with _ipv4_client(AGENT_TIMEOUT) as client:
         resp = await client.post(
-            f"http://{ip}:8081/supervisor/stop/{service_name}",
+            f"http://{ip}:{port}/supervisor/stop/{service_name}",
             headers={"Authorization": f"Bearer {token}"},
         )
         if resp.status_code == 404:
@@ -146,10 +157,11 @@ async def apply_services(project_id: str, instance_id: str, specs: list[dict]) -
     if not ip:
         raise ProviderError("agent", "Instance has no IP address")
 
+    port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
     async with _ipv4_client(AGENT_TIMEOUT + 10) as client:
         resp = await client.post(
-            f"http://{ip}:8081/supervisor/apply",
+            f"http://{ip}:{port}/supervisor/apply",
             headers={"Authorization": f"Bearer {token}"},
             json={"processes": specs},
         )
@@ -226,11 +238,14 @@ async def stop_on_node(project_id: str, node_id: str, service_name: str) -> dict
 # ── Sync: poll agent and persist to DB ──
 
 
-async def sync_services_from_agent(instance_id: str, ip: str) -> int:
+async def sync_services_from_agent(instance_id: str, ip: str, agent_port: int = 0) -> int:
     """
     Fetch supervisor status from agent and upsert into instance_services table.
     Returns number of services synced.
     """
+    if not agent_port:
+        agent_port = await _resolve_agent_port(instance_id)
+
     try:
         token = await _agent_login(ip)
     except Exception:
@@ -239,7 +254,7 @@ async def sync_services_from_agent(instance_id: str, ip: str) -> int:
     try:
         async with _ipv4_client(AGENT_TIMEOUT) as client:
             resp = await client.get(
-                f"http://{ip}:8081/supervisor/status",
+                f"http://{ip}:{agent_port}/supervisor/status",
                 headers={"Authorization": f"Bearer {token}"},
             )
             if resp.status_code != 200:
