@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
-  Send, RotateCcw, Power, FileText, Loader, Globe,
+  Send, RotateCcw, Power, FileText, Loader,
   Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
   MapPin,
 } from "lucide-react";
@@ -18,11 +18,9 @@ import {
   listWorkspaces, getInstanceMetrics,
   listComputeNodes, registerComputeNode, deleteComputeNode,
   drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
-  listAddons, type AddonInfo,
+  listAddons,
 } from "@/lib/api/client";
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@/components/ui/select";
+// UI select not needed — using native <select> for simplicity
 
 type Tab = "instances" | "services";
 
@@ -417,7 +415,6 @@ export function InstancesTab() {
   // Unified list
   const unified = useMemo<UnifiedInstance[]>(() => {
     const list: UnifiedInstance[] = [];
-    const nodeInstanceIds = new Set(nodes.filter(n => n.instance_id).map(n => n.instance_id!));
 
     for (const inst of instances) {
       // Check if this instance also has a node entry
@@ -1114,17 +1111,15 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   onCancel: () => void;
 }) {
   const setActiveView = useDashboardStore((s) => s.setActiveView);
-  const [step, setStep] = useState<"pick" | "configure">("pick");
-  const [selectedProvider, setSelectedProvider] = useState<NodeProvider>(null);
+  const userEmail = useDashboardStore((s) => s.userEmail);
+  const [method, setMethod] = useState<"pick" | "nso" | "ssh" | "install">("pick");
   const [label, setLabel] = useState("");
   const [ip, setIp] = useState("");
-  const [sshUser, setSshUser] = useState("root");
-  const [sshPort, setSshPort] = useState("22");
-  const [agentPort, setAgentPort] = useState("8081");
-  const [region, setRegion] = useState("ewr");
+  const [region, setRegion] = useState("mad");
   const [plan, setPlan] = useState("vc2-1c-1gb");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
   const [connectorStatus, setConnectorStatus] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -1139,117 +1134,299 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     }).catch(() => {});
   }, [projectId]);
 
-  const pickProvider = (p: NodeProvider) => {
-    if ((p === "vultr" || p === "hetzner" || p === "runpod") && !connectorStatus[p]) {
-      setActiveView("addons");
-      return;
-    }
-    setSelectedProvider(p);
-    setStep("configure");
-    setError("");
-    if (p === "nso") setLabel("");
-    else if (p === "vultr") setLabel("vultr-node");
-    else if (p === "hetzner") setLabel("hetzner-node");
-    else setLabel("");
+  const installCmd = `curl -fsSL https://nso.dev/install | bash -s -- \\
+  --host https://nso.dev \\
+  --email ${userEmail || "you@example.com"} \\
+  --password <your-agent-password>`;
+
+  const copyInstallCmd = () => {
+    navigator.clipboard.writeText(installCmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const submit = async () => {
-    if (selectedProvider === "ssh" && !ip.trim()) { setError("IP address is required"); return; }
+  const submitSSH = async () => {
+    if (!ip.trim()) { setError("IP address or hostname is required"); return; }
     setCreating(true);
     setError("");
     try {
-      if (selectedProvider === "nso") {
-        await createInstance(projectId, {
-          label: label.trim() || undefined,
-          region,
-          plan,
-        });
-      } else {
-        const selectedPlan = PLANS.find((p) => p.id === plan);
-        const providerName = selectedProvider === "ssh" ? "manual" : (selectedProvider || "manual");
-        await registerComputeNode(projectId, {
-          label: label.trim() || providerName + "-node",
-          provider: providerName,
-          ip: ip.trim() || undefined,
-          agent_port: parseInt(agentPort) || 8081,
-          cpu_cores: selectedPlan?.cpu || 1,
-          mem_total_mb: selectedProvider === "ssh" ? 1024 : (selectedPlan ? parseInt(selectedPlan.ram) * 1024 : 1024),
-        });
-      }
+      await registerComputeNode(projectId, {
+        label: label.trim() || ip.trim(),
+        provider: "manual",
+        ip: ip.trim(),
+        agent_port: 8081,
+        cpu_cores: 1,
+        mem_total_mb: 1024,
+      });
       onCreated();
     } catch (e: any) {
-      setError(e.message || "Failed to create instance");
+      setError(e.message || "Failed to connect");
     }
     setCreating(false);
   };
 
-  if (step === "pick") {
+  const submitNSO = async () => {
+    setCreating(true);
+    setError("");
+    try {
+      await createInstance(projectId, {
+        label: label.trim() || undefined,
+        region,
+        plan,
+      });
+      onCreated();
+    } catch (e: any) {
+      setError(e.message || "Failed to create server");
+    }
+    setCreating(false);
+  };
+
+  const formBox: React.CSSProperties = {
+    border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+    marginBottom: 16, background: "var(--sidebar-background)",
+  };
+
+  // ── Step 1: Pick method ──
+  if (method === "pick") {
     return (
-      <div style={{
-        border: "1px solid var(--border)", borderRadius: 8, padding: 16,
-        marginBottom: 16, background: "var(--sidebar-background)",
-      }}>
+      <div style={formBox}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
           <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Instance</div>
           <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
         </div>
+
+        {/* NSO Cloud — primary */}
         <ProviderCard
           p={PROVIDER_OPTIONS[0]}
           connected={true}
-          onClick={() => pickProvider("nso")}
+          onClick={() => setMethod("nso")}
           highlight
         />
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
           <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            or bring your own
+            or connect your own
           </span>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
         </div>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {PROVIDER_OPTIONS.slice(1).map((p) => {
-            const isBYOCloud = p.id === "vultr" || p.id === "hetzner" || p.id === "runpod";
-            const connected = isBYOCloud ? connectorStatus[p.id] : true;
-            return (
-              <ProviderCard
-                key={p.id}
-                p={p}
-                connected={connected}
-                needsSetup={isBYOCloud && !connected}
-                onClick={() => pickProvider(p.id as NodeProvider)}
-              />
-            );
-          })}
+          {/* SSH Connect */}
+          <button
+            onClick={() => setMethod("ssh")}
+            style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 14px", borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--background)",
+              cursor: "pointer", textAlign: "left",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-teal)"; e.currentTarget.style.background = "var(--accent)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
+          >
+            <div style={{
+              width: 32, height: 32, borderRadius: 8,
+              background: "rgba(100, 200, 180, 0.1)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontWeight: 700, fontSize: 14, flexShrink: 0,
+              color: "var(--color-teal)", fontFamily: "monospace",
+            }}>
+              {">_"}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>Server or computer</div>
+              <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+                Hetzner, OVH, a VPS, or your own machine
+              </div>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+          </button>
+
+          {/* Install command */}
+          <button
+            onClick={() => setMethod("install")}
+            style={{
+              display: "flex", alignItems: "center", gap: 12,
+              padding: "10px 14px", borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--background)",
+              cursor: "pointer", textAlign: "left",
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#6C3AED"; e.currentTarget.style.background = "var(--accent)"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
+          >
+            <div style={{
+              width: 32, height: 32, borderRadius: 8,
+              background: "rgba(108, 58, 237, 0.1)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+              fontWeight: 700, fontSize: 14, flexShrink: 0,
+              color: "#6C3AED",
+            }}>
+              <Download className="h-4 w-4" />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>Install command</div>
+              <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+                Run a one-liner on any machine to connect it
+              </div>
+            </div>
+            <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+          </button>
+
+          {/* Existing Vultr instance (if connected) */}
+          {connectorStatus["vultr"] && (
+            <ProviderCard
+              p={PROVIDER_OPTIONS.find(p => p.id === "vultr")!}
+              connected={true}
+              onClick={() => { setActiveView("addons"); }}
+            />
+          )}
         </div>
       </div>
     );
   }
 
+  // ── SSH Connect — just IP, that's it ──
+  if (method === "ssh") {
+    return (
+      <div style={formBox}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
+            ← Back
+          </button>
+          <div style={{
+            width: 24, height: 24, borderRadius: 6,
+            background: "rgba(100, 200, 180, 0.12)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 700, fontSize: 11, flexShrink: 0,
+            color: "var(--color-teal)", fontFamily: "monospace",
+          }}>
+            {">_"}
+          </div>
+          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Connect a server</span>
+        </div>
+
+        {error && (
+          <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Host or IP</label>
+          <input
+            className="proj-input"
+            type="text"
+            placeholder="192.168.1.100 or server.example.com"
+            value={ip}
+            onChange={(e) => setIp(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitSSH(); if (e.key === "Escape") onCancel(); }}
+            style={{ width: "100%" }}
+            autoFocus
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Name (optional)</label>
+          <input
+            className="proj-input"
+            type="text"
+            placeholder={ip.trim() || "my-server"}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+          NSO will connect via SSH, install the agent, and register this machine. Make sure SSH (port 22) is accessible and root login is allowed.
+        </div>
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="deploy-action-btn teal" onClick={submitSSH} disabled={creating} style={{ padding: "5px 14px" }}>
+            {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+            <span>{creating ? "Connecting..." : "Connect"}</span>
+          </button>
+          <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Install command — copy and run ──
+  if (method === "install") {
+    return (
+      <div style={formBox}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
+            ← Back
+          </button>
+          <Download className="h-4 w-4" style={{ color: "#6C3AED" }} />
+          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Install command</span>
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 10, lineHeight: 1.5 }}>
+          Run this on the machine you want to connect. The installer will set up the NSO agent and register it automatically.
+        </div>
+
+        <div style={{
+          position: "relative",
+          background: "var(--background)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: "10px 12px",
+          fontFamily: "monospace",
+          fontSize: 11,
+          lineHeight: 1.6,
+          color: "var(--foreground)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+          marginBottom: 12,
+        }}>
+          <button
+            onClick={copyInstallCmd}
+            style={{
+              position: "absolute", top: 6, right: 6,
+              padding: "3px 8px", borderRadius: 4,
+              border: "1px solid var(--border)",
+              background: copied ? "rgba(16, 185, 129, 0.1)" : "var(--sidebar-background)",
+              color: copied ? "var(--color-green)" : "var(--muted-foreground)",
+              fontSize: 10, cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+          {installCmd}
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", lineHeight: 1.5, opacity: 0.7 }}>
+          After running the command, the machine will appear in your instances list automatically.
+        </div>
+      </div>
+    );
+  }
+
+  // ── NSO Cloud — region + plan, that's all ──
   return (
-    <div style={{
-      border: "1px solid var(--border)", borderRadius: 8, padding: 16,
-      marginBottom: 16, background: "var(--sidebar-background)",
-    }}>
+    <div style={formBox}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <button
-          className="panel-btn-sm"
-          onClick={() => { setStep("pick"); setError(""); }}
-          style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}
-        >
+        <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
           ← Back
         </button>
         <div style={{
           width: 24, height: 24, borderRadius: 6,
-          background: providerBg(selectedProvider || "nso"),
+          background: providerBg("nso"),
           display: "flex", alignItems: "center", justifyContent: "center",
           fontWeight: 700, fontSize: 12, flexShrink: 0,
-          color: providerColor(selectedProvider || "nso"),
+          color: providerColor("nso"),
         }}>
-          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.icon}
+          N
         </div>
-        <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>
-          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.name}
-        </span>
+        <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>NSO Cloud</span>
       </div>
 
       {error && (
@@ -1258,101 +1435,38 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
-      {selectedProvider === "nso" && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Region</label>
-              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
-                {REGIONS.map((r) => (
-                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Plan</label>
-              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div style={{ marginBottom: 10 }}>
-            <label style={labelStyle}>Label (optional)</label>
-            <input className="proj-input" type="text" placeholder="my-server" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            We provision and manage everything. Your server will be ready in a few minutes with the agent pre-installed.
-          </div>
-        </>
-      )}
-
-      {selectedProvider !== "nso" && (
-        <div style={{ marginBottom: 10 }}>
-          <label style={labelStyle}>Label</label>
-          <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Region</label>
+          <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
+            {REGIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
+            ))}
+          </select>
         </div>
-      )}
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Plan</label>
+          <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
+            {PLANS.map((p) => (
+              <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-      {selectedProvider === "ssh" && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 2 }}>
-              <label style={labelStyle}>IP Address</label>
-              <input className="proj-input" type="text" placeholder="192.168.1.100" value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: "100%" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>SSH User</label>
-              <input className="proj-input" type="text" placeholder="root" value={sshUser} onChange={(e) => setSshUser(e.target.value)} style={{ width: "100%" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>SSH Port</label>
-              <input className="proj-input" type="number" placeholder="22" value={sshPort} onChange={(e) => setSshPort(e.target.value)} style={{ width: "100%" }} />
-            </div>
-          </div>
-          <div style={{ marginBottom: 10 }}>
-            <label style={labelStyle}>Agent Port</label>
-            <input className="proj-input" type="number" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} style={{ width: "100%" }} />
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            The agent will be installed automatically on the target machine via SSH. Make sure port {sshPort} is open and the user has sudo access.
-          </div>
-        </>
-      )}
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Name (optional)</label>
+        <input className="proj-input" type="text" placeholder="my-server" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+      </div>
 
-      {(selectedProvider === "vultr" || selectedProvider === "hetzner" || selectedProvider === "runpod") && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Region</label>
-              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
-                {REGIONS.map((r) => (
-                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Plan</label>
-              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            {selectedProvider === "runpod"
-              ? "A RunPod GPU instance will be provisioned using your API key. Volumes and templates managed via your RunPod account."
-              : `A new ${selectedProvider === "vultr" ? "Vultr" : "Hetzner"} server will be provisioned and the NSO agent installed automatically.`}
-          </div>
-        </>
-      )}
+      <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+        Ready in minutes. Agent pre-installed.
+      </div>
 
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="deploy-action-btn teal" onClick={submit} disabled={creating} style={{ padding: "5px 14px" }}>
-          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-          <span>{creating ? "Provisioning..." : selectedProvider === "nso" ? "Create Server" : "Connect Node"}</span>
+        <button className="deploy-action-btn teal" onClick={submitNSO} disabled={creating} style={{ padding: "5px 14px" }}>
+          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+          <span>{creating ? "Creating..." : "Create Server"}</span>
         </button>
         <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
       </div>
