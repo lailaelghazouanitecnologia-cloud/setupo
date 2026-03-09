@@ -76,7 +76,39 @@ El agent acepta requests de cualquier origen. Combinado con que el agent puede e
 
 ---
 
-### 5. Deploy SSH usa claves por proyecto — sin fallback
+### 5. Password hardcodeada por defecto en el Agent
+
+**Archivo**: `vm/agent/auth.py:39-44`
+
+```python
+_DEFAULT_HASH = _hash_password("zarnlok4123")   # PASSWORD HARDCODEADA!
+_PLAIN_HASH = _hash_password(ADMIN_PASSWORD_PLAIN) if ADMIN_PASSWORD_PLAIN else ""
+
+def get_password_hash() -> str:
+    return ADMIN_PASSWORD_HASH or _PLAIN_HASH or _DEFAULT_HASH
+```
+
+Si `AGENT_ADMIN_PASSWORD` no esta configurada, el agent usa `zarnlok4123` como password. Cualquier persona que conozca este default tiene acceso completo al agent (exec, files, deploy).
+
+**Impacto**: Acceso no autorizado completo al VPS si el env var no esta seteado.
+
+---
+
+### 6. Import roto: `_auto_claim_subdomain` en ship endpoint
+
+**Archivo**: `nso/engine/storage/routes.py:378`
+
+```python
+from nso.engine.deploy_agent.tools import _auto_claim_subdomain  # ROTO!
+```
+
+La funcion `_auto_claim_subdomain` esta en `nso/engine/deploy_agent/tools/deploy.py`, NO en `__init__.py`. El `__init__.py` no la exporta.
+
+**Impacto**: El endpoint `/ship` crashea con `ImportError` al intentar auto-asignar subdomain despues de cada deploy exitoso.
+
+---
+
+### 7. Deploy SSH usa claves por proyecto — sin verificacion
 
 **Archivo**: `nso/engine/deploy/service.py:150-151`
 
@@ -91,7 +123,7 @@ Si la clave SSH del proyecto no existe (no se genero al crear la instancia, o se
 
 ## ALTOS — Causan fallos intermitentes
 
-### 6. Orchestrator reconciler no autentica contra el agent
+### 8. Orchestrator reconciler no autentica contra el agent
 
 **Archivo**: `nso/engine/orchestrator/reconciler.py:586`
 
@@ -105,7 +137,7 @@ El reconciler intenta comunicarse con los agents pero no envia token de autentic
 
 ---
 
-### 7. Race condition en conexion SQLite compartida
+### 9. Race condition en conexion SQLite compartida
 
 **Archivo**: `nso/shared/db.py:37-41`
 
@@ -124,7 +156,7 @@ Una sola conexion SQLite compartida globalmente. Bajo carga concurrente (multipl
 
 ---
 
-### 8. `_deploy_via_agent` timeout de 300s sin indicador de progreso
+### 10. `_deploy_via_agent` timeout de 300s sin indicador de progreso
 
 **Archivo**: `nso/engine/storage/routes.py:27,114`
 
@@ -137,7 +169,7 @@ Si el timeout vence, el estado de la instancia queda en "deploying" para siempre
 
 ---
 
-### 9. Password de BD en infraestructura no se encripta
+### 11. Password de BD en infraestructura no se encripta
 
 **Archivo**: `nso/engine/infrastructure/database/service.py:110`
 
@@ -149,7 +181,7 @@ Las passwords de bases de datos gestionadas se guardan en plaintext en SQLite.
 
 ---
 
-### 10. Platform-update hace `git reset --hard` sin verificacion
+### 12. Platform-update hace `git reset --hard` sin verificacion
 
 **Archivo**: `vm/agent/deploy.py:662`
 
@@ -163,7 +195,7 @@ El platform-update del agent hace un hard reset sin verificar si hay cambios loc
 
 ## MEDIOS — Degradan la experiencia
 
-### 11. Doble sistema de deploy: SSH directo vs Agent/R2
+### 13. Doble sistema de deploy: SSH directo vs Agent/R2
 
 Hay dos caminos de deploy paralelos que no se coordinan:
 
@@ -176,7 +208,7 @@ El primero usa claves SSH directas; el segundo usa la API del agent. Si se mezcl
 
 ---
 
-### 12. Migraciones se ejecutan dos veces en startup
+### 14. Migraciones se ejecutan dos veces en startup
 
 **Archivo**: `nso/main.py:86-107`
 
@@ -184,7 +216,7 @@ El lifespan ejecuta migraciones de `db.py:_run_module_migrations` (via `init_db`
 
 ---
 
-### 13. Agent import `from pipeline import DeployPipeline` puede fallar
+### 15. Agent import `from pipeline import DeployPipeline` puede fallar
 
 **Archivo**: `vm/agent/deploy.py:356`
 
@@ -196,7 +228,7 @@ Este import solo se ejecuta si existe `deploy.toml` en el proyecto. Si el modulo
 
 ---
 
-### 14. `self-update` del agent puede matarse a si mismo
+### 16. `self-update` del agent puede matarse a si mismo
 
 **Archivo**: `vm/agent/deploy.py:794-850`
 
@@ -204,7 +236,7 @@ Cuando el agent hace self-update del componente "agent", extrae nuevos archivos 
 
 ---
 
-### 15. Variables de entorno en systemd sin escapar
+### 17. Variables de entorno en systemd sin escapar
 
 **Archivo**: `nso/engine/deploy/service.py:291-293`
 
@@ -219,19 +251,19 @@ Los valores de env vars no se escapan para systemd. Si un valor contiene espacio
 
 ## BAJOS — Mejoras recomendadas
 
-### 16. R2Client no hace retry en fallos de red
+### 18. R2Client no hace retry en fallos de red
 - `nso/engine/storage/service.py` — Un fallo transitorio de R2 (timeout, 5xx) aborta todo el deploy.
 
-### 17. No hay health check del agent antes de deployar
+### 19. No hay health check del agent antes de deployar
 - El server asume que el agent responde. Si el agent esta caido, el deploy falla con un error generico de conexion.
 
-### 18. Logs de deploy limitados a 500 lineas en agent
+### 20. Logs de deploy limitados a 500 lineas en agent
 - `vm/agent/deploy.py:33` — `MAX_LOG_LINES = 500`. Si un build genera mucho output, se trunca y se pierde informacion de debug.
 
-### 19. Snapshots no comprimen
+### 21. Snapshots no comprimen
 - `vm/agent/deploy.py:147` — `shutil.copytree` copia archivos sin comprimir. En un VPS de 25GB, 5 snapshots de un proyecto grande pueden llenar el disco.
 
-### 20. `openai>=1.0.0` en requirements.txt sin version fija
+### 22. `openai>=1.0.0` en requirements.txt sin version fija
 - `requirements.txt:9` — Puede introducir breaking changes en produccion.
 
 ---
@@ -240,7 +272,7 @@ Los valores de env vars no se escapan para systemd. Si un valor contiene espacio
 
 | Prioridad | Cant | Accion inmediata |
 |-----------|------|-----------------|
-| CRITICO | 5 | Corregir tabla compute_nodes, proteger credenciales R2, limpiar static dirs |
+| CRITICO | 7 | Fix import roto en ship, password hardcodeada, tabla compute_nodes, credenciales R2, static dirs |
 | ALTO | 5 | Arreglar auth del reconciler, manejar timeout de deploy, race condition SQLite |
 | MEDIO | 5 | Unificar paths de deploy, fix migraciones duplicadas |
 | BAJO | 5 | Retry R2, health check pre-deploy, pin versions |
