@@ -6,7 +6,7 @@ import {
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
   FolderOpen, Plus, Check, Layers, Shield, Cpu,
-  Users, Copy, Link, Trash2, Crown, Pencil, Eye,
+  Users, Copy, Link, Trash2, Crown, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -410,7 +410,7 @@ function MembersPopover() {
   const [invites, setInvites] = useState<ProjectInvite[]>([]);
   const [loading, setLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
-  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteRole, setInviteRole] = useState("member");
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -507,8 +507,7 @@ function MembersPopover() {
   };
 
   const roleIcon = (role: string) => {
-    if (role === "owner") return <Crown className="h-3 w-3" style={{ color: "var(--color-amber, #f59e0b)" }} />;
-    if (role === "editor") return <Pencil className="h-3 w-3" style={{ color: "var(--color-teal, #14b8a6)" }} />;
+    if (role === "admin") return <Crown className="h-3 w-3" style={{ color: "var(--color-amber, #f59e0b)" }} />;
     return <Eye className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />;
   };
 
@@ -572,8 +571,8 @@ function MembersPopover() {
                       color: "var(--foreground)", flex: 1,
                     }}
                   >
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
                   </select>
                   <button
                     onClick={handleCreateInvite}
@@ -649,11 +648,11 @@ function MembersPopover() {
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                     {roleIcon(m.role)}
                     <span style={{ fontSize: 10, opacity: 0.6 }}>{m.role}</span>
-                    {m.role !== "owner" && (
+                    {m.role !== "admin" && (
                       <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
                         <button
-                          onClick={() => handleChangeRole(m.user_id, m.role === "editor" ? "viewer" : "editor")}
-                          title={m.role === "editor" ? "Demote to viewer" : "Promote to editor"}
+                          onClick={() => handleChangeRole(m.user_id, m.role === "member" ? "admin" : "member")}
+                          title={m.role === "member" ? "Promote to admin" : "Demote to member"}
                           style={{
                             width: 20, height: 20, borderRadius: 4,
                             background: "transparent", border: "none",
@@ -662,7 +661,7 @@ function MembersPopover() {
                             color: "var(--muted-foreground)",
                           }}
                         >
-                          {m.role === "editor" ? <Eye className="h-2.5 w-2.5" /> : <Pencil className="h-2.5 w-2.5" />}
+                          {m.role === "member" ? <Crown className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
                         </button>
                         <button
                           onClick={() => handleRemoveMember(m.user_id)}

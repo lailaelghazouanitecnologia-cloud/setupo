@@ -222,9 +222,11 @@ export function WorkspacesPanel() {
             <button className="ws-icon-btn" onClick={fetchWorkspaces} title="Refresh">
               <RefreshCw className="h-3 w-3" />
             </button>
-            <button className="ws-icon-btn" onClick={() => setCreating(!creating)} title="New workspace">
-              <Plus className="h-3 w-3" />
-            </button>
+            {activeProject?.role === "admin" && (
+              <button className="ws-icon-btn" onClick={() => setCreating(!creating)} title="New workspace">
+                <Plus className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -286,13 +288,15 @@ export function WorkspacesPanel() {
                   <div className="ws-sidebar-item-info">
                     <span className="ws-sidebar-item-name">{ws.name}</span>
                   </div>
-                  <button
-                    className="ws-sidebar-item-delete"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
-                    title="Delete"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {activeProject?.role === "admin" && (
+                    <button
+                      className="ws-sidebar-item-delete"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </button>
               );
             })

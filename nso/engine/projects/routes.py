@@ -80,7 +80,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
     result = []
     for p in owned + orphans:
         safe = pm._safe_project(p)
-        safe["role"] = "owner"
+        safe["role"] = "admin"
         result.append(safe)
     for p in member_projects:
         safe = pm._safe_project(p)

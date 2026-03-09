@@ -9,6 +9,7 @@ export interface ProjectInfo {
   api_key_hash?: string;
   owner?: string;
   created_at?: string;
+  role?: string; // "admin" or "member"
 }
 
 export interface WorkspaceInfo {

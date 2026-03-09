@@ -18,6 +18,7 @@ interface Project {
   owner?: string;
   created_at?: string;
   settings?: Record<string, any>;
+  role?: string;
 }
 
 export function ProjectsPanel() {
@@ -177,10 +178,12 @@ export function ProjectsPanel() {
           <button className="panel-btn-sm" onClick={fetchProjects} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button className="panel-btn-sm" onClick={() => setCreating(true)}>
-            <Plus className="h-3 w-3" />
-            <span>New</span>
-          </button>
+          {activeProject?.role === "admin" && (
+            <button className="panel-btn-sm" onClick={() => setCreating(true)}>
+              <Plus className="h-3 w-3" />
+              <span>New</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -277,6 +280,7 @@ export function ProjectsPanel() {
                   {activeProject?.id === proj.id && (
                     <span className="inst-badge green" style={{ fontSize: 9 }}>active</span>
                   )}
+                  {proj.role === "admin" && (
                   <div className="proj-card-actions">
                     <button
                       className="svc-btn red"
@@ -286,6 +290,7 @@ export function ProjectsPanel() {
                       <Trash2 className="h-3 w-3" />
                     </button>
                   </div>
+                )}
                 </div>
               </div>
             ))}
@@ -344,25 +349,27 @@ export function ProjectsPanel() {
                 )}
 
                 {/* API Key section */}
-                <div style={{ fontSize: "var(--font-xs)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <Key className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
-                    <span style={{ fontWeight: 500 }}>API Key</span>
+                {selected.role === "admin" && (
+                  <div style={{ fontSize: "var(--font-xs)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                      <Key className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)" }} />
+                      <span style={{ fontWeight: 500 }}>API Key</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button
+                        className="panel-btn-sm"
+                        onClick={handleRotateKey}
+                        disabled={rotating}
+                      >
+                        <RotateCw className={`h-3 w-3 ${rotating ? "animate-spin" : ""}`} />
+                        <span>Rotate key</span>
+                      </button>
+                    </div>
+                    <div style={{ marginTop: 4, fontSize: 10, color: "var(--muted-foreground)" }}>
+                      Rotating generates a new key. The old key stops working immediately.
+                    </div>
                   </div>
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button
-                      className="panel-btn-sm"
-                      onClick={handleRotateKey}
-                      disabled={rotating}
-                    >
-                      <RotateCw className={`h-3 w-3 ${rotating ? "animate-spin" : ""}`} />
-                      <span>Rotate key</span>
-                    </button>
-                  </div>
-                  <div style={{ marginTop: 4, fontSize: 10, color: "var(--muted-foreground)" }}>
-                    Rotating generates a new key. The old key stops working immediately.
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Quick actions */}
@@ -388,15 +395,17 @@ export function ProjectsPanel() {
                   <Key className="h-3 w-3" />
                   <span>Secrets</span>
                 </button>
-                <button
-                  className="svc-btn red"
-                  style={{ marginLeft: "auto" }}
-                  onClick={() => handleDelete(selected)}
-                  title="Delete project"
-                >
-                  <Trash2 className="h-3 w-3" />
-                  <span style={{ fontSize: 11 }}>Delete</span>
-                </button>
+                {selected.role === "admin" && (
+                  <button
+                    className="svc-btn red"
+                    style={{ marginLeft: "auto" }}
+                    onClick={() => handleDelete(selected)}
+                    title="Delete project"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    <span style={{ fontSize: 11 }}>Delete</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
