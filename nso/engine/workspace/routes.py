@@ -20,7 +20,7 @@ from nso.shared.models import (
 )
 from nso.engine.workspace.config import read_config, write_config, generate_config_toml
 from nso.engine.workspace.platform import PLATFORM_WORKSPACES
-from nso.shared.deps import require_project, require_project_editor, require_project_owner, require_admin
+from nso.shared.deps import require_project, require_project_owner, require_admin
 from nso.config import settings
 
 logger = logging.getLogger("nso.workspaces")
@@ -303,7 +303,7 @@ async def get_config(name: str, project_id: str = Depends(require_project)):
 
 
 @router.put("/{name}/config")
-async def update_config(name: str, req: UpdateConfigRequest, project_id: str = Depends(require_project_editor)):
+async def update_config(name: str, req: UpdateConfigRequest, project_id: str = Depends(require_project_owner)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -343,7 +343,7 @@ async def update_config(name: str, req: UpdateConfigRequest, project_id: str = D
 
 
 @router.post("/{name}/pull")
-async def pull_workspace(name: str, project_id: str = Depends(require_project_editor)):
+async def pull_workspace(name: str, project_id: str = Depends(require_project_owner)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -412,7 +412,7 @@ class WriteFileRequest(BaseModel):
 
 
 @router.post("/{name}/files/write")
-async def write_file(name: str, req: WriteFileRequest, project_id: str = Depends(require_project_editor)):
+async def write_file(name: str, req: WriteFileRequest, project_id: str = Depends(require_project_owner)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -446,7 +446,7 @@ class DeleteFileRequest(BaseModel):
 
 
 @router.post("/{name}/files/delete")
-async def delete_file(name: str, req: DeleteFileRequest, project_id: str = Depends(require_project_editor)):
+async def delete_file(name: str, req: DeleteFileRequest, project_id: str = Depends(require_project_owner)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")

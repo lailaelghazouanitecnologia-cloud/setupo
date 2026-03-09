@@ -11,20 +11,20 @@ router = APIRouter()
 
 
 async def _get_user_role(auth: AuthContext, project_id: str) -> str:
-    """Return the user's role for a project: 'admin', 'owner', 'editor', 'viewer', or raise 403."""
+    """Return the user's role for a project: 'owner' or 'viewer', or raise 403."""
     if not auth:
         raise HTTPException(403, "Access denied")
     if auth.is_admin:
-        return "admin"
+        return "owner"
     if auth.project_id == project_id:
-        return "owner"  # API key has full project access
+        return "owner"
     if auth.user_id:
         project = await db.fetch_one("projects", id=project_id)
         if project and project.get("owner") == auth.user_id:
             return "owner"
         member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
         if member:
-            return member.get("role", "viewer")
+            return "viewer"
     raise HTTPException(403, "Access denied")
 
 
@@ -52,7 +52,7 @@ async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(
 async def list_projects(auth: AuthContext = Depends(require_user)):
     if auth.is_admin:
         projects = await pm.list_projects()
-        return {"projects": [{**p, "role": "admin"} for p in projects]}
+        return {"projects": [{**p, "role": "owner"} for p in projects]}
 
     # User's own projects + orphan projects (owner="" from before fix)
     owned = await db.fetch_all("projects", owner=auth.user_id)
@@ -75,7 +75,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
             proj = await db.fetch_one("projects", id=m["project_id"])
             if proj:
                 member_projects.append(proj)
-                member_map[m["project_id"]] = m.get("role", "viewer")
+                member_map[m["project_id"]] = "viewer"
 
     result = []
     for p in owned + orphans:
