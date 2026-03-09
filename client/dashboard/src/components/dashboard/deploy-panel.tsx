@@ -137,7 +137,7 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
     if (!activeThreadId) { setMessages([]); return; }
     getDeployThread(projectId, activeThreadId)
       .then((t) => setMessages((t.messages || []).flatMap(dbMsgToChat)))
-      .catch(() => {});
+      .catch((e) => console.error(e));
   }, [activeThreadId, projectId]);
 
   // Auto-delete empty threads when switching away
@@ -242,7 +242,7 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
       }
       if (Object.keys(updates).length > 0) {
         setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, ...updates } : t));
-        updateDeployThread(projectId, activeThreadId, updates).catch(() => {});
+        updateDeployThread(projectId, activeThreadId, updates).catch((e) => console.error(e));
       }
     }
     await doStream(activeThreadId, content);
@@ -767,7 +767,7 @@ function ZarPicker({ projectId, onSelect, onClose }: {
   useEffect(() => {
     listWorkspaces(projectId)
       .then((r) => setWorkspaces(r.workspaces || []))
-      .catch(() => {})
+      .catch((e) => console.error(e))
       .finally(() => setLoading(false));
   }, [projectId]);
 

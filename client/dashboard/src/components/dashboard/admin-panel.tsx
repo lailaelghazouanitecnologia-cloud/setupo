@@ -80,7 +80,7 @@ function OverviewTab() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getAdminOverview().then(setData).catch(() => {}).finally(() => setLoading(false));
+    getAdminOverview().then(setData).catch((e) => console.error(e)).finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="admin-loading"><div className="term-spinner" /> Loading...</div>;
@@ -157,7 +157,7 @@ function CashflowTab() {
     setLoading(true);
     getCashflowAnalytics(granularity, periods)
       .then(setData)
-      .catch(() => {})
+      .catch((e) => console.error(e))
       .finally(() => setLoading(false));
   }, [granularity, periods]);
 
@@ -370,7 +370,7 @@ function UsersTab() {
     setLoading(true);
     adminListUsers({ search, limit: pageSize, offset: page * pageSize })
       .then((r) => { setUsers(r.users || []); setTotal(r.total || 0); })
-      .catch(() => {})
+      .catch((e) => console.error(e))
       .finally(() => setLoading(false));
   }, [search, page]);
 
@@ -461,7 +461,7 @@ function UserDetail({ user, onBack }: { user: AdminUser; onBack: () => void }) {
   const [err, setErr] = useState("");
 
   useEffect(() => {
-    adminGetUserActivity(user.id, 30).then((r) => setActivity(r.activity || [])).catch(() => {});
+    adminGetUserActivity(user.id, 30).then((r) => setActivity(r.activity || [])).catch((e) => console.error(e));
   }, [user.id]);
 
   const handleResetPw = async () => {
@@ -624,7 +624,7 @@ function AnalyticsTab() {
       getRevenueAnalytics(days),
       getGrowthAnalytics(days),
     ]).then(([r, g]) => { setRevenue(r); setGrowth(g); })
-      .catch(() => {})
+      .catch((e) => console.error(e))
       .finally(() => setLoading(false));
   }, [days]);
 
@@ -752,7 +752,7 @@ function FraudTab() {
 
   const scan = () => {
     setLoading(true);
-    runFraudScan().then(setResult).catch(() => {}).finally(() => setLoading(false));
+    runFraudScan().then(setResult).catch((e) => console.error(e)).finally(() => setLoading(false));
   };
 
   return (
@@ -856,7 +856,7 @@ function LedgerTab() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getLedgerStats().then(setStats).catch(() => {}).finally(() => setLoading(false));
+    getLedgerStats().then(setStats).catch((e) => console.error(e)).finally(() => setLoading(false));
   }, []);
 
   const loadChain = () => {
@@ -866,17 +866,17 @@ function LedgerTab() {
       setChainTotal(r.total || 0);
       setVerification(null);
       setProof(null);
-    }).catch(() => {});
+    }).catch((e) => console.error(e));
   };
 
   const verify = () => {
     if (!userId.trim()) return;
-    verifyUserChain(userId.trim()).then(setVerification).catch(() => {});
+    verifyUserChain(userId.trim()).then(setVerification).catch((e) => console.error(e));
   };
 
   const loadProof = () => {
     if (!userId.trim()) return;
-    getBalanceProof(userId.trim()).then(setProof).catch(() => {});
+    getBalanceProof(userId.trim()).then(setProof).catch((e) => console.error(e));
   };
 
   const fmt = fmtCents;

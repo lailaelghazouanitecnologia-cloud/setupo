@@ -6,14 +6,14 @@ from fastapi import APIRouter, HTTPException, Depends
 from nso.shared import db
 from nso.shared.models import CreateDomainRequest
 from nso.engine.dns.service import CloudflareProvider
-from nso.shared.deps import require_project, require_project_owner
+from nso.shared.deps import require_project, require_project_admin
 
 logger = logging.getLogger("nso.domains")
 router = APIRouter()
 
 
-@router.post("")
-async def create_domain(req: CreateDomainRequest, project_id: str = Depends(require_project_owner)):
+@router.post("", status_code=201)
+async def create_domain(req: CreateDomainRequest, project_id: str = Depends(require_project_admin)):
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:
         raise HTTPException(404, "Machine not found")
@@ -97,7 +97,7 @@ async def list_domains(project_id: str = Depends(require_project)):
 
 
 @router.delete("/{domain_id}")
-async def delete_domain(domain_id: str, project_id: str = Depends(require_project_owner)):
+async def delete_domain(domain_id: str, project_id: str = Depends(require_project_admin)):
     dom = await db.fetch_one("domains", id=domain_id)
     if not dom or dom["project_id"] != project_id:
         raise HTTPException(404, "Domain not found")

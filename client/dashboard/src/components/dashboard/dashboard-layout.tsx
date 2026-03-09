@@ -149,7 +149,7 @@ function ProjectSwitcher() {
         const { listWorkspaces } = await import("@/lib/api/client");
         const wsRes = await listWorkspaces(proj.id);
         setWorkspaces(wsRes.workspaces || []);
-      } catch {}
+      } catch (e) { console.error(e); }
       setNewName("");
       setCreating(false);
       setOpen(false);
@@ -173,7 +173,8 @@ function ProjectSwitcher() {
       const wsList: WorkspaceInfo[] = res.workspaces || [];
       setWorkspaces(wsList);
       setActiveWorkspace(wsList[0] || null);
-    } catch {
+    } catch (e) {
+      console.error(e);
       setWorkspaces([]);
     }
   };
@@ -441,7 +442,7 @@ function MembersPopover() {
       ]);
       setMembers(mRes.members || []);
       setInvites(iRes.invites || []);
-    } catch { }
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, [projectId]);
 
@@ -480,7 +481,7 @@ function MembersPopover() {
       const { revokeProjectInvite } = await import("@/lib/api/client");
       await revokeProjectInvite(projectId, inviteId);
       refresh();
-    } catch { }
+    } catch (e) { console.error(e); }
   };
 
   const handleRemoveMember = async (userId: string) => {
@@ -763,7 +764,7 @@ export function DashboardLayout() {
         try {
           const created = await createProject("main");
           projs = [created.project];
-        } catch { /* ignore */ }
+        } catch (e) { console.error(e); /* ignore */ }
       }
 
       setProjects(projs);
@@ -784,11 +785,13 @@ export function DashboardLayout() {
           const savedWsId = localStorage.getItem("nso_active_workspace");
           const restoredWs = wsList.find((w: WorkspaceInfo) => w.id === savedWsId);
           setActiveWorkspace(restoredWs || wsList[0] || null);
-        } catch {
+        } catch (e) {
+          console.error(e);
           setWorkspaces([]);
         }
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       setProjects([]);
     }
     setProjectLoading(false);
@@ -800,8 +803,8 @@ export function DashboardLayout() {
 
   useEffect(() => {
     import("@/lib/api/client").then(({ getMe, listNotifications }) => {
-      getMe().then((me) => setBalance(me.balance)).catch(() => {});
-      listNotifications().then((n) => setUnread(n.unread)).catch(() => {});
+      getMe().then((me) => setBalance(me.balance)).catch((e) => console.error(e));
+      listNotifications().then((n) => setUnread(n.unread)).catch((e) => console.error(e));
     });
   }, [activeView]);
 

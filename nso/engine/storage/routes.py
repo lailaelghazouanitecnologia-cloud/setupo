@@ -14,7 +14,7 @@ from nso.engine.storage.zar_packer import pack, read_manifest
 from nso.engine.storage.service import R2Client
 from nso.engine.workspace.config import read_config, read_package_config
 from nso.config import settings
-from nso.shared.deps import require_project, require_project_owner, require_admin, AuthContext
+from nso.shared.deps import require_project, require_project_admin, require_admin, AuthContext
 from nso.engine.build.service import (
     compute_source_hash,
     check_cache as check_build_cache,
@@ -216,7 +216,7 @@ class SelfUpdateRequest(BaseModel):
 
 
 @router.post("/{name}/pack")
-async def pack_workspace(name: str, project_id: str = Depends(require_project_owner)):
+async def pack_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -240,7 +240,7 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project_ow
 
 
 @router.post("/{name}/push")
-async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project_owner)):
+async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -275,7 +275,7 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
 
 
 @router.post("/{name}/deploy")
-async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project_owner)):
+async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project_admin)):
     instance_id = await _resolve_instance(name, project_id, req.instance_id)
 
     if req.version:
@@ -325,7 +325,7 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
 
 
 @router.post("/{name}/ship")
-async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project_owner)):
+async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -497,7 +497,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
 
 
 @router.post("/{name}/rollback")
-async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project_owner)):
+async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project_admin)):
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
@@ -527,7 +527,7 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
 
 
 @router.post("/{name}/branch")
-async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project_owner)):
+async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
         key = await r2.copy_branch(project_id, name, req.from_branch, req.name)
@@ -539,7 +539,7 @@ async def create_branch(name: str, req: BranchRequest, project_id: str = Depends
 
 
 @router.post("/{name}/merge")
-async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project_owner)):
+async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
         zar_bytes = await r2.download_zar(project_id, name, req.from_branch)
@@ -794,7 +794,7 @@ async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthConte
 
 
 @router.post("/self-update")
-async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project_owner)):
+async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project_admin)):
     r2_cfg = settings.r2_config()
     if not req.r2_key:
         default_keys = {

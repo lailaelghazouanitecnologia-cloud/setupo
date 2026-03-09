@@ -144,7 +144,7 @@ function NodesTab() {
     setLoading(true);
     try {
       setData(await getOrchestratorOverview());
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
 
@@ -245,7 +245,7 @@ function BuildsTab() {
     setLoading(true);
     try {
       setBuilds(await listBuilds(filter || undefined, undefined, 100));
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, [filter]);
 
@@ -334,7 +334,7 @@ function AlertsTab() {
     setLoading(true);
     try {
       setAlerts(await getOrchestratorAlerts());
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
 

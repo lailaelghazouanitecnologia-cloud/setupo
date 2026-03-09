@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from nso.shared import db
-from nso.shared.deps import require_project, require_project_owner
+from nso.shared.deps import require_project, require_project_admin
 from nso.shared.secrets import BUCKETS, classify_secret
 
 logger = logging.getLogger("nso.secrets")
@@ -62,10 +62,10 @@ async def list_secrets(
 
 # ── Add secret ──
 
-@router.post("")
+@router.post("", status_code=201)
 async def add_secret(
     req: SecretAddRequest,
-    project_id: str = Depends(require_project_owner),
+    project_id: str = Depends(require_project_admin),
 ):
     key = req.key.strip().upper().replace(" ", "_")
     value = req.value.strip()
@@ -102,7 +102,7 @@ async def update_secret(
     key: str,
     req: SecretUpdateRequest,
     scope: str = Query("general"),
-    project_id: str = Depends(require_project_owner),
+    project_id: str = Depends(require_project_admin),
 ):
     key = key.upper()
     existing = await db.fetch_one("project_secrets", project_id=project_id, key=key, scope=scope)
@@ -126,7 +126,7 @@ async def update_secret(
 async def delete_secret(
     key: str,
     scope: str = Query("general"),
-    project_id: str = Depends(require_project_owner),
+    project_id: str = Depends(require_project_admin),
 ):
     key = key.upper()
     existing = await db.fetch_one("project_secrets", project_id=project_id, key=key, scope=scope)
@@ -187,7 +187,7 @@ async def list_scopes(
 @router.post("/scopes")
 async def create_scope(
     req: ScopeCreateRequest,
-    project_id: str = Depends(require_project_owner),
+    project_id: str = Depends(require_project_admin),
 ):
     name = req.name.strip().lower()
     if not name:
@@ -210,7 +210,7 @@ async def create_scope(
 @router.delete("/scopes/{domain}")
 async def delete_scope(
     domain: str,
-    project_id: str = Depends(require_project_owner),
+    project_id: str = Depends(require_project_admin),
 ):
     if domain == "general":
         raise HTTPException(400, "Cannot delete the general scope")

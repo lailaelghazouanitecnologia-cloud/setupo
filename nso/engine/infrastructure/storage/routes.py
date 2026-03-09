@@ -19,7 +19,7 @@ class CreateBucketRequest(BaseModel):
 
 # ── Bucket CRUD ──────────────────────────────────────────────────
 
-@router.post("/buckets")
+@router.post("/buckets", status_code=201)
 async def create_bucket(req: CreateBucketRequest, project_id: str = Depends(require_project)):
     try:
         return await service.create_bucket(project_id, req.name, req.public_access)

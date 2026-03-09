@@ -25,7 +25,7 @@ class QueryRequest(BaseModel):
 
 # ── CRUD ─────────────────────────────────────────────────────────
 
-@router.post("")
+@router.post("", status_code=201)
 async def create_database(req: CreateDatabaseRequest, project_id: str = Depends(require_project)):
     try:
         record = await service.create_database(

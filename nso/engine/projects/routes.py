@@ -4,7 +4,7 @@ from nso.shared.models import CreateProjectRequest
 from nso.engine.projects import service as pm
 from nso.shared import db
 from nso.shared.errors import NsoError
-from nso.shared.deps import require_admin, require_user, require_project_owner, get_auth
+from nso.shared.deps import require_admin, require_user, require_project_admin, get_auth
 from nso.shared.auth.resolve import AuthContext
 
 router = APIRouter()
@@ -28,7 +28,7 @@ async def _get_user_role(auth: AuthContext, project_id: str) -> str:
     raise HTTPException(403, "Access denied")
 
 
-@router.post("")
+@router.post("", status_code=201)
 async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(require_user)):
     if not req.owner and auth.user_id:
         req.owner = auth.user_id
@@ -101,7 +101,7 @@ async def get_project(project_id: str, auth: AuthContext = Depends(require_user)
 
 
 @router.delete("/{project_id}")
-async def delete_project(project_id: str = Depends(require_project_owner)):
+async def delete_project(project_id: str = Depends(require_project_admin)):
     try:
         await pm.delete_project(project_id)
     except NsoError as e:
@@ -110,7 +110,7 @@ async def delete_project(project_id: str = Depends(require_project_owner)):
 
 
 @router.post("/{project_id}/rotate-key")
-async def rotate_key(project_id: str = Depends(require_project_owner)):
+async def rotate_key(project_id: str = Depends(require_project_admin)):
     try:
         new_key = await pm.rotate_api_key(project_id)
     except NsoError as e:
@@ -122,7 +122,7 @@ async def rotate_key(project_id: str = Depends(require_project_owner)):
 
 
 @router.put("/{project_id}/settings")
-async def update_settings(new_settings: dict, project_id: str = Depends(require_project_owner)):
+async def update_settings(new_settings: dict, project_id: str = Depends(require_project_admin)):
     try:
         await pm.update_project_settings(project_id, new_settings)
     except NsoError as e:

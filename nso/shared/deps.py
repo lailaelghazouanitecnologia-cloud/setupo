@@ -57,9 +57,6 @@ async def require_project_admin(request: Request, auth: AuthContext = Depends(ge
     raise AuthError("This endpoint requires authentication")
 
 
-# Alias for backwards compatibility
-require_project_owner = require_project_admin
-
 
 async def require_admin(auth: AuthContext = Depends(get_auth)) -> AuthContext:
     if not auth or not auth.is_admin:
