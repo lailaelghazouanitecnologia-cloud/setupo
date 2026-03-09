@@ -4,13 +4,13 @@ from nso.shared.models import CreateInstanceRequest, InstanceExecRequest
 from nso.engine.compute import service as im
 from nso.engine.compute import supervisor_sync as svc_mgr
 from nso.shared.errors import NsoError
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_owner
 
 router = APIRouter()
 
 
 @router.post("")
-async def create_instance(req: CreateInstanceRequest, project_id: str = Depends(require_project)):
+async def create_instance(req: CreateInstanceRequest, project_id: str = Depends(require_project_owner)):
     try:
         instance = await im.create_instance(project_id, req)
     except NsoError as e:
@@ -49,7 +49,7 @@ async def get_instance(instance_id: str, project_id: str = Depends(require_proje
 
 
 @router.delete("/{instance_id}")
-async def delete_instance(instance_id: str, project_id: str = Depends(require_project)):
+async def delete_instance(instance_id: str, project_id: str = Depends(require_project_owner)):
     try:
         await im.delete_instance(project_id, instance_id)
     except NsoError as e:
@@ -58,7 +58,7 @@ async def delete_instance(instance_id: str, project_id: str = Depends(require_pr
 
 
 @router.post("/{instance_id}/stop")
-async def stop_instance(instance_id: str, project_id: str = Depends(require_project)):
+async def stop_instance(instance_id: str, project_id: str = Depends(require_project_owner)):
     try:
         await im.stop_instance(project_id, instance_id)
     except NsoError as e:
@@ -67,7 +67,7 @@ async def stop_instance(instance_id: str, project_id: str = Depends(require_proj
 
 
 @router.post("/{instance_id}/start")
-async def start_instance(instance_id: str, project_id: str = Depends(require_project)):
+async def start_instance(instance_id: str, project_id: str = Depends(require_project_owner)):
     try:
         await im.start_instance(project_id, instance_id)
     except NsoError as e:
@@ -138,7 +138,7 @@ async def get_service(instance_id: str, service_name: str, project_id: str = Dep
 
 
 @router.post("/{instance_id}/services/{service_name}/restart")
-async def restart_service(instance_id: str, service_name: str, project_id: str = Depends(require_project)):
+async def restart_service(instance_id: str, service_name: str, project_id: str = Depends(require_project_owner)):
     """Restart a service on a machine."""
     try:
         result = await svc_mgr.restart_service(project_id, instance_id, service_name)
@@ -148,7 +148,7 @@ async def restart_service(instance_id: str, service_name: str, project_id: str =
 
 
 @router.post("/{instance_id}/services/{service_name}/stop")
-async def stop_service(instance_id: str, service_name: str, project_id: str = Depends(require_project)):
+async def stop_service(instance_id: str, service_name: str, project_id: str = Depends(require_project_owner)):
     """Stop a service on a machine."""
     try:
         result = await svc_mgr.stop_service(project_id, instance_id, service_name)
@@ -161,7 +161,7 @@ async def stop_service(instance_id: str, service_name: str, project_id: str = De
 async def apply_services(
     instance_id: str,
     specs: list[dict] = Body(..., embed=True),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Apply a set of service specs to the machine's supervisor."""
     try:
