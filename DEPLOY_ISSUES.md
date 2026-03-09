@@ -249,22 +249,92 @@ Los valores de env vars no se escapan para systemd. Si un valor contiene espacio
 
 ---
 
+---
+
+## FRONTEND — Problemas de build/deploy del dashboard
+
+### 18. Version de Next.js incompatible entre dashboards
+
+| Dashboard | Next.js |
+|-----------|---------|
+| `client/dashboard` | `^16.1.6` |
+| `client/admin` | `15.1.7` |
+
+Versiones distintas (16.x vs 15.x) causan diferencias en features, Turbopack, y comportamiento de build. Cuando se hace platform-update, ambos se buildean en la misma maquina — las dependencias compartidas pueden conflictuar.
+
+---
+
+### 19. Admin dashboard: JSX config incorrecta en tsconfig
+
+**Archivo**: `client/admin/tsconfig.json`
+
+```json
+"jsx": "preserve"   // INCORRECTO para Next.js App Router
+```
+
+Deberia ser `"react-jsx"` (como el dashboard principal). Con `preserve`, el SSR y static export no funcionan correctamente.
+
+**Impacto**: Build del admin puede fallar o generar output incorrecto.
+
+---
+
+### 20. API Base hardcodeada con `window.location.origin`
+
+**Archivo**: `client/dashboard/src/lib/api/client.ts:1` y `client/admin/src/lib/api/client.ts:6`
+
+```typescript
+const API_BASE = typeof window !== "undefined" ? window.location.origin : "";
+```
+
+No hay variable de entorno (`NEXT_PUBLIC_API_BASE`). Si el frontend se sirve desde un dominio diferente al API (ej: CDN, subdomain distinto), todas las llamadas API fallan.
+
+---
+
+### 21. Script `export` copia recursivamente sobre si mismo
+
+**Archivo**: Ambos `package.json`
+
+```json
+"export": "next build && cp -r out/* static/"
+```
+
+Cada vez que se ejecuta `npm run export`, copia `out/` a `static/`. Si ya existe contenido en `static/`, se acumula — esto explica los directorios recursivos `static/static/static/static` (issue #3).
+
+**Impacto**: Cada build duplica el contenido. Debe hacer `rm -rf static && ...` antes.
+
+---
+
+### 22. Admin host check en frontend es fragil
+
+**Archivo**: `client/dashboard/src/components/dashboard/dashboard-layout.tsx:139`
+
+```typescript
+window.location.hostname.startsWith("sonfazt")
+```
+
+Solo verifica el prefijo del hostname. Un dominio como `sonfazt-fake.nso.dev` pasaria el check. Deberia comparar con el hostname exacto.
+
+---
+
 ## BAJOS — Mejoras recomendadas
 
-### 18. R2Client no hace retry en fallos de red
+### 23. R2Client no hace retry en fallos de red
 - `nso/engine/storage/service.py` — Un fallo transitorio de R2 (timeout, 5xx) aborta todo el deploy.
 
-### 19. No hay health check del agent antes de deployar
+### 24. No hay health check del agent antes de deployar
 - El server asume que el agent responde. Si el agent esta caido, el deploy falla con un error generico de conexion.
 
-### 20. Logs de deploy limitados a 500 lineas en agent
+### 25. Logs de deploy limitados a 500 lineas en agent
 - `vm/agent/deploy.py:33` — `MAX_LOG_LINES = 500`. Si un build genera mucho output, se trunca y se pierde informacion de debug.
 
-### 21. Snapshots no comprimen
+### 26. Snapshots no comprimen
 - `vm/agent/deploy.py:147` — `shutil.copytree` copia archivos sin comprimir. En un VPS de 25GB, 5 snapshots de un proyecto grande pueden llenar el disco.
 
-### 22. `openai>=1.0.0` en requirements.txt sin version fija
+### 27. `openai>=1.0.0` en requirements.txt sin version fija
 - `requirements.txt:9` — Puede introducir breaking changes en produccion.
+
+### 28. No hay `.env.example` para frontends
+- Los dashboards no tienen configuracion de entorno documentada. No se puede setear Stripe keys, API base, etc. en build time.
 
 ---
 
@@ -273,6 +343,7 @@ Los valores de env vars no se escapan para systemd. Si un valor contiene espacio
 | Prioridad | Cant | Accion inmediata |
 |-----------|------|-----------------|
 | CRITICO | 7 | Fix import roto en ship, password hardcodeada, tabla compute_nodes, credenciales R2, static dirs |
-| ALTO | 5 | Arreglar auth del reconciler, manejar timeout de deploy, race condition SQLite |
+| ALTO | 5 | Auth del reconciler, timeout de deploy, race condition SQLite |
 | MEDIO | 5 | Unificar paths de deploy, fix migraciones duplicadas |
-| BAJO | 5 | Retry R2, health check pre-deploy, pin versions |
+| FRONTEND | 5 | Next.js version mismatch, JSX config, export script recursivo, API base hardcoded |
+| BAJO | 6 | Retry R2, health check pre-deploy, pin versions |
