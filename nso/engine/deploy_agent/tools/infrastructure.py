@@ -29,12 +29,13 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
     """Create infrastructure management tools bound to project context."""
 
     async def list_instances() -> str:
-        """List all existing instances for this project. Always call this BEFORE considering create_instance.
-        Returns instances with their state, IP, workspace, and capacity info."""
+        """List all existing instances and compute nodes for this project.
+        Always call this BEFORE considering create_instance.
+        Returns instances and nodes with their state, IP, and capacity info."""
         instances = await db.fetch_all("instances", project_id=ctx.project_id)
-        result = []
+        inst_result = []
         for inst in instances:
-            result.append({
+            inst_result.append({
                 "id": inst["id"],
                 "label": inst.get("label", ""),
                 "state": inst.get("state", "unknown"),
@@ -43,10 +44,27 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
                 "plan": inst.get("plan", ""),
                 "region": inst.get("region", ""),
             })
+
+        nodes = await db.fetch_all("compute_nodes", project_id=ctx.project_id)
+        node_result = []
+        for node in nodes:
+            node_result.append({
+                "id": node["id"],
+                "label": node.get("label", ""),
+                "status": node.get("status", "unknown"),
+                "ip": node.get("ip", ""),
+                "provider": node.get("provider", ""),
+                "agent_port": node.get("agent_port", 8081),
+                "instance_id": node.get("instance_id", ""),
+                "cpu_cores": node.get("cpu_cores", 0),
+                "mem_total_mb": node.get("mem_total_mb", 0),
+            })
+
         return json.dumps({
-            "instances": result,
-            "count": len(result),
-            "hint": "Use an existing running/ready instance for deploys. Only create a new one if the user explicitly requests it.",
+            "instances": inst_result,
+            "nodes": node_result,
+            "count": len(inst_result) + len(node_result),
+            "hint": "Use an existing running/ready instance or online node for deploys. Only create a new one if the user explicitly requests it.",
         })
 
     async def create_instance(
@@ -116,24 +134,37 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
             "message": f"Instance '{instance.label}' is being provisioned. It will be ready in ~2 minutes.",
         })
 
-    async def manage_service(instance_id: str, action: str, service_name: str) -> str:
-        """Manage a systemd service on an instance. action: start, stop, restart, status."""
+    async def manage_service(target_id: str = "", instance_id: str = "", node_id: str = "",
+                             action: str = "status", service_name: str = "") -> str:
+        """Manage a systemd service on a node or instance. action: start, stop, restart, status."""
         if action not in ("start", "stop", "restart", "status"):
             return json.dumps({"error": f"Invalid action '{action}'. Must be: start, stop, restart, status"})
 
-        inst = await db.fetch_one("instances", id=instance_id)
-        if not inst or inst.get("project_id") != ctx.project_id:
-            return json.dumps({"error": f"Instance {instance_id} not found"})
+        tid = node_id or instance_id or target_id
+        if not tid:
+            return json.dumps({"error": "Provide target_id, instance_id, or node_id"})
 
-        ip = inst.get("ip")
+        ip, agent_port = "", 8081
+
+        if tid.startswith("node_"):
+            node = await db.fetch_one("compute_nodes", id=tid)
+            if not node or node.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Node {tid} not found"})
+            ip = node.get("ip", "")
+            agent_port = node.get("agent_port", 8081)
+        else:
+            inst = await db.fetch_one("instances", id=tid)
+            if not inst or inst.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Instance {tid} not found"})
+            ip = inst.get("ip", "")
+
         if not ip:
-            return json.dumps({"error": "Instance has no IP address (still provisioning?)"})
+            return json.dumps({"error": "Target has no IP address (still provisioning?)"})
 
         import httpx
         agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
 
-        # Try localhost first, then public IP
-        for base_url in [f"http://127.0.0.1:8081", f"http://{ip}:8081"]:
+        for base_url in [f"http://127.0.0.1:{agent_port}", f"http://{ip}:{agent_port}"]:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
                     resp = await client.post(f"{base_url}/auth/login", json={
@@ -154,24 +185,27 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
                         "ok": True,
                         "service": service_name,
                         "action": action,
+                        "target_id": tid,
                         "result": resp.json(),
                     })
                 return json.dumps({"error": f"Service {action} failed: {resp.text[:300]}"})
             except Exception:
                 continue
 
-        return json.dumps({"error": f"Cannot reach agent on instance {instance_id}"})
+        return json.dumps({"error": f"Cannot reach agent on {tid}"})
 
     async def manage_domain(
         workspace: str = "",
         action: str = "auto",
         custom_domain: str = "",
         instance_id: str = "",
+        node_id: str = "",
     ) -> str:
         """Manage domain for a workspace. action: auto (assign workspace.user.nso.dev), custom (set custom domain), remove, list.
 
         Auto-domain pattern: workspace-username.nso.dev (uses platform Cloudflare).
         For custom domains: if user has a Cloudflare connector, use manage_dns tool instead for full control.
+        Accepts node_id or instance_id as the target.
         """
         if action == "list":
             domains = await db.fetch_all("domains", project_id=ctx.project_id)
@@ -184,7 +218,6 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
                     "instance_id": d.get("instance_id", ""),
                     "managed": bool(d.get("managed", 0)),
                 })
-            # Also check if user has Cloudflare connector
             cf_addon = await db.fetch_one("addons", project_id=ctx.project_id, addon_id="cloudflare", addon_type="connector")
             has_cf = bool(cf_addon and cf_addon.get("enabled"))
             return json.dumps({"domains": result, "count": len(result), "has_cloudflare_connector": has_cf})
@@ -196,25 +229,47 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
         if not ws:
             return json.dumps({"error": f"Workspace '{workspace}' not found"})
 
-        # Resolve instance
-        if not instance_id:
-            instance_id = ws.get("instance_id", "")
-        if not instance_id:
-            instances = await db.fetch_all("instances", project_id=ctx.project_id)
-            ready = [i for i in instances if i.get("state") in ("ready", "running")]
-            if ready:
-                instance_id = ready[0]["id"]
+        # Resolve target: node_id → instance_id → workspace linked → fallback
+        target_id = node_id or instance_id
+        ip = ""
 
-        if not instance_id:
-            return json.dumps({"error": "No instance found. Create or link one first."})
+        if not target_id:
+            target_id = ws.get("instance_id", "")
 
-        inst = await db.fetch_one("instances", id=instance_id)
-        if not inst:
-            return json.dumps({"error": f"Instance {instance_id} not found"})
+        if target_id and target_id.startswith("node_"):
+            node = await db.fetch_one("compute_nodes", id=target_id)
+            if node and node.get("project_id") == ctx.project_id:
+                ip = node.get("ip", "")
+                # For domain FK we need the linked instance_id
+                instance_id = node.get("instance_id", target_id)
+            else:
+                return json.dumps({"error": f"Node {target_id} not found"})
+        elif target_id:
+            inst = await db.fetch_one("instances", id=target_id)
+            if inst and inst.get("project_id") == ctx.project_id:
+                ip = inst.get("ip", "")
+                instance_id = target_id
+            else:
+                return json.dumps({"error": f"Instance {target_id} not found"})
+        else:
+            # Fallback: try online nodes first, then running instances
+            nodes = await db.fetch_all("compute_nodes", project_id=ctx.project_id, status="online")
+            for n in nodes:
+                if n.get("ip"):
+                    ip = n["ip"]
+                    target_id = n["id"]
+                    instance_id = n.get("instance_id", n["id"])
+                    break
+            if not ip:
+                instances = await db.fetch_all("instances", project_id=ctx.project_id)
+                ready = [i for i in instances if i.get("state") in ("ready", "running") and i.get("ip")]
+                if ready:
+                    ip = ready[0]["ip"]
+                    target_id = ready[0]["id"]
+                    instance_id = ready[0]["id"]
 
-        ip = inst.get("ip", "")
         if not ip:
-            return json.dumps({"error": "Instance has no IP (still provisioning?)"})
+            return json.dumps({"error": "No target with IP found. Create an instance or register a compute node first."})
 
         if action == "remove":
             domains = await db.fetch_all("domains", project_id=ctx.project_id)
@@ -248,35 +303,52 @@ def create_infrastructure_tools(ctx: DeployContext) -> list[tuple]:
             "ok": True,
             "workspace": workspace,
             "domain": domain,
+            "target_id": target_id,
             "instance_id": instance_id,
             "ip": ip,
             "pattern": "workspace-username.nso.dev" if action == "auto" else "custom",
         })
 
-    async def link_workspace_instance(workspace: str, instance_id: str) -> str:
-        """Link a workspace to an instance for deployments."""
+    async def link_workspace_instance(workspace: str, instance_id: str = "", node_id: str = "") -> str:
+        """Link a workspace to an instance or compute node for deployments."""
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
         if not ws:
             return json.dumps({"error": f"Workspace '{workspace}' not found"})
 
-        inst = await db.fetch_one("instances", id=instance_id)
-        if not inst or inst.get("project_id") != ctx.project_id:
-            return json.dumps({"error": f"Instance {instance_id} not found"})
+        target_id = node_id or instance_id
+        if not target_id:
+            return json.dumps({"error": "Provide instance_id or node_id"})
 
-        await db.update("workspaces", ws["id"], {"instance_id": instance_id})
-
-        return json.dumps({
-            "ok": True,
-            "workspace": workspace,
-            "instance_id": instance_id,
-            "instance_label": inst.get("label", ""),
-            "ip": inst.get("ip", ""),
-        })
+        if target_id.startswith("node_"):
+            node = await db.fetch_one("compute_nodes", id=target_id)
+            if not node or node.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Node {target_id} not found"})
+            # Store the node_id as the workspace's instance_id (deploy target)
+            await db.update("workspaces", ws["id"], {"instance_id": target_id})
+            return json.dumps({
+                "ok": True,
+                "workspace": workspace,
+                "node_id": target_id,
+                "label": node.get("label", ""),
+                "ip": node.get("ip", ""),
+            })
+        else:
+            inst = await db.fetch_one("instances", id=target_id)
+            if not inst or inst.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Instance {target_id} not found"})
+            await db.update("workspaces", ws["id"], {"instance_id": target_id})
+            return json.dumps({
+                "ok": True,
+                "workspace": workspace,
+                "instance_id": target_id,
+                "label": inst.get("label", ""),
+                "ip": inst.get("ip", ""),
+            })
 
     return [
-        (list_instances, "list_instances", "List all existing instances. ALWAYS call this before create_instance to check what's available."),
+        (list_instances, "list_instances", "List all existing instances and compute nodes. ALWAYS call this before create_instance to check what's available."),
         (create_instance, "create_instance", "Create a new VPS instance (Vultr). Only use if user explicitly requests it — check list_instances first."),
-        (manage_service, "manage_service", "Start/stop/restart/status a systemd service on an instance"),
+        (manage_service, "manage_service", "Start/stop/restart/status a systemd service on a node or instance"),
         (manage_domain, "manage_domain", "Manage domain: auto-assign workspace.user.nso.dev, set custom domain, remove, or list domains"),
-        (link_workspace_instance, "link_workspace_instance", "Link a workspace to an instance for deployments"),
+        (link_workspace_instance, "link_workspace_instance", "Link a workspace to a node or instance for deployments"),
     ]

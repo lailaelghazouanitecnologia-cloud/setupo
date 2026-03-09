@@ -95,18 +95,79 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         )
         return json.dumps(result)
 
-    async def run_ship(workspace: str, instance_id: str = "", branch: str = "main", domain: str = "") -> str:
-        """Execute full ship pipeline: pack → push to R2 → deploy to instance."""
+    async def run_ship(workspace: str, instance_id: str = "", node_id: str = "",
+                       branch: str = "main", domain: str = "") -> str:
+        """Execute full ship pipeline: pack → push to R2 → deploy to node/instance."""
         try:
-            return await _run_ship_impl(workspace, instance_id, branch, domain)
+            target_id = node_id or instance_id
+            return await _run_ship_impl(workspace, target_id, branch, domain)
         except Exception as exc:
             logger.exception("run_ship unhandled error for workspace=%s", workspace)
             return json.dumps({"error": f"Ship failed: {type(exc).__name__}: {exc}"})
 
-    async def _run_ship_impl(workspace: str, instance_id: str, branch: str, domain: str) -> str:
+    async def _resolve_deploy_target(ws: dict, target_id: str) -> tuple[str, str, int]:
+        """Resolve deploy target to (target_id, ip, agent_port).
+
+        Resolution order:
+        1. Explicit target_id (node_* or inst_*)
+        2. Workspace linked instance_id
+        3. Config file deploy.instance_id
+        4. Any online compute node
+        5. Any running instance (legacy fallback)
+        """
+        from nso.engine.workspace.config import read_config
+
+        ws_path = ws.get("path", "")
+
+        # Step 1: Use explicit target if provided
+        if not target_id:
+            target_id = ws.get("instance_id", "")
+        if not target_id and ws_path:
+            config = read_config(ws_path)
+            if config and config.deploy and config.deploy.instance_id:
+                target_id = config.deploy.instance_id
+
+        # Step 2: Validate the target
+        if target_id:
+            ip, port = await _resolve_target_ip(target_id)
+            if ip:
+                return target_id, ip, port
+            logger.warning("Target %s not deployable, trying fallback", target_id)
+            target_id = ""
+
+        # Step 3: Fallback — try compute nodes first, then legacy instances
+        nodes = await db.fetch_all("compute_nodes", project_id=ctx.project_id, status="online")
+        for node in nodes:
+            if node.get("ip"):
+                return node["id"], node["ip"], node.get("agent_port", 8081)
+
+        instances = await db.fetch_all("instances", project_id=ctx.project_id)
+        running = [i for i in instances if i.get("state") in ("ready", "running") and i.get("ip")]
+        if running:
+            inst = running[0]
+            return inst["id"], inst["ip"], 8081
+
+        return "", "", 0
+
+    async def _resolve_target_ip(target_id: str) -> tuple[str, int]:
+        """Resolve a target_id (node_* or inst_*) to (ip, agent_port)."""
+        if target_id.startswith("node_"):
+            node = await db.fetch_one("compute_nodes", id=target_id)
+            if node and node.get("ip") and node.get("project_id") == ctx.project_id:
+                if node.get("status") in ("online", "provisioning"):
+                    return node["ip"], node.get("agent_port", 8081)
+            return "", 0
+
+        # Legacy instance
+        inst = await db.fetch_one("instances", id=target_id)
+        if inst and inst.get("project_id") == ctx.project_id and inst.get("state") in ("ready", "running"):
+            return inst.get("ip", ""), 8081
+        return "", 0
+
+    async def _run_ship_impl(workspace: str, target_id: str, branch: str, domain: str) -> str:
         from nso.engine.storage.zar_packer import pack
         from nso.engine.storage.service import R2Client
-        from nso.engine.workspace.config import read_config, read_package_config
+        from nso.engine.workspace.config import read_package_config
 
         ws = await db.fetch_one("workspaces", project_id=ctx.project_id, name=workspace)
         if not ws:
@@ -120,36 +181,12 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         if ctx.user_id:
             await _auto_claim_subdomain(ctx.user_id)
 
-        # Resolve instance — prefer linked instance if healthy, fallback to any running
-        if not instance_id:
-            if ws.get("instance_id"):
-                instance_id = ws["instance_id"]
-            elif not instance_id:
-                config = read_config(ws_path)
-                if config and config.deploy and config.deploy.instance_id:
-                    instance_id = config.deploy.instance_id
+        # Resolve deploy target (node or instance)
+        target_id, target_ip, agent_port = await _resolve_deploy_target(ws, target_id)
+        if not target_id or not target_ip:
+            return json.dumps({"error": "No deploy target available. Create an instance or register a compute node first."})
 
-        # Validate chosen instance is deployable; fallback to any running instance if not
-        inst = None
-        if instance_id:
-            inst = await db.fetch_one("instances", id=instance_id)
-            if inst and inst.get("project_id") == ctx.project_id and inst.get("state") in ("ready", "running"):
-                pass  # good — use this instance
-            else:
-                logger.warning("Linked instance %s not deployable (state=%s), trying fallback",
-                               instance_id, inst.get("state") if inst else "not found")
-                inst = None
-                instance_id = ""
-
-        if not instance_id:
-            instances = await db.fetch_all("instances", project_id=ctx.project_id)
-            running = [i for i in instances if i.get("state") in ("ready", "running")]
-            if running:
-                inst = running[0]
-                instance_id = inst["id"]
-                logger.info("Falling back to instance %s (%s)", instance_id, inst.get("label", ""))
-            else:
-                return json.dumps({"error": "No instance available. Create one first or fix existing instances."})
+        is_node = target_id.startswith("node_")
 
         # Pack
         pkg_config = read_package_config(ws_path)
@@ -172,13 +209,11 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
         finally:
             await r2.close()
 
-        # Deploy via agent
+        # Deploy via agent — use target IP and port
         import httpx
         agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
-        inst_ip = inst['ip']
 
-        # Try localhost first (same-server deploy), then public IP
-        agent_urls = [f"http://127.0.0.1:8081", f"http://{inst_ip}:8081"]
+        agent_urls = [f"http://127.0.0.1:{agent_port}", f"http://{target_ip}:{agent_port}"]
         token = None
         last_error = None
 
@@ -212,9 +247,13 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
             pass
 
         r2_cfg = settings.r2_config()
-        # Save previous state to restore on failure (don't corrupt instance state)
-        prev_state = inst.get("state", "running")
-        await db.update("instances", instance_id, {"state": "deploying", "workspace": workspace})
+
+        # Update state — node or instance
+        if is_node:
+            prev_status = (await db.fetch_one("compute_nodes", id=target_id) or {}).get("status", "online")
+        else:
+            prev_state = (await db.fetch_one("instances", id=target_id) or {}).get("state", "running")
+            await db.update("instances", target_id, {"state": "deploying", "workspace": workspace})
 
         try:
             async with httpx.AsyncClient(timeout=300) as client:
@@ -235,19 +274,27 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
                     },
                 )
             if resp.status_code != 200:
-                # Restore previous state — the instance is fine, just the deploy failed
-                await db.update("instances", instance_id, {"state": prev_state, "error": ""})
+                if not is_node:
+                    await db.update("instances", target_id, {"state": prev_state, "error": ""})
                 return json.dumps({"error": f"Deploy failed: {resp.text[:500]}"})
 
             deploy_result = resp.json()
         except Exception as exc:
-            await db.update("instances", instance_id, {"state": prev_state, "error": ""})
+            if not is_node:
+                await db.update("instances", target_id, {"state": prev_state, "error": ""})
             return json.dumps({"error": f"Deploy error: {exc}"})
 
-        await db.update("instances", instance_id, {"state": "running", "error": ""})
+        if not is_node:
+            await db.update("instances", target_id, {"state": "running", "error": ""})
+
+        # For domain assignment we need the instance_id (domains FK)
+        instance_id_for_domain = target_id if not is_node else (
+            (await db.fetch_one("compute_nodes", id=target_id) or {}).get("instance_id", target_id)
+        )
 
         deploy_domain = await _auto_assign_domain(
-            ctx.project_id, ctx.user_id, workspace, instance_id, inst.get("ip", ""), domain,
+            ctx.project_id, ctx.user_id, workspace,
+            instance_id_for_domain, target_ip, domain,
         )
 
         # Auto-setup nginx + SSL on the agent for the deploy domain
@@ -258,8 +305,13 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
 
         # Send deploy notification to user inbox
         if ctx.user_id:
+            label = ""
+            if is_node:
+                label = ((await db.fetch_one("compute_nodes", id=target_id)) or {}).get("label", "")
+            else:
+                label = ((await db.fetch_one("instances", id=target_id)) or {}).get("label", "")
             await _send_deploy_notification(
-                ctx.user_id, workspace, manifest.version, deploy_domain, inst.get("label", ""),
+                ctx.user_id, workspace, manifest.version, deploy_domain, label,
             )
 
         return json.dumps({
@@ -268,27 +320,39 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
             "version": manifest.version,
             "branch": branch,
             "r2_key": r2_key,
-            "instance_id": instance_id,
+            "target_id": target_id,
             "domain": deploy_domain,
             "snapshot": deploy_result.get("snapshot", ""),
             "pipeline": deploy_result.get("pipeline", False),
         })
 
-    async def check_deploy_status(instance_id: str) -> str:
-        """Check the current deploy state on an instance."""
-        inst = await db.fetch_one("instances", id=instance_id)
-        if not inst or inst.get("project_id") != ctx.project_id:
-            return json.dumps({"error": "Instance not found"})
+    async def check_deploy_status(target_id: str = "", instance_id: str = "", node_id: str = "") -> str:
+        """Check the current deploy state on a node or instance."""
+        tid = node_id or instance_id or target_id
+        if not tid:
+            return json.dumps({"error": "Provide target_id, instance_id, or node_id"})
 
-        ip = inst.get("ip", "")
+        ip, agent_port = "", 8081
+
+        if tid.startswith("node_"):
+            node = await db.fetch_one("compute_nodes", id=tid)
+            if not node or node.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Node {tid} not found"})
+            ip = node.get("ip", "")
+            agent_port = node.get("agent_port", 8081)
+        else:
+            inst = await db.fetch_one("instances", id=tid)
+            if not inst or inst.get("project_id") != ctx.project_id:
+                return json.dumps({"error": f"Instance {tid} not found"})
+            ip = inst.get("ip", "")
+
         if not ip:
-            return json.dumps({"error": "Instance has no IP"})
+            return json.dumps({"error": "Target has no IP"})
 
         try:
             import httpx
             agent_password = os.environ.get("AGENT_ADMIN_PASSWORD", "")
-            # Try localhost first, then public IP
-            for base_url in [f"http://127.0.0.1:8081", f"http://{ip}:8081"]:
+            for base_url in [f"http://127.0.0.1:{agent_port}", f"http://{ip}:{agent_port}"]:
                 try:
                     async with httpx.AsyncClient(timeout=10) as client:
                         resp = await client.post(f"{base_url}/auth/login", json={
@@ -375,7 +439,7 @@ def create_deploy_tools(ctx: DeployContext) -> list[tuple]:
     return [
         (run_build, "run_build", "Trigger smart build for a workspace"),
         (run_ship, "run_ship", "Execute full ship: pack + push + deploy + auto-domain"),
-        (check_deploy_status, "check_deploy_status", "Check deploy status on an instance"),
+        (check_deploy_status, "check_deploy_status", "Check deploy status on a node or instance"),
         (run_validation, "run_validation", "Run validation checks on a workspace"),
     ]
 
