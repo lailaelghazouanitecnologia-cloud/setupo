@@ -64,7 +64,7 @@ class Settings:
     # Deploy agent LLM (any OpenAI-compatible API: Groq, OpenRouter, etc.)
     DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
     DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
-    DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "llama-3.3-70b-versatile")
+    DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "openai/gpt-oss-20b")
 
     # Mesh
     MESH_KEYS_DIR = DATA_DIR / "mesh"
