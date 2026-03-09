@@ -86,20 +86,40 @@ async def _check_deploy_limit(project_id: str) -> None:
         if max_deploys == -1:
             return
 
-        # Count today's deploys for this project (instances + compute nodes)
+        # Count today's deploys for this project
         from datetime import datetime, timezone
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         conn = await db.get_db()
-        cursor = await conn.execute(
-            "SELECT COUNT(*) as c FROM deploy_logs "
-            "WHERE instance_id IN ("
-            "  SELECT id FROM instances WHERE project_id = ? "
-            "  UNION SELECT id FROM compute_nodes WHERE project_id = ?"
-            ") "
-            "AND message LIKE 'Syncing workspace%' "
-            "AND created_at >= ?",
-            (project_id, project_id, today),
+
+        # Check if compute_nodes table exists before including it
+        tbl_cursor = await conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='compute_nodes'"
         )
+        has_nodes = await tbl_cursor.fetchone()
+
+        if has_nodes:
+            query = (
+                "SELECT COUNT(*) as c FROM deploy_logs "
+                "WHERE instance_id IN ("
+                "  SELECT id FROM instances WHERE project_id = ? "
+                "  UNION SELECT id FROM compute_nodes WHERE project_id = ?"
+                ") "
+                "AND message LIKE 'Syncing workspace%' "
+                "AND created_at >= ?"
+            )
+            params = (project_id, project_id, today)
+        else:
+            query = (
+                "SELECT COUNT(*) as c FROM deploy_logs "
+                "WHERE instance_id IN ("
+                "  SELECT id FROM instances WHERE project_id = ?"
+                ") "
+                "AND message LIKE 'Syncing workspace%' "
+                "AND created_at >= ?"
+            )
+            params = (project_id, today)
+
+        cursor = await conn.execute(query, params)
         row = await cursor.fetchone()
         today_count = row["c"] if row else 0
 
@@ -285,12 +305,17 @@ async def _setup_app_nginx(ip: str, key_path: str, domain: str | None, stack: st
 
 async def _start_app(ip: str, key_path: str, remote_dir: str, command: str, port: int = DEFAULT_PORT, env_vars: dict | None = None):
     env_lines = [
-        f"Environment=NODE_ENV=production",
-        f"Environment=PORT={port}",
+        'Environment="NODE_ENV=production"',
+        f'Environment="PORT={port}"',
     ]
     for k, v in (env_vars or {}).items():
-        env_lines.append(f"Environment={k}={v}")
+        # Escape for systemd: quote values to handle spaces and special chars
+        safe_v = str(v).replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        env_lines.append(f'Environment="{k}={safe_v}"')
     env_block = "\n".join(env_lines)
+
+    # Escape single quotes in command for shell -c '...' wrapper
+    safe_command = command.replace("'", "'\\''")
 
     service = f"""[Unit]
 Description=NSO App
@@ -299,7 +324,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory={remote_dir}
-ExecStart=/bin/bash -c '{command}'
+ExecStart=/bin/bash -c '{safe_command}'
 Restart=on-failure
 RestartSec=5
 {env_block}

@@ -276,9 +276,11 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
         result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
-    except HTTPException:
-        await db.update("instances", instance_id, {"state": "error", "error": "deploy failed"})
-        raise
+    except Exception as exc:
+        await db.update("instances", instance_id, {"state": "error", "error": str(exc)[:500]})
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(500, f"Deploy failed: {exc}")
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
     return {
@@ -365,9 +367,11 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
     try:
         result = await _deploy_via_agent(agent_url, token, r2_key, secrets=resolved_secrets)
-    except HTTPException:
-        await db.update("instances", instance_id, {"state": "error", "error": "ship deploy failed"})
-        raise
+    except Exception as exc:
+        await db.update("instances", instance_id, {"state": "error", "error": str(exc)[:500]})
+        if isinstance(exc, HTTPException):
+            raise
+        raise HTTPException(500, f"Ship deploy failed: {exc}")
 
     await db.update("instances", instance_id, {"state": "running", "error": ""})
 
@@ -375,7 +379,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     project = await db.fetch_one("projects", id=project_id)
     owner_id = project.get("owner", "") if project else ""
     if owner_id:
-        from nso.engine.deploy_agent.tools import _auto_claim_subdomain
+        from nso.engine.deploy_agent.tools.deploy import _auto_claim_subdomain
         await _auto_claim_subdomain(owner_id)
 
     # ── Auto-assign deploy domain ──

@@ -29,19 +29,29 @@ def _hash_password(password: str) -> str:
 
 
 def _verify_password(password: str, stored: str) -> bool:
-    if ":" not in stored:
+    if not stored or ":" not in stored:
         return False
     salt, hash_hex = stored.split(":", 1)
     dk = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), PBKDF2_ITERATIONS)
     return hmac.compare_digest(dk.hex(), hash_hex)
 
 
-_DEFAULT_HASH = _hash_password("zarnlok4123")
 _PLAIN_HASH = _hash_password(ADMIN_PASSWORD_PLAIN) if ADMIN_PASSWORD_PLAIN else ""
+
+if not ADMIN_PASSWORD_HASH and not ADMIN_PASSWORD_PLAIN:
+    logger.warning(
+        "SECURITY: Neither AGENT_ADMIN_PASSWORD nor NSO_ADMIN_PASSWORD_HASH is set. "
+        "Agent auth will reject all logins until configured."
+    )
 
 
 def get_password_hash() -> str:
-    return ADMIN_PASSWORD_HASH or _PLAIN_HASH or _DEFAULT_HASH
+    if ADMIN_PASSWORD_HASH:
+        return ADMIN_PASSWORD_HASH
+    if _PLAIN_HASH:
+        return _PLAIN_HASH
+    # No password configured — return empty to reject all attempts
+    return ""
 
 
 def _b64encode_json(data: dict) -> str:

@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
-    "export": "next build && cp -r out/* static/"
+    "export": "next build && rm -rf static && cp -r out static"
   },
   "dependencies": {
     "@radix-ui/react-avatar": "^1.1.11",

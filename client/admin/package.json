@@ -6,7 +6,7 @@
     "dev": "next dev --turbopack --port 3001",
     "build": "next build",
     "start": "next start",
-    "export": "next build && cp -r out/* static/"
+    "export": "next build && rm -rf static && cp -r out static"
   },
   "dependencies": {
     "clsx": "^2.1.1",
