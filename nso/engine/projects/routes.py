@@ -11,20 +11,20 @@ router = APIRouter()
 
 
 async def _get_user_role(auth: AuthContext, project_id: str) -> str:
-    """Return the user's role for a project: 'owner' or 'viewer', or raise 403."""
+    """Return the user's role for a project: 'admin' or 'member', or raise 403."""
     if not auth:
         raise HTTPException(403, "Access denied")
     if auth.is_admin:
-        return "owner"
+        return "admin"
     if auth.project_id == project_id:
-        return "owner"
+        return "admin"
     if auth.user_id:
         project = await db.fetch_one("projects", id=project_id)
         if project and project.get("owner") == auth.user_id:
-            return "owner"
+            return "admin"
         member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
         if member:
-            return "viewer"
+            return "member"
     raise HTTPException(403, "Access denied")
 
 
@@ -52,7 +52,7 @@ async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(
 async def list_projects(auth: AuthContext = Depends(require_user)):
     if auth.is_admin:
         projects = await pm.list_projects()
-        return {"projects": [{**p, "role": "owner"} for p in projects]}
+        return {"projects": [{**p, "role": "admin"} for p in projects]}
 
     # User's own projects + orphan projects (owner="" from before fix)
     owned = await db.fetch_all("projects", owner=auth.user_id)
@@ -75,7 +75,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
             proj = await db.fetch_one("projects", id=m["project_id"])
             if proj:
                 member_projects.append(proj)
-                member_map[m["project_id"]] = "viewer"
+                member_map[m["project_id"]] = "member"
 
     result = []
     for p in owned + orphans:
@@ -84,7 +84,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
         result.append(safe)
     for p in member_projects:
         safe = pm._safe_project(p)
-        safe["role"] = member_map.get(p["id"], "viewer")
+        safe["role"] = member_map.get(p["id"], "member")
         result.append(safe)
     return {"projects": result}
 

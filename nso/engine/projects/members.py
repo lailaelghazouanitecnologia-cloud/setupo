@@ -9,7 +9,7 @@ from nso.shared.errors import NotFoundError, ConflictError, ValidationError, Nso
 
 logger = logging.getLogger("nso.projects.members")
 
-VALID_ROLES = ("owner", "editor", "viewer")
+VALID_ROLES = ("admin", "member")
 
 
 def _gen_id() -> str:
@@ -34,7 +34,7 @@ async def add_owner(project_id: str, user_id: str):
         "id": _gen_id(),
         "project_id": project_id,
         "user_id": user_id,
-        "role": "owner",
+        "role": "admin",
         "invited_by": "",
         "join_code": "",
         "joined_at": now,
@@ -64,13 +64,13 @@ async def list_members(project_id: str) -> list[dict]:
 async def create_invite(
     project_id: str,
     created_by: str,
-    role: str = "viewer",
+    role: str = "member",
     max_uses: int = 0,
     expires_hours: int = 0,
 ) -> dict:
     """Create an invite link for a project."""
-    if role not in ("editor", "viewer"):
-        raise ValidationError(f"Invite role must be 'editor' or 'viewer', got '{role}'")
+    if role not in ("admin", "member"):
+        raise ValidationError(f"Invite role must be 'admin' or 'member', got '{role}'")
 
     now = datetime.now(timezone.utc)
     expires_at = ""
@@ -172,11 +172,12 @@ async def update_member_role(project_id: str, user_id: str, new_role: str):
     if not member:
         raise NotFoundError("Member", user_id)
 
-    if member["role"] == "owner":
-        raise NsoError("Cannot change the owner's role", 403)
-
-    if new_role == "owner":
-        raise NsoError("Cannot promote to owner", 403)
+    if member["role"] == "admin" and new_role != "admin":
+        # Check there's at least one other admin
+        all_members = await db.fetch_all("project_members", project_id=project_id)
+        admin_count = sum(1 for m in all_members if m["role"] == "admin")
+        if admin_count <= 1:
+            raise NsoError("Cannot demote the last admin", 403)
 
     await db.update("project_members", member["id"], {"role": new_role})
     logger.info("Updated role for user %s in project %s to %s", user_id, project_id, new_role)
@@ -188,8 +189,12 @@ async def remove_member(project_id: str, user_id: str):
     if not member:
         raise NotFoundError("Member", user_id)
 
-    if member["role"] == "owner":
-        raise NsoError("Cannot remove the project owner", 403)
+    # Check there's at least one admin remaining
+    if member["role"] == "admin":
+        all_members = await db.fetch_all("project_members", project_id=project_id)
+        admin_count = sum(1 for m in all_members if m["role"] == "admin")
+        if admin_count <= 1:
+            raise NsoError("Cannot remove the last admin", 403)
 
     await db.delete("project_members", member["id"])
     logger.info("Removed user %s from project %s", user_id, project_id)

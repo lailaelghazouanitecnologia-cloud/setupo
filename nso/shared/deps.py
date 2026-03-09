@@ -34,8 +34,8 @@ async def require_project(request: Request, auth: AuthContext = Depends(get_auth
     raise AuthError("This endpoint requires authentication")
 
 
-async def require_project_owner(request: Request, auth: AuthContext = Depends(get_auth)) -> str:
-    """Like require_project but rejects members — only owner or admin can proceed."""
+async def require_project_admin(request: Request, auth: AuthContext = Depends(get_auth)) -> str:
+    """Requires project admin role — project owner, project admin member, or platform admin."""
     if not auth:
         raise AuthError("Authentication required")
     if auth.project_id:
@@ -50,8 +50,15 @@ async def require_project_owner(request: Request, auth: AuthContext = Depends(ge
         project = await db.fetch_one("projects", id=project_id)
         if project and project.get("owner") == auth.user_id:
             return project_id
-        raise NsoError("Only the project owner can perform this action", 403)
+        member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
+        if member and member.get("role") == "admin":
+            return project_id
+        raise NsoError("Admin access required for this project", 403)
     raise AuthError("This endpoint requires authentication")
+
+
+# Alias for backwards compatibility
+require_project_owner = require_project_admin
 
 
 async def require_admin(auth: AuthContext = Depends(get_auth)) -> AuthContext:
