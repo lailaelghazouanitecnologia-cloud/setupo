@@ -296,9 +296,24 @@ function TopologyGraph({
     return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
   };
 
-  // Pin shape path: teardrop/marker shape, tip at (0, 0), body above
-  const pinPath = (s: number) =>
-    `M0,0 C${-s * 0.58},${-s * 0.4} ${-s * 0.58},${-s * 1.2} 0,${-s * 1.4} C${s * 0.58},${-s * 1.2} ${s * 0.58},${-s * 0.4} 0,0Z`;
+  // Pin shape: solid Google Maps-style marker — circle top, pointed bottom, no hole
+  // Tip at (0, 0), circle center at (0, -h), where h = s * 1.6
+  const pinPath = (s: number) => {
+    const r = s * 0.55; // circle radius (top)
+    const h = s * 1.5;  // height from tip to circle center
+    // Angle where the tangent from tip meets the circle
+    const a = Math.asin(r / h);
+    // Tangent touch points on the circle
+    const tx = r * Math.cos(a);
+    const ty = r * Math.sin(a);
+    // Build path: tip → right tangent → arc over top → left tangent → back to tip
+    return [
+      `M0,0`,
+      `L${tx},${-(h - ty)}`,
+      `A${r},${r} 0 1 0 ${-tx},${-(h - ty)}`,
+      `Z`,
+    ].join(" ");
+  };
 
   return (
     <div style={{
@@ -423,7 +438,7 @@ function TopologyGraph({
                 rx={active ? 5 : 3} ry={active ? 2 : 1.2}
                 fill="black" opacity="0.15"
               />
-              {/* Pin shape */}
+              {/* Pin shape — solid, no hole */}
               <path
                 d={pinPath(pinSize)}
                 transform={`translate(${x},${y})`}
@@ -431,12 +446,6 @@ function TopologyGraph({
                 stroke={active ? color : "none"}
                 strokeWidth={active ? 0.8 : 0}
                 style={{ transition: "all 0.15s ease" }}
-              />
-              {/* Inner dot on pin */}
-              <circle
-                cx={x} cy={y - pinSize * 0.85}
-                r={active ? 3 : 2}
-                fill="white" opacity="0.9"
               />
               {/* Region label (always visible) */}
               <text
