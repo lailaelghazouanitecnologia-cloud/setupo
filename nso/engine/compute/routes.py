@@ -4,7 +4,7 @@ from nso.shared.models import CreateInstanceRequest, InstanceExecRequest
 from nso.engine.compute import service as im
 from nso.engine.compute import supervisor_sync as svc_mgr
 from nso.shared.errors import NsoError
-from nso.shared.deps import require_project, require_project_owner
+from nso.shared.deps import require_project, require_project_editor, require_project_owner
 
 router = APIRouter()
 
@@ -76,7 +76,7 @@ async def start_instance(instance_id: str, project_id: str = Depends(require_pro
 
 
 @router.post("/{instance_id}/exec")
-async def exec_on_instance(instance_id: str, req: InstanceExecRequest, project_id: str = Depends(require_project)):
+async def exec_on_instance(instance_id: str, req: InstanceExecRequest, project_id: str = Depends(require_project_editor)):
     try:
         output, exit_code = await im.exec_on_instance(project_id, instance_id, req.command, req.timeout)
     except NsoError as e:
