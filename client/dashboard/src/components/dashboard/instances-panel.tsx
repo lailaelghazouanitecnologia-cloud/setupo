@@ -238,38 +238,68 @@ function TopologyGraph({
   if (items.length === 0) return null;
 
   const svgW = 480;
-  const svgH = 180;
-  const hubX = svgW / 2;
-  const hubY = svgH / 2;
+  const svgH = 200;
+  // Globe center and radius — curved surface effect
+  const globeCX = svgW / 2;
+  const globeCY = svgH / 2 + 10;
+  const globeR = 160;
 
-  // Position items: if they have a region with coords, use that; otherwise arrange in a circle
+  // Project region coords onto curved globe surface
+  const projectToGlobe = (flatX: number, flatY: number) => {
+    // Normalize to -1..1 range relative to globe center
+    const nx = (flatX - globeCX) / globeR;
+    const ny = (flatY - globeCY) / globeR;
+    // Apply spherical distortion — push points inward near edges
+    const dist = Math.sqrt(nx * nx + ny * ny);
+    const scale = dist > 0 ? Math.sin(dist * 0.9) / (dist * 0.9) : 1;
+    return {
+      x: globeCX + nx * scale * globeR,
+      y: globeCY + ny * scale * globeR * 0.85,
+    };
+  };
+
+  const hubPos = projectToGlobe(globeCX, globeCY - 5);
+
+  // Position items on the globe surface
   const positioned = useMemo(() => {
     const result: { item: UnifiedInstance; x: number; y: number }[] = [];
-    const usedPositions = new Map<string, number>(); // region -> count for offset
+    const usedPositions = new Map<string, number>();
 
     for (const item of items) {
       const coords = REGION_COORDS[item.region];
       if (coords) {
         const count = usedPositions.get(item.region) || 0;
         usedPositions.set(item.region, count + 1);
-        // Offset slightly if multiple in same region
-        result.push({
-          item,
-          x: coords.x + count * 14,
-          y: coords.y + (count % 2 === 0 ? 0 : 12),
-        });
+        const { x, y } = projectToGlobe(
+          coords.x + count * 14,
+          coords.y + (count % 2 === 0 ? 0 : 12),
+        );
+        result.push({ item, x, y });
       } else {
-        // Fallback: arrange around center
         const angle = (result.length / items.length) * Math.PI * 2 - Math.PI / 2;
-        result.push({
-          item,
-          x: hubX + Math.cos(angle) * 70,
-          y: hubY + Math.sin(angle) * 50,
-        });
+        const { x, y } = projectToGlobe(
+          globeCX + Math.cos(angle) * 70,
+          globeCY + Math.sin(angle) * 50,
+        );
+        result.push({ item, x, y });
       }
     }
     return result;
   }, [items]);
+
+  // Curved connection path (arc)
+  const curvedPath = (x1: number, y1: number, x2: number, y2: number) => {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    // Perpendicular offset for arc curvature
+    const offset = Math.min(len * 0.25, 30);
+    const cx = mx - (dy / len) * offset;
+    const cy = my + (dx / len) * offset;
+    return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+  };
 
   return (
     <div style={{
@@ -298,39 +328,74 @@ function TopologyGraph({
         height={svgH}
         style={{ display: "block" }}
       >
-        {/* Subtle grid dots */}
         <defs>
-          <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-            <circle cx="10" cy="10" r="0.5" fill="var(--border)" opacity="0.4" />
-          </pattern>
+          {/* Globe gradient — curved surface illusion */}
+          <radialGradient id="globe-bg" cx="50%" cy="40%" r="55%">
+            <stop offset="0%" stopColor="var(--border)" stopOpacity="0.08" />
+            <stop offset="70%" stopColor="var(--border)" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="var(--border)" stopOpacity="0" />
+          </radialGradient>
+          {/* Latitude/longitude line pattern for globe feel */}
+          <clipPath id="globe-clip">
+            <ellipse cx={globeCX} cy={globeCY} rx={globeR} ry={globeR * 0.7} />
+          </clipPath>
         </defs>
-        <rect width={svgW} height={svgH} fill="url(#dots)" />
 
-        {/* Connection lines from hub to each node */}
+        {/* Globe surface */}
+        <ellipse
+          cx={globeCX} cy={globeCY}
+          rx={globeR} ry={globeR * 0.7}
+          fill="url(#globe-bg)"
+          stroke="var(--border)" strokeWidth="0.5" opacity="0.3"
+        />
+
+        {/* Latitude lines (curved) for globe effect */}
+        <g clipPath="url(#globe-clip)" opacity="0.12">
+          {[-50, -25, 0, 25, 50].map((offset) => (
+            <ellipse
+              key={`lat-${offset}`}
+              cx={globeCX} cy={globeCY + offset}
+              rx={globeR * Math.cos((offset / globeR) * 1.2)}
+              ry={8}
+              fill="none" stroke="var(--border)" strokeWidth="0.5"
+            />
+          ))}
+          {[-60, -30, 0, 30, 60].map((offset) => (
+            <ellipse
+              key={`lon-${offset}`}
+              cx={globeCX + offset} cy={globeCY}
+              rx={6}
+              ry={globeR * 0.7 * Math.cos((offset / globeR) * 1.2)}
+              fill="none" stroke="var(--border)" strokeWidth="0.5"
+            />
+          ))}
+        </g>
+
+        {/* Curved connection lines from hub to each node */}
         {positioned.map(({ item, x, y }) => (
-          <line
+          <path
             key={`line-${item.id}`}
-            x1={hubX} y1={hubY}
-            x2={x} y2={y}
+            d={curvedPath(hubPos.x, hubPos.y, x, y)}
+            fill="none"
             stroke={selectedId === item.id ? statusColor(item.state) : "var(--border)"}
             strokeWidth={selectedId === item.id ? 1.5 : 0.8}
             strokeDasharray={item.state === "creating" || item.state === "installing" ? "3,3" : undefined}
-            opacity={selectedId === item.id ? 0.8 : 0.4}
+            opacity={selectedId === item.id ? 0.8 : 0.35}
           />
         ))}
 
         {/* Hub (NSO Central) */}
-        <circle cx={hubX} cy={hubY} r={8} fill="var(--color-teal)" opacity={0.15} />
-        <circle cx={hubX} cy={hubY} r={4} fill="var(--color-teal)" />
+        <circle cx={hubPos.x} cy={hubPos.y} r={10} fill="var(--color-teal)" opacity={0.1} />
+        <circle cx={hubPos.x} cy={hubPos.y} r={5} fill="var(--color-teal)" />
         <text
-          x={hubX} y={hubY + 16}
+          x={hubPos.x} y={hubPos.y + 18}
           textAnchor="middle" fontSize="7" fill="var(--muted-foreground)"
           fontFamily="inherit" fontWeight="500"
         >
           NSO
         </text>
 
-        {/* Instance nodes */}
+        {/* Machine nodes */}
         {positioned.map(({ item, x, y }) => {
           const isSelected = selectedId === item.id;
           const color = statusColor(item.state);
@@ -340,22 +405,18 @@ function TopologyGraph({
               style={{ cursor: "pointer" }}
               onClick={() => onSelect(item.id)}
             >
-              {/* Selection ring */}
               {isSelected && (
                 <circle cx={x} cy={y} r={10} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
               )}
-              {/* Outer glow for online */}
               {(item.state === "ready" || item.state === "active" || item.state === "online") && (
                 <circle cx={x} cy={y} r={7} fill={color} opacity={0.1} />
               )}
-              {/* Node dot */}
               <circle
                 cx={x} cy={y} r={isSelected ? 5 : 4}
                 fill={color}
                 stroke={isSelected ? color : "none"}
                 strokeWidth={1}
               />
-              {/* Label */}
               <text
                 x={x} y={y - 8}
                 textAnchor="middle" fontSize="7"
@@ -365,7 +426,6 @@ function TopologyGraph({
               >
                 {(item.label || item.ip || item.id).slice(0, 16)}
               </text>
-              {/* Region tag */}
               <text
                 x={x} y={y + 12}
                 textAnchor="middle" fontSize="6"
