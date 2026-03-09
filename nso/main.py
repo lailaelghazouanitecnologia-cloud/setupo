@@ -157,6 +157,8 @@ app = FastAPI(
     title="NSO — Infrastructure API",
     version="0.2.0",
     lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
 )
 
 app.add_middleware(RateLimitMiddleware)
@@ -178,6 +180,16 @@ app.add_middleware(
 @app.exception_handler(NsoError)
 async def nso_error_handler(request: Request, exc: NsoError):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.message})
+
+
+from scalar_fastapi import get_scalar_api_reference
+
+@app.get("/api/docs", include_in_schema=False)
+async def scalar_docs():
+    return get_scalar_api_reference(
+        openapi_url=app.openapi_url,
+        title="NSO API Reference",
+    )
 
 
 from nso.engine.auth import routes as auth_routes
