@@ -5,7 +5,7 @@ import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader, Globe,
-  Cpu, Pause, ShieldCheck, ShieldOff, Download,
+  Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -1049,10 +1049,10 @@ export function NodesTab() {
       <div className="panel-empty">
         <Cpu className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">No compute nodes</div>
-        <div className="panel-empty-sub">Register a node or sync from existing instances.</div>
+        <div className="panel-empty-sub">Add a node from Vultr, Hetzner, or connect via SSH.</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn" onClick={() => setShowRegister(true)}>
-            <Plus className="h-3.5 w-3.5" /><span>Register Node</span>
+            <Plus className="h-3.5 w-3.5" /><span>Add Node</span>
           </button>
           <button className="panel-btn" onClick={handleSync} disabled={syncing}>
             <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync Instances"}</span>
@@ -1079,7 +1079,7 @@ export function NodesTab() {
             <span>{syncing ? "..." : "Sync"}</span>
           </button>
           <button className="panel-btn-sm" onClick={() => setShowRegister(true)}>
-            <Plus className="h-3 w-3" /><span>Register</span>
+            <Plus className="h-3 w-3" /><span>Add</span>
           </button>
         </div>
       </div>
@@ -1192,34 +1192,57 @@ export function NodesTab() {
   );
 }
 
-/* ── Register Node Form ── */
+/* ── Register Node Form (connector-style) ── */
+
+type NodeProvider = "vultr" | "hetzner" | "ssh" | null;
+
+const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string }[] = [
+  { id: "vultr", name: "Vultr", desc: "Provision a new VPS automatically", icon: "V" },
+  { id: "hetzner", name: "Hetzner", desc: "Provision a Hetzner Cloud server", icon: "H" },
+  { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
+];
 
 function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   projectId: string;
   onCreated: () => void;
   onCancel: () => void;
 }) {
+  const [step, setStep] = useState<"pick" | "configure">("pick");
+  const [selectedProvider, setSelectedProvider] = useState<NodeProvider>(null);
   const [label, setLabel] = useState("");
-  const [provider, setProvider] = useState("manual");
   const [ip, setIp] = useState("");
+  const [sshUser, setSshUser] = useState("root");
+  const [sshPort, setSshPort] = useState("22");
   const [agentPort, setAgentPort] = useState("8081");
-  const [cpuCores, setCpuCores] = useState("1");
-  const [memMb, setMemMb] = useState("1024");
+  const [region, setRegion] = useState("ewr");
+  const [plan, setPlan] = useState("vc2-1c-1gb");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
 
+  const pickProvider = (p: NodeProvider) => {
+    setSelectedProvider(p);
+    setStep("configure");
+    setError("");
+    if (p === "vultr") setLabel("vultr-node");
+    else if (p === "hetzner") setLabel("hetzner-node");
+    else setLabel("");
+  };
+
   const submit = async () => {
     if (!label.trim()) { setError("Label is required"); return; }
+    if (selectedProvider === "ssh" && !ip.trim()) { setError("IP address is required"); return; }
     setCreating(true);
     setError("");
     try {
+      const selectedPlan = PLANS.find((p) => p.id === plan);
+      const providerName = selectedProvider === "ssh" ? "manual" : (selectedProvider || "manual");
       await registerComputeNode(projectId, {
         label: label.trim(),
-        provider,
+        provider: providerName,
         ip: ip.trim() || undefined,
         agent_port: parseInt(agentPort) || 8081,
-        cpu_cores: parseFloat(cpuCores) || 1,
-        mem_total_mb: parseInt(memMb) || 1024,
+        cpu_cores: selectedPlan?.cpu || 1,
+        mem_total_mb: selectedProvider === "ssh" ? 1024 : (selectedPlan ? parseInt(selectedPlan.ram) * 1024 : 1024),
       });
       onCreated();
     } catch (e: any) {
@@ -1228,12 +1251,98 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     setCreating(false);
   };
 
+  // Step 1: Provider picker (connector-style cards)
+  if (step === "pick") {
+    return (
+      <div style={{
+        border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+        marginBottom: 16, background: "var(--sidebar-background)",
+      }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Node</div>
+          <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
+        </div>
+        <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", marginBottom: 14 }}>
+          Choose how to connect your infrastructure
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {PROVIDER_OPTIONS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => pickProvider(p.id as NodeProvider)}
+              style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "12px 14px", borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--background)",
+                cursor: "pointer", textAlign: "left",
+                transition: "all 0.15s ease",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--color-teal)";
+                e.currentTarget.style.background = "var(--accent)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--border)";
+                e.currentTarget.style.background = "var(--background)";
+              }}
+            >
+              <div style={{
+                width: 36, height: 36, borderRadius: 8,
+                background: p.id === "vultr" ? "rgba(0, 124, 255, 0.1)"
+                  : p.id === "hetzner" ? "rgba(213, 0, 41, 0.1)"
+                  : "rgba(100, 200, 180, 0.1)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontWeight: 700, fontSize: 16, flexShrink: 0,
+                color: p.id === "vultr" ? "#007CFF"
+                  : p.id === "hetzner" ? "#D50029"
+                  : "var(--color-teal)",
+              }}>
+                {p.icon}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</div>
+                <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>{p.desc}</div>
+              </div>
+              <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // Step 2: Configuration form based on provider
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: 8, padding: 16,
       marginBottom: 16, background: "var(--sidebar-background)",
     }}>
-      <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", marginBottom: 12 }}>Register Node</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+        <button
+          className="panel-btn-sm"
+          onClick={() => { setStep("pick"); setError(""); }}
+          style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}
+        >
+          ← Back
+        </button>
+        <div style={{
+          width: 24, height: 24, borderRadius: 6,
+          background: selectedProvider === "vultr" ? "rgba(0, 124, 255, 0.1)"
+            : selectedProvider === "hetzner" ? "rgba(213, 0, 41, 0.1)"
+            : "rgba(100, 200, 180, 0.1)",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontWeight: 700, fontSize: 12, flexShrink: 0,
+          color: selectedProvider === "vultr" ? "#007CFF"
+            : selectedProvider === "hetzner" ? "#D50029"
+            : "var(--color-teal)",
+        }}>
+          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.icon}
+        </div>
+        <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>
+          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.name}
+        </span>
+      </div>
 
       {error && (
         <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12 }}>
@@ -1241,45 +1350,70 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
+      {/* Label */}
       <div style={{ marginBottom: 10 }}>
         <label style={labelStyle}>Label</label>
         <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
       </div>
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Provider</label>
-          <select className="proj-input" value={provider} onChange={(e) => setProvider(e.target.value)} style={{ width: "100%" }}>
-            <option value="manual">Manual</option>
-            <option value="mesh">Mesh</option>
-            <option value="vultr">Vultr</option>
-          </select>
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>IP Address</label>
-          <input className="proj-input" type="text" placeholder="10.0.0.1" value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: "100%" }} />
-        </div>
-      </div>
+      {/* SSH / Manual: IP + SSH credentials */}
+      {selectedProvider === "ssh" && (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 2 }}>
+              <label style={labelStyle}>IP Address</label>
+              <input className="proj-input" type="text" placeholder="192.168.1.100" value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>SSH User</label>
+              <input className="proj-input" type="text" placeholder="root" value={sshUser} onChange={(e) => setSshUser(e.target.value)} style={{ width: "100%" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>SSH Port</label>
+              <input className="proj-input" type="number" placeholder="22" value={sshPort} onChange={(e) => setSshPort(e.target.value)} style={{ width: "100%" }} />
+            </div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Agent Port</label>
+            <input className="proj-input" type="number" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} style={{ width: "100%" }} />
+          </div>
+          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+            The agent will be installed automatically on the target machine via SSH. Make sure port {sshPort} is open and the user has sudo access.
+          </div>
+        </>
+      )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Agent Port</label>
-          <input className="proj-input" type="number" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} style={{ width: "100%" }} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>CPU Cores</label>
-          <input className="proj-input" type="number" value={cpuCores} onChange={(e) => setCpuCores(e.target.value)} style={{ width: "100%" }} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Memory (MB)</label>
-          <input className="proj-input" type="number" value={memMb} onChange={(e) => setMemMb(e.target.value)} style={{ width: "100%" }} />
-        </div>
-      </div>
+      {/* Vultr / Hetzner: Region + Plan */}
+      {(selectedProvider === "vultr" || selectedProvider === "hetzner") && (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Region</label>
+              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
+                {REGIONS.map((r) => (
+                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Plan</label>
+              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
+                {PLANS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+            A new {selectedProvider === "vultr" ? "Vultr" : "Hetzner"} VPS will be provisioned and the NSO agent installed automatically.
+          </div>
+        </>
+      )}
 
       <div style={{ display: "flex", gap: 6 }}>
         <button className="deploy-action-btn teal" onClick={submit} disabled={creating} style={{ padding: "5px 14px" }}>
-          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Cpu className="h-3.5 w-3.5" />}
-          <span>{creating ? "Registering..." : "Register"}</span>
+          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
+          <span>{creating ? "Connecting..." : "Connect Node"}</span>
         </button>
         <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
       </div>

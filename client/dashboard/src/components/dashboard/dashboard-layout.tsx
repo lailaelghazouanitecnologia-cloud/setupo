@@ -5,7 +5,7 @@ import {
   Mail, Server, Key, Blocks,
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
-  FolderOpen, Plus, Check, Layers, Shield,
+  FolderOpen, Plus, Check, Layers, Shield, Cpu,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -344,15 +344,54 @@ function UserProfile() {
           <div className="user-profile-email">{userEmail || "User"}</div>
           <div className="user-profile-role">{userRole || "user"}</div>
         </div>
-        <ChevronDown
-          className="h-3 w-3"
-          style={{
-            color: "var(--muted-foreground)",
-            opacity: 0.6,
-            transform: menuOpen ? "rotate(180deg)" : "rotate(0)",
-            transition: "transform 0.15s ease",
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+          <div
+            role="button"
+            tabIndex={0}
+            className="add-node-btn"
+            title="Add node"
+            onClick={(e) => {
+              e.stopPropagation();
+              setActiveView("infrastructure");
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                setActiveView("infrastructure");
+              }
+            }}
+            style={{
+              width: 28, height: 28, borderRadius: 6,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              border: "0.5px solid var(--border)",
+              background: "transparent",
+              cursor: "pointer",
+              transition: "all 0.1s ease",
+              color: "var(--muted-foreground)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "var(--accent)";
+              e.currentTarget.style.color = "var(--color-teal)";
+              e.currentTarget.style.borderColor = "transparent";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+              e.currentTarget.style.color = "var(--muted-foreground)";
+              e.currentTarget.style.borderColor = "var(--border)";
+            }}
+          >
+            <Cpu className="h-3.5 w-3.5" />
+          </div>
+          <ChevronDown
+            className="h-3 w-3"
+            style={{
+              color: "var(--muted-foreground)",
+              opacity: 0.6,
+              transform: menuOpen ? "rotate(180deg)" : "rotate(0)",
+              transition: "transform 0.15s ease",
+            }}
+          />
+        </div>
       </button>
     </div>
   );
