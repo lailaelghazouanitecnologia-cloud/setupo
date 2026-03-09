@@ -74,16 +74,23 @@ def estimate_build_weight(zar_bytes: bytes, build_command: str) -> str:
       - Source size < 2MB → light
       - No build command → light (nothing to build)
       - Simple commands (cp, mv, echo) → light
+      - Compiled languages (cargo, go build) → heavy regardless of size
+      - Python build → light (fast wheel/sdist creation)
     """
     if not build_command:
         return "light"
+
+    # Compiled languages are always heavy (even small source = large compile)
+    heavy_commands = {"cargo", "go"}
+    first_word = build_command.strip().split()[0] if build_command.strip() else ""
+    if first_word in heavy_commands:
+        return "heavy"
 
     if len(zar_bytes) < LIGHTWEIGHT_THRESHOLD_BYTES:
         return "light"
 
     # Commands that are inherently lightweight
-    light_commands = {"cp", "mv", "echo", "mkdir", "touch", "cat", "ln"}
-    first_word = build_command.strip().split()[0] if build_command.strip() else ""
+    light_commands = {"cp", "mv", "echo", "mkdir", "touch", "cat", "ln", "python"}
     if first_word in light_commands:
         return "light"
 

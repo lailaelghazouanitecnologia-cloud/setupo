@@ -22,6 +22,24 @@ from auth import require_admin, AdminUser
 
 logger = logging.getLogger("nso-agent.deploy")
 router = APIRouter(prefix="/deploy", tags=["deploy"])
+
+# Active deploy tracking for SSE progress
+_active_deploys: dict[str, dict] = {}  # target_dir → {phases, current_phase, started_at, done}
+
+
+def _update_deploy_progress(target_dir: str, phase: str, ok: bool, message: str, duration: float):
+    """Callback from pipeline to track phase progress."""
+    info = _active_deploys.get(target_dir)
+    if info:
+        info["phases"].append({
+            "phase": phase,
+            "ok": ok,
+            "message": message[:500],
+            "duration_s": round(duration, 2),
+        })
+        info["current_phase"] = phase
+
+
 APP_DIR = Path("/opt/app")
 SNAPSHOTS_DIR = Path("/opt/nso/snapshots")
 NSO_DIR = Path("/opt/nso")
@@ -146,6 +164,10 @@ def _create_snapshot(target_dir: str) -> str | None:
     snap_dir.parent.mkdir(parents=True, exist_ok=True)
 
     shutil.copytree(target, snap_dir, dirs_exist_ok=True)
+
+    # Also snapshot nginx and systemd configs for this workspace
+    app_name = target.name  # e.g. "app" from /opt/app
+    _snapshot_service_configs(snap_dir, app_name)
     logger.info("Created snapshot: %s", snap_dir)
 
     all_snaps = _list_snapshots(target_dir)
@@ -155,6 +177,28 @@ def _create_snapshot(target_dir: str) -> str | None:
         logger.info("Pruned old snapshot: %s", old)
 
     return snap_name
+
+
+def _snapshot_service_configs(snap_dir: Path, app_name: str):
+    """Backup nginx and systemd configs associated with this workspace."""
+    config_backup = snap_dir / ".nso-service-configs"
+    config_backup.mkdir(parents=True, exist_ok=True)
+
+    # Snapshot nginx configs (nso-app-* pattern)
+    nginx_dir = Path("/etc/nginx/sites-available")
+    if nginx_dir.exists():
+        nginx_backup = config_backup / "nginx"
+        nginx_backup.mkdir(exist_ok=True)
+        for conf in nginx_dir.glob(f"nso-app-*"):
+            shutil.copy2(conf, nginx_backup / conf.name)
+
+    # Snapshot systemd units (nso-app-* pattern)
+    systemd_dir = Path("/etc/systemd/system")
+    if systemd_dir.exists():
+        systemd_backup = config_backup / "systemd"
+        systemd_backup.mkdir(exist_ok=True)
+        for unit in systemd_dir.glob(f"nso-app-*.service"):
+            shutil.copy2(unit, systemd_backup / unit.name)
 
 
 def _restore_snapshot(target_dir: str, snapshot_name: str) -> bool:
@@ -167,7 +211,40 @@ def _restore_snapshot(target_dir: str, snapshot_name: str) -> bool:
         shutil.rmtree(target)
     shutil.copytree(snap_path, target)
     logger.info("Restored snapshot %s → %s", snapshot_name, target_dir)
+
+    # Restore nginx and systemd configs if backed up
+    _restore_service_configs(snap_path)
     return True
+
+
+def _restore_service_configs(snap_path: Path):
+    """Restore nginx and systemd configs from snapshot."""
+    config_backup = snap_path / ".nso-service-configs"
+    if not config_backup.exists():
+        return
+
+    # Restore nginx configs
+    nginx_backup = config_backup / "nginx"
+    if nginx_backup.exists():
+        nginx_dir = Path("/etc/nginx/sites-available")
+        for conf in nginx_backup.iterdir():
+            if conf.is_file():
+                dst = nginx_dir / conf.name
+                shutil.copy2(conf, dst)
+                # Ensure symlink exists
+                link = Path("/etc/nginx/sites-enabled") / conf.name
+                if not link.exists():
+                    link.symlink_to(dst)
+        logger.info("Restored %d nginx configs from snapshot", len(list(nginx_backup.iterdir())))
+
+    # Restore systemd units
+    systemd_backup = config_backup / "systemd"
+    if systemd_backup.exists():
+        systemd_dir = Path("/etc/systemd/system")
+        for unit in systemd_backup.iterdir():
+            if unit.is_file():
+                shutil.copy2(unit, systemd_dir / unit.name)
+        logger.info("Restored %d systemd units from snapshot", len(list(systemd_backup.iterdir())))
 
 
 async def _download_from_r2(
@@ -376,10 +453,29 @@ async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin
         if build_artifact_key:
             pipe.skip_build = True
 
+        # Track active deploy for progress polling
+        _active_deploys[req.target_dir] = {
+            "phases": [],
+            "current_phase": "prepare",
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "done": False,
+            "error": "",
+        }
+        pipe.on_phase = lambda name, ok, msg, dur: _update_deploy_progress(
+            req.target_dir, name, ok, msg, dur
+        )
+
         with open(deploy_toml_path) as f:
             deploy_toml_content = f.read()
 
-        result = await pipe.run(deploy_toml_content)
+        try:
+            result = await pipe.run(deploy_toml_content)
+        finally:
+            deploy_info = _active_deploys.get(req.target_dir)
+            if deploy_info:
+                deploy_info["done"] = True
+                if not result.ok:
+                    deploy_info["error"] = result.error
 
         version = manifest.get("version", "")
         state = _load_state()
@@ -528,6 +624,9 @@ async def deploy_rollback(
 
     out, code = await _restart_service(restart_service)
 
+    # Reload nginx and systemd after restoring configs
+    await _reload_after_rollback()
+
     state = _load_state()
     state[target_dir] = {
         **state.get(target_dir, {}),
@@ -537,6 +636,30 @@ async def deploy_rollback(
     _save_state(state)
 
     return {"ok": True, "restored": snap_name, "service_restart": code == 0}
+
+
+async def _reload_after_rollback():
+    """Reload nginx and systemd after config rollback."""
+    # Reload systemd to pick up restored unit files
+    proc = await asyncio.create_subprocess_shell(
+        "systemctl daemon-reload",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    await proc.communicate()
+
+    # Test and reload nginx
+    proc = await asyncio.create_subprocess_shell(
+        "nginx -t 2>&1",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    stdout, _ = await proc.communicate()
+    if proc.returncode == 0:
+        await asyncio.create_subprocess_shell("systemctl reload nginx")
+        logger.info("Nginx reloaded after rollback")
+    else:
+        logger.warning("Nginx config test failed after rollback: %s", stdout.decode(errors="replace"))
 
 
 async def _handoff_to_supervisor(config: dict, working_dir: str, version: str):
@@ -788,6 +911,24 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
 
     results["timestamp"] = datetime.now(timezone.utc).isoformat()
     return results
+
+
+@router.get("/progress")
+async def deploy_progress(
+    target_dir: str = "/opt/app",
+    admin: AdminUser = Depends(require_admin),
+):
+    """Get live deploy progress (polled by central server for SSE)."""
+    info = _active_deploys.get(target_dir)
+    if not info:
+        return {"active": False}
+    return {
+        "active": not info.get("done", False),
+        "current_phase": info.get("current_phase", ""),
+        "phases": info.get("phases", []),
+        "started_at": info.get("started_at", ""),
+        "error": info.get("error", ""),
+    }
 
 
 @router.get("/current")

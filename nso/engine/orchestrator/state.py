@@ -226,7 +226,8 @@ SPEC_MIGRATIONS = [
         status_generation INTEGER DEFAULT 0,
         deletion_requested INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_instance_specs_project ON instance_specs(project_id)",
@@ -242,6 +243,7 @@ SPEC_MIGRATIONS = [
         status_generation INTEGER DEFAULT 0,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         UNIQUE(project_id, name)
     )
     """,
@@ -251,7 +253,8 @@ SPEC_MIGRATIONS = [
     CREATE TABLE IF NOT EXISTS system_specs (
         project_id TEXT PRIMARY KEY,
         spec TEXT DEFAULT '{}',
-        updated_at TEXT DEFAULT (datetime('now'))
+        updated_at TEXT DEFAULT (datetime('now')),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,
 
