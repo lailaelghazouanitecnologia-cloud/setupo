@@ -43,6 +43,10 @@ class Model(ABC):
     stop: list[str] | None = None
     seed: int | None = None
 
+    # Reasoning model parameters (Groq gpt-oss-20b, OpenAI o1/o3, etc.)
+    reasoning_effort: str | None = None  # "low", "medium", "high"
+    max_completion_tokens: int | None = None
+
     # Response format
     response_format: dict[str, Any] | str | None = None
 

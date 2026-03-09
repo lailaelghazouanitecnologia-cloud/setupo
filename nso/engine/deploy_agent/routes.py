@@ -50,6 +50,12 @@ WORKER_PROVIDER = os.environ.get("DEPLOY_AGENT_WORKER_PROVIDER", "groq")
 
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "8"))
 
+# Reasoning model config (for Groq gpt-oss-20b, OpenAI o1/o3, etc.)
+SUPERVISOR_REASONING_EFFORT = os.environ.get("DEPLOY_AGENT_REASONING_EFFORT", "low") or None
+SUPERVISOR_MAX_COMPLETION_TOKENS = int(os.environ.get("DEPLOY_AGENT_MAX_COMPLETION_TOKENS", "8192") or "0") or None
+WORKER_REASONING_EFFORT = os.environ.get("DEPLOY_AGENT_WORKER_REASONING_EFFORT", "") or None
+WORKER_MAX_COMPLETION_TOKENS = int(os.environ.get("DEPLOY_AGENT_WORKER_MAX_COMPLETION_TOKENS", "0") or "0") or None
+
 # Dual-mode is active when worker env vars are configured
 DUAL_MODE = bool(WORKER_API_KEY and WORKER_API_URL and WORKER_MODEL)
 
@@ -61,6 +67,8 @@ def _get_supervisor() -> OpenAILike:
         api_key=SUPERVISOR_API_KEY,
         base_url=SUPERVISOR_API_URL,
         provider=SUPERVISOR_PROVIDER,
+        reasoning_effort=SUPERVISOR_REASONING_EFFORT,
+        max_completion_tokens=SUPERVISOR_MAX_COMPLETION_TOKENS,
     )
 
 
@@ -71,6 +79,8 @@ def _get_worker() -> OpenAILike:
         api_key=WORKER_API_KEY,
         base_url=WORKER_API_URL,
         provider=WORKER_PROVIDER,
+        reasoning_effort=WORKER_REASONING_EFFORT,
+        max_completion_tokens=WORKER_MAX_COMPLETION_TOKENS,
     )
 
 

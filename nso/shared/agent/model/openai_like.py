@@ -240,10 +240,23 @@ class OpenAILike(Model):
             "stream": stream,
         }
 
-        if self.temperature is not None:
-            params["temperature"] = self.temperature
-        if self.max_tokens is not None:
-            params["max_tokens"] = self.max_tokens
+        # Reasoning models (Groq gpt-oss-20b, OpenAI o1/o3) use different params
+        is_reasoning = bool(self.reasoning_effort)
+
+        if is_reasoning:
+            # Reasoning models: use max_completion_tokens instead of max_tokens,
+            # and reasoning_effort instead of temperature
+            params["reasoning_effort"] = self.reasoning_effort
+            if self.max_completion_tokens is not None:
+                params["max_completion_tokens"] = self.max_completion_tokens
+            elif self.max_tokens is not None:
+                params["max_completion_tokens"] = self.max_tokens
+        else:
+            if self.temperature is not None:
+                params["temperature"] = self.temperature
+            if self.max_tokens is not None:
+                params["max_tokens"] = self.max_tokens
+
         if self.top_p is not None:
             params["top_p"] = self.top_p
         if self.frequency_penalty is not None:
@@ -303,8 +316,12 @@ class OpenAILike(Model):
                 total_tokens=response.usage.total_tokens,
             )
 
+        # Extract reasoning content from reasoning models
+        reasoning = getattr(msg, "reasoning", None)
+
         return ModelResponse(
             content=msg.content,
+            reasoning=reasoning,
             tool_calls=tool_calls,
             finish_reason=choice.finish_reason,
             usage=usage,
