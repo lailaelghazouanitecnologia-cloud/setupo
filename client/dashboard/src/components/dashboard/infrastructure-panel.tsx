@@ -6,9 +6,8 @@ import {
   RefreshCw, Play, Terminal, Copy, CheckCircle,
   XCircle, Upload, Download, FolderOpen, File,
   ChevronRight, Eye, EyeOff, AlertTriangle, Activity,
-  Cpu,
 } from "lucide-react";
-import { InstancesTab, ServicesTab, NodesTab } from "./instances-panel";
+import { InstancesTab, ServicesTab } from "./instances-panel";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
   listDatabases, createDatabase, deleteDatabase,
@@ -17,14 +16,13 @@ import {
   listBucketObjects, uploadObject, downloadObject, deleteObject,
 } from "@/lib/api/client";
 
-type InfraTab = "instances" | "services" | "nodes" | "database" | "storage";
+type InfraTab = "instances" | "services" | "database" | "storage";
 
 export function InfrastructurePanel() {
   const [tab, setTab] = useState<InfraTab>("instances");
 
   const tabs: { id: InfraTab; label: string; icon: React.ElementType }[] = [
     { id: "instances", label: "Instances", icon: Server },
-    { id: "nodes", label: "Nodes", icon: Cpu },
     { id: "services", label: "Services", icon: Activity },
     { id: "database", label: "Database", icon: Database },
     { id: "storage", label: "Storage", icon: HardDrive },
@@ -45,7 +43,6 @@ export function InfrastructurePanel() {
         ))}
       </div>
       {tab === "instances" && <InstancesTab />}
-      {tab === "nodes" && <NodesTab />}
       {tab === "services" && <ServicesTab />}
       {tab === "database" && <DatabaseTab />}
       {tab === "storage" && <StorageTab />}

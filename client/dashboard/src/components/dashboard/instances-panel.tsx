@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader, Globe,
   Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
+  MapPin,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -43,6 +44,46 @@ interface Instance {
     zar_name?: string;
     app_ready_key?: string;
   };
+}
+
+interface ComputeNode {
+  id: string;
+  label: string;
+  provider: string;
+  instance_id: string | null;
+  ip: string;
+  agent_port: number;
+  agent_reachable: number;
+  status: string;
+  role: string;
+  cpu_cores: number;
+  mem_total_mb: number;
+  disk_total_gb: number;
+  cpu_allocated: number;
+  mem_allocated_mb: number;
+  cpu_used_percent: number;
+  mem_used_percent: number;
+  disk_used_percent: number;
+  load_1m: number;
+  reserved_for: string | null;
+  tags: string;
+  agent_version: string;
+  last_heartbeat: string;
+  created_at: string;
+}
+
+// Unified item for the combined list
+interface UnifiedInstance {
+  id: string;
+  label: string;
+  ip: string | null;
+  state: string;
+  provider: string;
+  region: string;
+  plan: string;
+  type: "instance" | "node";
+  raw_instance?: Instance;
+  raw_node?: ComputeNode;
 }
 
 /* ═══════════════════════════════════════════
@@ -105,292 +146,7 @@ export function InstancesPanel() {
 }
 
 /* ═══════════════════════════════════════════
-   CREATE INSTANCE FORM
-   ═══════════════════════════════════════════ */
-
-interface CreateFormProps {
-  projectId: string;
-  onCreated: () => void;
-  onCancel: () => void;
-}
-
-type SourceType = "empty" | "repository" | "zar";
-
-function CreateInstanceForm({ projectId, onCreated, onCancel }: CreateFormProps) {
-  const [label, setLabel] = useState("");
-  const [region, setRegion] = useState("mad");
-  const [plan, setPlan] = useState("vc2-1c-1gb");
-  const [domain, setDomain] = useState("");
-  const [sourceType, setSourceType] = useState<SourceType>("empty");
-  const [gitUrl, setGitUrl] = useState("");
-  const [gitBranch, setGitBranch] = useState("main");
-  const [zarName, setZarName] = useState("");
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState("");
-
-  const sanitizedLabel = label.trim().replace(/[^a-zA-Z0-9_-]/g, "-");
-
-  const validate = (): string | null => {
-    if (sanitizedLabel.length > 0 && sanitizedLabel.length < 2) {
-      return "Label must be at least 2 characters";
-    }
-    if (sanitizedLabel.length > 64) {
-      return "Label must be under 64 characters";
-    }
-    if (domain && !/^[a-zA-Z0-9][a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain.trim())) {
-      return "Invalid domain format (e.g. app.example.com)";
-    }
-    if (!REGIONS.some((r) => r.id === region)) {
-      return "Invalid region selected";
-    }
-    if (!PLANS.some((p) => p.id === plan)) {
-      return "Invalid plan selected";
-    }
-    if (sourceType === "repository" && !gitUrl.trim()) {
-      return "Git URL is required for repository source";
-    }
-    if (sourceType === "zar" && !zarName.trim()) {
-      return "Package name is required for .zar source";
-    }
-    return null;
-  };
-
-  const handleCreate = async () => {
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
-
-    setCreating(true);
-    setError("");
-
-    try {
-      await createInstance(projectId, {
-        label: sanitizedLabel || undefined,
-        region,
-        plan,
-        domain: domain.trim() || undefined,
-        source_type: sourceType === "empty" ? undefined : sourceType,
-        git_url: sourceType === "repository" ? gitUrl.trim() : undefined,
-        git_branch: sourceType === "repository" ? gitBranch.trim() || "main" : undefined,
-        zar_name: sourceType === "zar" ? zarName.trim() : undefined,
-      });
-      onCreated();
-    } catch (e: any) {
-      const msg = e.message || "Failed to create instance";
-      setError(msg.includes("401") ? "Not authorized — check your credentials" : msg);
-    }
-
-    setCreating(false);
-  };
-
-  const selectedPlan = PLANS.find((p) => p.id === plan);
-  const selectedRegion = REGIONS.find((r) => r.id === region);
-
-  return (
-    <div style={{
-      border: "1px solid var(--border)",
-      borderRadius: 8,
-      padding: 16,
-      marginBottom: 16,
-      background: "var(--sidebar-background)",
-    }}>
-      <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", marginBottom: 12 }}>
-        New Instance
-      </div>
-
-      {error && (
-        <div style={{
-          padding: "8px 12px",
-          fontSize: "var(--font-xs)",
-          color: "var(--color-red)",
-          background: "rgba(239,68,68,0.08)",
-          borderRadius: 6,
-          marginBottom: 12,
-        }}>
-          {error}
-        </div>
-      )}
-
-      {/* Row 1: Label */}
-      <div style={{ marginBottom: 10 }}>
-        <label style={labelStyle}>Label</label>
-        <input
-          className="proj-input"
-          type="text"
-          placeholder="my-server (optional)"
-          value={label}
-          onChange={(e) => setLabel(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Escape") onCancel(); }}
-          style={{ width: "100%" }}
-          autoFocus
-        />
-      </div>
-
-      {/* Row 2: Source selector */}
-      <div style={{ marginBottom: 10 }}>
-        <label style={labelStyle}>Source</label>
-        <div style={{ display: "flex", gap: 6, marginBottom: 8, flexWrap: "wrap" }}>
-          {(["empty", "repository", "zar"] as SourceType[]).map((st) => (
-            <button
-              key={st}
-              className={`scope-chip ${sourceType === st ? "active" : ""}`}
-              onClick={() => setSourceType(st)}
-              type="button"
-            >
-              {st === "empty" && <Server className="h-3 w-3" />}
-              {st === "repository" && <FolderOpen className="h-3 w-3" />}
-              {st === "zar" && <FileText className="h-3 w-3" />}
-              <span>{st === "repository" ? "GitHub" : st === "zar" ? ".zar" : "Empty"}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* Source-specific fields */}
-        {sourceType === "repository" && (
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 2 }}>
-              <input
-                className="proj-input"
-                type="text"
-                placeholder="https://github.com/user/repo.git"
-                value={gitUrl}
-                onChange={(e) => setGitUrl(e.target.value)}
-                style={{ width: "100%" }}
-              />
-            </div>
-            <div style={{ flex: 1 }}>
-              <input
-                className="proj-input"
-                type="text"
-                placeholder="branch (main)"
-                value={gitBranch}
-                onChange={(e) => setGitBranch(e.target.value)}
-                style={{ width: "100%" }}
-              />
-            </div>
-          </div>
-        )}
-
-        {sourceType === "zar" && (
-          <input
-            className="proj-input"
-            type="text"
-            placeholder="workspace name"
-            value={zarName}
-            onChange={(e) => setZarName(e.target.value)}
-            style={{ width: "100%" }}
-          />
-        )}
-      </div>
-
-      {/* Row 3: Region + Plan */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Region</label>
-          <Select value={region} onValueChange={setRegion}>
-            <SelectTrigger style={{ width: "100%" }}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {REGIONS.map((r) => (
-                <SelectItem key={r.id} value={r.id}>{r.city}, {r.country} ({r.id})</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Plan</label>
-          <Select value={plan} onValueChange={setPlan}>
-            <SelectTrigger style={{ width: "100%" }}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {PLANS.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.cpu}vCPU / {p.ram} / {p.disk} — {p.price}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      </div>
-
-      {/* Row 4: Domain (optional) */}
-      <div style={{ marginBottom: 12 }}>
-        <label style={labelStyle}>Domain (optional)</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <Globe className="h-3 w-3" style={{ color: "var(--muted-foreground)", flexShrink: 0 }} />
-          <input
-            className="proj-input"
-            type="text"
-            placeholder="app.example.com"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreate();
-              if (e.key === "Escape") onCancel();
-            }}
-            style={{ flex: 1 }}
-          />
-        </div>
-      </div>
-
-      {/* Summary */}
-      <div style={{
-        fontSize: "var(--font-xxs)",
-        color: "var(--muted-foreground)",
-        marginBottom: 12,
-        fontFamily: "monospace",
-      }}>
-        {selectedRegion?.city} · {selectedPlan?.cpu}vCPU · {selectedPlan?.ram} · {selectedPlan?.price}
-        {sourceType === "repository" && gitUrl ? ` · ${gitUrl.split("/").pop()?.replace(".git", "") || "repo"}` : ""}
-        {sourceType === "zar" && zarName ? ` · ${zarName}.zar` : ""}
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: "flex", gap: 6 }}>
-        <button
-          className="deploy-action-btn teal"
-          onClick={handleCreate}
-          disabled={creating}
-          style={{ padding: "5px 14px" }}
-        >
-          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
-          <span>{creating ? "Provisioning..." : "Create Instance"}</span>
-        </button>
-        <button
-          className="panel-btn-sm"
-          onClick={onCancel}
-          disabled={creating}
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-}
-
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: "var(--font-xxs)",
-  color: "var(--muted-foreground)",
-  marginBottom: 4,
-  textTransform: "uppercase",
-  letterSpacing: "0.03em",
-};
-
-const selectStyle: React.CSSProperties = {
-  width: "100%",
-  border: "1px solid var(--border)",
-  borderRadius: 6,
-  padding: "6px 8px",
-  fontSize: "var(--font-xs)",
-};
-
-/* ═══════════════════════════════════════════
-   INSTANCES TAB
+   METRICS
    ═══════════════════════════════════════════ */
 
 interface InstanceMetrics {
@@ -443,20 +199,269 @@ function InstanceMetricsBar({ metrics }: { metrics?: InstanceMetrics }) {
   );
 }
 
+/* ═══════════════════════════════════════════
+   TOPOLOGY GRAPH — mini map of instances
+   ═══════════════════════════════════════════ */
+
+// Region coordinates (approximate world map positions scaled to SVG viewbox)
+const REGION_COORDS: Record<string, { x: number; y: number }> = {
+  ewr: { x: 160, y: 95 },   // New Jersey
+  ord: { x: 135, y: 85 },   // Chicago
+  dfw: { x: 120, y: 110 },  // Dallas
+  lax: { x: 80, y: 100 },   // LA
+  atl: { x: 148, y: 108 },  // Atlanta
+  mia: { x: 155, y: 125 },  // Miami
+  ams: { x: 280, y: 55 },   // Amsterdam
+  lhr: { x: 268, y: 58 },   // London
+  fra: { x: 288, y: 62 },   // Frankfurt
+  cdg: { x: 275, y: 66 },   // Paris
+  mad: { x: 262, y: 80 },   // Madrid
+  nrt: { x: 420, y: 80 },   // Tokyo
+  sgp: { x: 385, y: 140 },  // Singapore
+};
+
+function statusColor(state: string): string {
+  switch (state) {
+    case "ready": case "active": case "online": return "#10B981";
+    case "creating": case "installing": case "pending": case "draining": return "#F59E0B";
+    case "stopped": case "offline": case "error": return "#EF4444";
+    default: return "#6B7280";
+  }
+}
+
+function TopologyGraph({
+  items,
+  selectedId,
+  onSelect,
+}: {
+  items: UnifiedInstance[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  if (items.length === 0) return null;
+
+  const svgW = 480;
+  const svgH = 180;
+  const hubX = svgW / 2;
+  const hubY = svgH / 2;
+
+  // Position items: if they have a region with coords, use that; otherwise arrange in a circle
+  const positioned = useMemo(() => {
+    const result: { item: UnifiedInstance; x: number; y: number }[] = [];
+    const usedPositions = new Map<string, number>(); // region -> count for offset
+
+    for (const item of items) {
+      const coords = REGION_COORDS[item.region];
+      if (coords) {
+        const count = usedPositions.get(item.region) || 0;
+        usedPositions.set(item.region, count + 1);
+        // Offset slightly if multiple in same region
+        result.push({
+          item,
+          x: coords.x + count * 14,
+          y: coords.y + (count % 2 === 0 ? 0 : 12),
+        });
+      } else {
+        // Fallback: arrange around center
+        const angle = (result.length / items.length) * Math.PI * 2 - Math.PI / 2;
+        result.push({
+          item,
+          x: hubX + Math.cos(angle) * 70,
+          y: hubY + Math.sin(angle) * 50,
+        });
+      }
+    }
+    return result;
+  }, [items]);
+
+  return (
+    <div style={{
+      border: "1px solid var(--border)",
+      borderRadius: 8,
+      background: "var(--sidebar-background)",
+      overflow: "hidden",
+      marginBottom: 12,
+    }}>
+      <div style={{
+        padding: "5px 10px",
+        fontSize: 9,
+        color: "var(--muted-foreground)",
+        display: "flex",
+        alignItems: "center",
+        gap: 4,
+        borderBottom: "1px solid var(--border)",
+        opacity: 0.7,
+      }}>
+        <MapPin className="h-3 w-3" />
+        <span>Topology</span>
+      </div>
+      <svg
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        width="100%"
+        height={svgH}
+        style={{ display: "block" }}
+      >
+        {/* Subtle grid dots */}
+        <defs>
+          <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+            <circle cx="10" cy="10" r="0.5" fill="var(--border)" opacity="0.4" />
+          </pattern>
+        </defs>
+        <rect width={svgW} height={svgH} fill="url(#dots)" />
+
+        {/* Connection lines from hub to each node */}
+        {positioned.map(({ item, x, y }) => (
+          <line
+            key={`line-${item.id}`}
+            x1={hubX} y1={hubY}
+            x2={x} y2={y}
+            stroke={selectedId === item.id ? statusColor(item.state) : "var(--border)"}
+            strokeWidth={selectedId === item.id ? 1.5 : 0.8}
+            strokeDasharray={item.state === "creating" || item.state === "installing" ? "3,3" : undefined}
+            opacity={selectedId === item.id ? 0.8 : 0.4}
+          />
+        ))}
+
+        {/* Hub (NSO Central) */}
+        <circle cx={hubX} cy={hubY} r={8} fill="var(--color-teal)" opacity={0.15} />
+        <circle cx={hubX} cy={hubY} r={4} fill="var(--color-teal)" />
+        <text
+          x={hubX} y={hubY + 16}
+          textAnchor="middle" fontSize="7" fill="var(--muted-foreground)"
+          fontFamily="inherit" fontWeight="500"
+        >
+          NSO
+        </text>
+
+        {/* Instance nodes */}
+        {positioned.map(({ item, x, y }) => {
+          const isSelected = selectedId === item.id;
+          const color = statusColor(item.state);
+          return (
+            <g
+              key={item.id}
+              style={{ cursor: "pointer" }}
+              onClick={() => onSelect(item.id)}
+            >
+              {/* Selection ring */}
+              {isSelected && (
+                <circle cx={x} cy={y} r={10} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
+              )}
+              {/* Outer glow for online */}
+              {(item.state === "ready" || item.state === "active" || item.state === "online") && (
+                <circle cx={x} cy={y} r={7} fill={color} opacity={0.1} />
+              )}
+              {/* Node dot */}
+              <circle
+                cx={x} cy={y} r={isSelected ? 5 : 4}
+                fill={color}
+                stroke={isSelected ? color : "none"}
+                strokeWidth={1}
+              />
+              {/* Label */}
+              <text
+                x={x} y={y - 8}
+                textAnchor="middle" fontSize="7"
+                fill={isSelected ? "var(--foreground)" : "var(--muted-foreground)"}
+                fontFamily="inherit"
+                fontWeight={isSelected ? "600" : "400"}
+              >
+                {(item.label || item.ip || item.id).slice(0, 16)}
+              </text>
+              {/* Region tag */}
+              <text
+                x={x} y={y + 12}
+                textAnchor="middle" fontSize="6"
+                fill="var(--muted-foreground)" opacity="0.5"
+                fontFamily="monospace"
+              >
+                {item.region || item.provider}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   UNIFIED INSTANCES TAB
+   ═══════════════════════════════════════════ */
+
+function nodeStatusColor(status: string): string {
+  switch (status) {
+    case "online": return "var(--color-green)";
+    case "draining": return "var(--color-yellow)";
+    case "maintenance": return "var(--color-yellow)";
+    case "offline": return "var(--color-red)";
+    case "pending": return "var(--muted-foreground)";
+    default: return "var(--muted-foreground)";
+  }
+}
+
 export function InstancesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || null;
   const [loading, setLoading] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
+  const [nodes, setNodes] = useState<ComputeNode[]>([]);
   const [metrics, setMetrics] = useState<Record<string, InstanceMetrics>>({});
   const [error, setError] = useState("");
-  const [selected, setSelected] = useState<Instance | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panel, setPanel] = useState<"terminal" | "files" | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState("");
+
+  // Unified list
+  const unified = useMemo<UnifiedInstance[]>(() => {
+    const list: UnifiedInstance[] = [];
+    const nodeInstanceIds = new Set(nodes.filter(n => n.instance_id).map(n => n.instance_id!));
+
+    for (const inst of instances) {
+      // Check if this instance also has a node entry
+      const matchingNode = nodes.find(n => n.instance_id === inst.id);
+      list.push({
+        id: inst.id,
+        label: inst.label || inst.domain || inst.id,
+        ip: inst.ip,
+        state: matchingNode ? matchingNode.status : inst.state,
+        provider: matchingNode?.provider || "nso",
+        region: inst.region,
+        plan: inst.plan,
+        type: "instance",
+        raw_instance: inst,
+        raw_node: matchingNode || undefined,
+      });
+    }
+
+    // Add nodes that don't have a matching instance
+    for (const node of nodes) {
+      if (!node.instance_id || !instances.find(i => i.id === node.instance_id)) {
+        list.push({
+          id: node.id,
+          label: node.label,
+          ip: node.ip,
+          state: node.status,
+          provider: node.provider,
+          region: "",
+          plan: `${node.cpu_cores}C/${node.mem_total_mb}MB`,
+          type: "node",
+          raw_node: node,
+        });
+      }
+    }
+
+    return list;
+  }, [instances, nodes]);
+
+  const selected = useMemo(() => unified.find(u => u.id === selectedId) || null, [unified, selectedId]);
 
   const fetchData = async () => {
     if (!projectId) {
       setInstances([]);
+      setNodes([]);
       setLoading(false);
       setError("No project selected");
       return;
@@ -464,41 +469,61 @@ export function InstancesTab() {
     setLoading(true);
     setError("");
     try {
-      const instRes = await listInstances(projectId, true);
+      const [instRes, nodesRes] = await Promise.all([
+        listInstances(projectId, true).catch(() => ({ instances: [], metrics: [] })),
+        listComputeNodes(projectId).catch(() => ({ nodes: [] })),
+      ]);
       setInstances(instRes.instances || []);
-      // Map metrics by instance_id
+      setNodes(nodesRes.nodes || []);
       if (instRes.metrics) {
         const m: Record<string, InstanceMetrics> = {};
-        for (const item of instRes.metrics) {
-          m[item.instance_id] = item;
-        }
+        for (const item of instRes.metrics) m[item.instance_id] = item;
         setMetrics(m);
       }
     } catch {
       setInstances([]);
+      setNodes([]);
     }
     setLoading(false);
   };
 
   useEffect(() => { fetchData(); }, [projectId]);
 
-  // Auto-refresh every 10s during install, otherwise 30s
   const hasInstalling = instances.some((i) => i.state === "creating" || i.state === "installing");
   useEffect(() => {
     const interval = setInterval(fetchData, hasInstalling ? 10000 : 30000);
     return () => clearInterval(interval);
   }, [hasInstalling]);
 
-  const handleDelete = async (inst: Instance) => {
+  const handleSync = async () => {
     if (!projectId) return;
-    if (!confirm(`Destroy instance "${inst.label || inst.id}"? This will permanently delete the VPS.`)) return;
+    setSyncing(true);
+    setSyncResult("");
     try {
-      await deleteInstance(projectId, inst.id);
-      setInstances((prev) => prev.filter((i) => i.id !== inst.id));
-      if (selected?.id === inst.id) {
-        setSelected(null);
-        setPanel(null);
+      const res = await syncInstancesToNodes(projectId);
+      setSyncResult(`Registered ${res.registered}, skipped ${res.skipped}`);
+      fetchData();
+    } catch (e: any) {
+      setSyncResult(e.message || "Sync failed");
+    }
+    setSyncing(false);
+  };
+
+  // Instance actions
+  const handleDelete = async (item: UnifiedInstance) => {
+    if (!projectId) return;
+    if (!confirm(`Destroy "${item.label}"? This will permanently delete the server.`)) return;
+    try {
+      if (item.type === "instance" && item.raw_instance) {
+        await deleteInstance(projectId, item.raw_instance.id);
       }
+      if (item.raw_node) {
+        await deleteComputeNode(projectId, item.raw_node.id).catch(() => {});
+      } else if (item.type === "node") {
+        await deleteComputeNode(projectId, item.id);
+      }
+      if (selectedId === item.id) { setSelectedId(null); setPanel(null); }
+      fetchData();
     } catch (e: any) {
       alert(e.message || "Delete failed");
     }
@@ -506,26 +531,31 @@ export function InstancesTab() {
 
   const handleStop = async (inst: Instance) => {
     if (!projectId) return;
-    try {
-      await stopInstance(projectId, inst.id);
-      fetchData();
-    } catch (e: any) {
-      alert(e.message || "Stop failed");
-    }
+    try { await stopInstance(projectId, inst.id); fetchData(); } catch (e: any) { alert(e.message || "Stop failed"); }
   };
 
   const handleStart = async (inst: Instance) => {
     if (!projectId) return;
-    try {
-      await startInstance(projectId, inst.id);
-      fetchData();
-    } catch (e: any) {
-      alert(e.message || "Start failed");
-    }
+    try { await startInstance(projectId, inst.id); fetchData(); } catch (e: any) { alert(e.message || "Start failed"); }
+  };
+
+  const handleDrain = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try { await drainNode(projectId, node.id); fetchData(); } catch (e: any) { alert(e.message || "Drain failed"); }
+  };
+
+  const handleCordon = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try { await cordonNode(projectId, node.id); fetchData(); } catch (e: any) { alert(e.message || "Cordon failed"); }
+  };
+
+  const handleUncordon = async (node: ComputeNode) => {
+    if (!projectId) return;
+    try { await uncordonNode(projectId, node.id); fetchData(); } catch (e: any) { alert(e.message || "Uncordon failed"); }
   };
 
   // Loading state
-  if (loading && instances.length === 0) {
+  if (loading && unified.length === 0) {
     return (
       <div className="panel-empty">
         <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
@@ -534,9 +564,9 @@ export function InstancesTab() {
     );
   }
 
-  // Error state — special handling for "no projects"
+  // Error state
   if (error) {
-    const isNoProjects = error.includes("No projects");
+    const isNoProjects = error.includes("No projects") || error.includes("No project");
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
@@ -544,38 +574,33 @@ export function InstancesTab() {
         <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage instances." : error}</div>
         {isNoProjects ? (
           <button className="panel-btn" onClick={async () => {
-            try {
-              await apiCreateProject("main");
-              setError("");
-              fetchData();
-            } catch (e: any) {
-              setError(e.message || "Failed to create project");
-            }
+            try { await apiCreateProject("main"); setError(""); fetchData(); } catch (e: any) { setError(e.message || "Failed"); }
           }}>
-            <Plus className="h-3.5 w-3.5" />
-            <span>Create project</span>
+            <Plus className="h-3.5 w-3.5" /><span>Create project</span>
           </button>
         ) : (
-          <button className="panel-btn" onClick={fetchData}>
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Retry</span>
-          </button>
+          <button className="panel-btn" onClick={fetchData}><RefreshCw className="h-3.5 w-3.5" /><span>Retry</span></button>
         )}
       </div>
     );
   }
 
   // Empty state
-  if (instances.length === 0 && !showCreate) {
+  if (unified.length === 0 && !showCreate) {
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">No instances</div>
-        <div className="panel-empty-sub">Create a VPS instance to get started.</div>
-        <button className="panel-btn" onClick={() => setShowCreate(true)}>
-          <Plus className="h-3.5 w-3.5" />
-          <span>Create Instance</span>
-        </button>
+        <div className="panel-empty-sub">Add a server from NSO Cloud, connect via Vultr/Hetzner, or use SSH.</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn" onClick={() => setShowCreate(true)}>
+            <Plus className="h-3.5 w-3.5" /><span>Add Instance</span>
+          </button>
+          <button className="panel-btn" onClick={handleSync} disabled={syncing}>
+            <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync"}</span>
+          </button>
+        </div>
+        {syncResult && <div className="panel-empty-sub" style={{ marginTop: 8 }}>{syncResult}</div>}
       </div>
     );
   }
@@ -585,22 +610,33 @@ export function InstancesTab() {
       {/* Header */}
       <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
         <span className="panel-count">
-          {instances.length} instance{instances.length !== 1 ? "s" : ""}
+          {unified.length} instance{unified.length !== 1 ? "s" : ""}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
+          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync instances to nodes">
+            <Download className="h-3 w-3" />
+          </button>
           <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3 w-3" />
-            <span>New</span>
+            <Plus className="h-3 w-3" /><span>New</span>
           </button>
         </div>
       </div>
 
-      {/* Create form */}
+      {syncResult && (
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", padding: "0 0 8px" }}>
+          {syncResult}
+        </div>
+      )}
+
+      {/* Topology graph */}
+      <TopologyGraph items={unified} selectedId={selectedId} onSelect={setSelectedId} />
+
+      {/* Create form (connector-style) */}
       {showCreate && projectId && (
-        <CreateInstanceForm
+        <RegisterNodeForm
           projectId={projectId}
           onCreated={() => { setShowCreate(false); fetchData(); }}
           onCancel={() => setShowCreate(false)}
@@ -609,80 +645,117 @@ export function InstancesTab() {
 
       {/* Instance cards */}
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {instances.map((inst) => (
-          <div
-            key={inst.id}
-            className={`proj-card ${selected?.id === inst.id ? "active" : ""}`}
-            onClick={() => { setSelected(inst); setPanel(null); }}
-          >
-            <div className="proj-card-icon">
-              <Server className="h-4 w-4" style={{ color: stateColor(inst.state) }} />
-            </div>
-            <div className="proj-card-info" style={{ flex: 1 }}>
-              <div className="proj-card-name">
-                {inst.label || inst.domain || inst.id}
+        {unified.map((item) => {
+          const isNode = !!item.raw_node && !item.raw_instance;
+          const nodeMetrics = item.raw_node;
+          const instMetrics = item.raw_instance ? metrics[item.raw_instance.id] : undefined;
+          return (
+            <div
+              key={item.id}
+              className={`proj-card ${selectedId === item.id ? "active" : ""}`}
+              onClick={() => { setSelectedId(item.id); setPanel(null); }}
+            >
+              <div className="proj-card-icon">
+                {isNode
+                  ? <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(item.state) }} />
+                  : <Server className="h-4 w-4" style={{ color: stateColor(item.state) }} />
+                }
               </div>
-              <div className="proj-card-meta">
-                {inst.ip || "installing..."} — {inst.plan} / {inst.region}
-                {inst.metadata?.source_type === "repository" ? " · github" : ""}
-                {inst.metadata?.source_type === "zar" ? ` · ${inst.metadata.zar_name || "zar"}` : ""}
+              <div className="proj-card-info" style={{ flex: 1 }}>
+                <div className="proj-card-name">{item.label}</div>
+                <div className="proj-card-meta">
+                  {item.ip || "installing..."} — {item.plan}{item.region ? ` / ${item.region}` : ""}
+                  {item.provider !== "nso" && ` · ${item.provider}`}
+                </div>
+                {/* Metrics bars */}
+                {isNode && nodeMetrics && nodeMetrics.status === "online" && (
+                  <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
+                    <MetricBar label="CPU" value={nodeMetrics.cpu_used_percent} color="var(--color-blue)" />
+                    <MetricBar label="RAM" value={nodeMetrics.mem_used_percent} color="var(--color-green)" />
+                    <MetricBar label="Disk" value={nodeMetrics.disk_used_percent} color="var(--color-yellow)" />
+                  </div>
+                )}
+                {!isNode && <InstanceMetricsBar metrics={instMetrics} />}
               </div>
-              <InstanceMetricsBar metrics={metrics[inst.id]} />
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                {(item.state === "creating" || item.state === "installing") && (
+                  <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--color-yellow)" }} />
+                )}
+                <span className={`inst-badge ${
+                  item.state === "ready" || item.state === "active" || item.state === "online" ? "badge-success"
+                    : item.state === "stopped" || item.state === "offline" || item.state === "error" ? "badge-error"
+                    : "badge-warning"
+                }`}>
+                  {item.state}
+                </span>
+              </div>
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              {(inst.state === "creating" || inst.state === "installing") && (
-                <Loader className="h-3 w-3 animate-spin" style={{ color: "var(--color-yellow)" }} />
-              )}
-              <span className={`inst-badge ${stateBadgeClass(inst.state)}`}>
-                {inst.state}
-              </span>
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
-      {/* Selected instance detail */}
+      {/* Selected detail */}
       {selected && (
         <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Server className="h-4 w-4" style={{ color: stateColor(selected.state) }} />
-              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>
-                {selected.label || selected.domain || selected.id}
-              </span>
+              {selected.raw_instance
+                ? <Server className="h-4 w-4" style={{ color: stateColor(selected.state) }} />
+                : <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(selected.state) }} />
+              }
+              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>{selected.label}</span>
               {selected.ip && (
                 <span style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", fontFamily: "monospace" }}>
-                  {selected.ip}
+                  {selected.ip}{selected.raw_node ? `:${selected.raw_node.agent_port}` : ""}
                 </span>
               )}
             </div>
             <div style={{ display: "flex", gap: 4 }}>
-              <button
-                className={`svc-btn ${panel === "terminal" ? "green" : ""}`}
-                title="Terminal"
-                aria-label="Toggle terminal"
-                onClick={() => setPanel(panel === "terminal" ? null : "terminal")}
-              >
-                <Terminal className="h-3.5 w-3.5" />
-              </button>
-              <button
-                className={`svc-btn ${panel === "files" ? "green" : ""}`}
-                title="Files"
-                aria-label="Toggle file browser"
-                onClick={() => setPanel(panel === "files" ? null : "files")}
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-              </button>
-              {selected.state === "ready" || selected.state === "active" ? (
-                <button className="svc-btn yellow" title="Stop" aria-label="Stop instance" onClick={() => handleStop(selected)}>
-                  <Power className="h-3.5 w-3.5" />
+              {/* Instance actions */}
+              {selected.raw_instance && (
+                <>
+                  <button
+                    className={`svc-btn ${panel === "terminal" ? "green" : ""}`}
+                    title="Terminal"
+                    onClick={() => setPanel(panel === "terminal" ? null : "terminal")}
+                  >
+                    <Terminal className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    className={`svc-btn ${panel === "files" ? "green" : ""}`}
+                    title="Files"
+                    onClick={() => setPanel(panel === "files" ? null : "files")}
+                  >
+                    <FolderOpen className="h-3.5 w-3.5" />
+                  </button>
+                  {selected.state === "ready" || selected.state === "active" ? (
+                    <button className="svc-btn yellow" title="Stop" onClick={() => handleStop(selected.raw_instance!)}>
+                      <Power className="h-3.5 w-3.5" />
+                    </button>
+                  ) : selected.state === "stopped" ? (
+                    <button className="svc-btn green" title="Start" onClick={() => handleStart(selected.raw_instance!)}>
+                      <Play className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
+                </>
+              )}
+              {/* Node actions */}
+              {selected.raw_node && selected.raw_node.status === "online" && (
+                <>
+                  <button className="svc-btn yellow" title="Drain" onClick={() => handleDrain(selected.raw_node!)}>
+                    <Pause className="h-3.5 w-3.5" />
+                  </button>
+                  <button className="svc-btn yellow" title="Cordon" onClick={() => handleCordon(selected.raw_node!)}>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  </button>
+                </>
+              )}
+              {selected.raw_node && (selected.raw_node.status === "draining" || selected.raw_node.status === "maintenance") && (
+                <button className="svc-btn green" title="Uncordon" onClick={() => handleUncordon(selected.raw_node!)}>
+                  <ShieldOff className="h-3.5 w-3.5" />
                 </button>
-              ) : selected.state === "stopped" ? (
-                <button className="svc-btn green" title="Start" aria-label="Start instance" onClick={() => handleStart(selected)}>
-                  <Play className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
-              <button className="svc-btn red" title="Destroy" aria-label="Destroy instance" onClick={() => handleDelete(selected)}>
+              )}
+              <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -691,16 +764,26 @@ export function InstancesTab() {
           {/* Info grid */}
           <div className="sys-grid" style={{ marginBottom: 12 }}>
             {[
-              { label: "Name", value: selected.label || "—" },
+              { label: "Name", value: selected.label },
               { label: "IP", value: selected.ip || "—" },
-              { label: "Source", value: selected.metadata?.source_type === "repository"
-                ? (selected.metadata.git_url?.split("/").pop()?.replace(".git", "") || "github")
-                : selected.metadata?.source_type === "zar"
-                ? (selected.metadata.zar_name || "zar")
-                : "empty" },
+              { label: "Provider", value: selected.provider },
               { label: "Plan", value: selected.plan },
-              { label: "Region", value: selected.region },
-              { label: "Created", value: selected.created_at?.split("T")[0] || "—" },
+              ...(selected.region ? [{ label: "Region", value: selected.region }] : []),
+              ...(selected.raw_instance?.metadata?.source_type ? [{
+                label: "Source",
+                value: selected.raw_instance.metadata.source_type === "repository"
+                  ? (selected.raw_instance.metadata.git_url?.split("/").pop()?.replace(".git", "") || "github")
+                  : selected.raw_instance.metadata.source_type === "zar"
+                  ? (selected.raw_instance.metadata.zar_name || "zar")
+                  : "empty"
+              }] : []),
+              ...(selected.raw_node ? [
+                { label: "Role", value: selected.raw_node.role },
+                { label: "CPU", value: `${selected.raw_node.cpu_allocated}/${selected.raw_node.cpu_cores} cores` },
+                { label: "Memory", value: `${selected.raw_node.mem_allocated_mb}/${selected.raw_node.mem_total_mb} MB` },
+                { label: "Agent", value: selected.raw_node.agent_reachable ? `v${selected.raw_node.agent_version || "?"}` : "unreachable" },
+              ] : []),
+              { label: "Created", value: (selected.raw_instance?.created_at || selected.raw_node?.created_at)?.split("T")[0] || "—" },
             ].map((item) => (
               <div key={item.label} className="sys-card">
                 <div className="sys-label">{item.label}</div>
@@ -709,20 +792,20 @@ export function InstancesTab() {
             ))}
           </div>
 
-          {/* Metrics detail */}
-          {metrics[selected.id]?.reachable && (
+          {/* Metrics detail for instances */}
+          {selected.raw_instance && metrics[selected.raw_instance.id]?.reachable && (
             <div className="sys-grid" style={{ marginBottom: 12 }}>
               {[
-                { label: "CPU", value: `${metrics[selected.id].cpu_percent}%` },
-                { label: "Memory", value: `${metrics[selected.id].mem_percent}%` },
-                { label: "Disk", value: `${metrics[selected.id].disk_percent}%` },
-                { label: "Load", value: `${metrics[selected.id].load_1m}` },
-                { label: "Uptime", value: metrics[selected.id].uptime > 86400
-                  ? `${Math.floor(metrics[selected.id].uptime / 86400)}d`
-                  : metrics[selected.id].uptime > 3600
-                  ? `${Math.floor(metrics[selected.id].uptime / 3600)}h`
-                  : `${Math.floor(metrics[selected.id].uptime / 60)}m` },
-                { label: "Status", value: metrics[selected.id].reachable ? "Online" : "Offline" },
+                { label: "CPU", value: `${metrics[selected.raw_instance.id].cpu_percent}%` },
+                { label: "Memory", value: `${metrics[selected.raw_instance.id].mem_percent}%` },
+                { label: "Disk", value: `${metrics[selected.raw_instance.id].disk_percent}%` },
+                { label: "Load", value: `${metrics[selected.raw_instance.id].load_1m}` },
+                { label: "Uptime", value: metrics[selected.raw_instance.id].uptime > 86400
+                  ? `${Math.floor(metrics[selected.raw_instance.id].uptime / 86400)}d`
+                  : metrics[selected.raw_instance.id].uptime > 3600
+                  ? `${Math.floor(metrics[selected.raw_instance.id].uptime / 3600)}h`
+                  : `${Math.floor(metrics[selected.raw_instance.id].uptime / 60)}m` },
+                { label: "Status", value: metrics[selected.raw_instance.id].reachable ? "Online" : "Offline" },
               ].map((item) => (
                 <div key={item.label} className="sys-card">
                   <div className="sys-label">{item.label}</div>
@@ -733,11 +816,11 @@ export function InstancesTab() {
           )}
 
           {/* Sub-panels */}
-          {panel === "terminal" && projectId && (
-            <TerminalPanel projectId={projectId} instance={selected} />
+          {panel === "terminal" && projectId && selected.raw_instance && (
+            <TerminalPanel projectId={projectId} instance={selected.raw_instance} />
           )}
-          {panel === "files" && projectId && (
-            <FilesPanel instance={selected} />
+          {panel === "files" && projectId && selected.raw_instance && (
+            <FilesPanel instance={selected.raw_instance} />
           )}
         </div>
       )}
@@ -912,288 +995,18 @@ function FilesPanel({ instance }: { instance: Instance }) {
    HELPERS
    ═══════════════════════════════════════════ */
 
+const labelStyle: React.CSSProperties = {
+  display: "block",
+  fontSize: "var(--font-xxs)",
+  color: "var(--muted-foreground)",
+  marginBottom: 4,
+  textTransform: "uppercase",
+  letterSpacing: "0.03em",
+};
 
 /* ═══════════════════════════════════════════
-   SERVICES TAB
+   PROVIDER CARD + REGISTER NODE FORM
    ═══════════════════════════════════════════ */
-
-/* ═══════════════════════════════════════════
-   NODES TAB
-   ═══════════════════════════════════════════ */
-
-interface ComputeNode {
-  id: string;
-  label: string;
-  provider: string;
-  instance_id: string | null;
-  ip: string;
-  agent_port: number;
-  agent_reachable: number;
-  status: string;
-  role: string;
-  cpu_cores: number;
-  mem_total_mb: number;
-  disk_total_gb: number;
-  cpu_allocated: number;
-  mem_allocated_mb: number;
-  cpu_used_percent: number;
-  mem_used_percent: number;
-  disk_used_percent: number;
-  load_1m: number;
-  reserved_for: string | null;
-  tags: string;
-  agent_version: string;
-  last_heartbeat: string;
-  created_at: string;
-}
-
-function nodeStatusColor(status: string): string {
-  switch (status) {
-    case "online": return "var(--color-green)";
-    case "draining": return "var(--color-yellow)";
-    case "maintenance": return "var(--color-yellow)";
-    case "offline": return "var(--color-red)";
-    case "pending": return "var(--muted-foreground)";
-    default: return "var(--muted-foreground)";
-  }
-}
-
-export function NodesTab() {
-  const activeProject = useDashboardStore((s) => s.activeProject);
-  const projectId = activeProject?.id || null;
-  const [loading, setLoading] = useState(true);
-  const [nodes, setNodes] = useState<ComputeNode[]>([]);
-  const [selected, setSelected] = useState<ComputeNode | null>(null);
-  const [showRegister, setShowRegister] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState("");
-
-  const fetchNodes = async () => {
-    if (!projectId) { setNodes([]); setLoading(false); return; }
-    setLoading(true);
-    try {
-      const res = await listComputeNodes(projectId);
-      setNodes(res.nodes || []);
-    } catch {
-      setNodes([]);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchNodes(); }, [projectId]);
-
-  const handleSync = async () => {
-    if (!projectId) return;
-    setSyncing(true);
-    setSyncResult("");
-    try {
-      const res = await syncInstancesToNodes(projectId);
-      setSyncResult(`Registered ${res.registered}, skipped ${res.skipped}`);
-      fetchNodes();
-    } catch (e: any) {
-      setSyncResult(e.message || "Sync failed");
-    }
-    setSyncing(false);
-  };
-
-  const handleDelete = async (node: ComputeNode) => {
-    if (!projectId) return;
-    if (!confirm(`Delete node "${node.label}"? This removes the node from the cluster.`)) return;
-    try {
-      await deleteComputeNode(projectId, node.id);
-      setNodes((prev) => prev.filter((n) => n.id !== node.id));
-      if (selected?.id === node.id) setSelected(null);
-    } catch (e: any) {
-      alert(e.message || "Delete failed");
-    }
-  };
-
-  const handleDrain = async (node: ComputeNode) => {
-    if (!projectId) return;
-    try {
-      await drainNode(projectId, node.id);
-      fetchNodes();
-    } catch (e: any) { alert(e.message || "Drain failed"); }
-  };
-
-  const handleCordon = async (node: ComputeNode) => {
-    if (!projectId) return;
-    try {
-      await cordonNode(projectId, node.id);
-      fetchNodes();
-    } catch (e: any) { alert(e.message || "Cordon failed"); }
-  };
-
-  const handleUncordon = async (node: ComputeNode) => {
-    if (!projectId) return;
-    try {
-      await uncordonNode(projectId, node.id);
-      fetchNodes();
-    } catch (e: any) { alert(e.message || "Uncordon failed"); }
-  };
-
-  if (!projectId) {
-    return <div className="panel-empty"><div className="panel-empty-sub">Select a project first</div></div>;
-  }
-
-  if (loading && nodes.length === 0) {
-    return (
-      <div className="panel-empty">
-        <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-sub">Loading nodes...</div>
-      </div>
-    );
-  }
-
-  if (nodes.length === 0 && !showRegister) {
-    return (
-      <div className="panel-empty">
-        <Cpu className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-title">No compute nodes</div>
-        <div className="panel-empty-sub">Add a node from Vultr, Hetzner, or connect via SSH.</div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn" onClick={() => setShowRegister(true)}>
-            <Plus className="h-3.5 w-3.5" /><span>Add Node</span>
-          </button>
-          <button className="panel-btn" onClick={handleSync} disabled={syncing}>
-            <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync Instances"}</span>
-          </button>
-        </div>
-        {syncResult && <div className="panel-empty-sub" style={{ marginTop: 8 }}>{syncResult}</div>}
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ padding: "16px 0" }}>
-      {/* Header */}
-      <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
-        <span className="panel-count">
-          {nodes.length} node{nodes.length !== 1 ? "s" : ""}
-        </span>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn-sm" onClick={fetchNodes} disabled={loading}>
-            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          </button>
-          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync instances as nodes">
-            <Download className="h-3 w-3" />
-            <span>{syncing ? "..." : "Sync"}</span>
-          </button>
-          <button className="panel-btn-sm" onClick={() => setShowRegister(true)}>
-            <Plus className="h-3 w-3" /><span>Add</span>
-          </button>
-        </div>
-      </div>
-
-      {syncResult && (
-        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", padding: "0 0 8px" }}>
-          {syncResult}
-        </div>
-      )}
-
-      {/* Register form */}
-      {showRegister && projectId && (
-        <RegisterNodeForm
-          projectId={projectId}
-          onCreated={() => { setShowRegister(false); fetchNodes(); }}
-          onCancel={() => setShowRegister(false)}
-        />
-      )}
-
-      {/* Node cards */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {nodes.map((node) => (
-          <div
-            key={node.id}
-            className={`proj-card ${selected?.id === node.id ? "active" : ""}`}
-            onClick={() => setSelected(node)}
-          >
-            <div className="proj-card-icon">
-              <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(node.status) }} />
-            </div>
-            <div className="proj-card-info" style={{ flex: 1 }}>
-              <div className="proj-card-name">{node.label}</div>
-              <div className="proj-card-meta">
-                {node.ip || "no ip"} — {node.provider} / {node.role}
-                {node.reserved_for ? ` · reserved` : ""}
-              </div>
-              {node.status === "online" && (
-                <div style={{ display: "flex", gap: 8, paddingTop: 4 }}>
-                  <MetricBar label="CPU" value={node.cpu_used_percent} color="var(--color-blue)" />
-                  <MetricBar label="RAM" value={node.mem_used_percent} color="var(--color-green)" />
-                  <MetricBar label="Disk" value={node.disk_used_percent} color="var(--color-yellow)" />
-                </div>
-              )}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <span className={`inst-badge ${node.status === "online" ? "badge-success" : node.status === "offline" ? "badge-error" : "badge-warning"}`}>
-                {node.status}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Selected node detail */}
-      {selected && (
-        <div style={{ marginTop: 16, borderTop: "1px solid var(--border)", paddingTop: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <Cpu className="h-4 w-4" style={{ color: nodeStatusColor(selected.status) }} />
-              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>{selected.label}</span>
-              {selected.ip && (
-                <span style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", fontFamily: "monospace" }}>
-                  {selected.ip}:{selected.agent_port}
-                </span>
-              )}
-            </div>
-            <div style={{ display: "flex", gap: 4 }}>
-              {selected.status === "online" && (
-                <>
-                  <button className="svc-btn yellow" title="Drain (stop scheduling)" onClick={() => handleDrain(selected)}>
-                    <Pause className="h-3.5 w-3.5" />
-                  </button>
-                  <button className="svc-btn yellow" title="Cordon (maintenance)" onClick={() => handleCordon(selected)}>
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                  </button>
-                </>
-              )}
-              {(selected.status === "draining" || selected.status === "maintenance") && (
-                <button className="svc-btn green" title="Uncordon (restore)" onClick={() => handleUncordon(selected)}>
-                  <ShieldOff className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <button className="svc-btn red" title="Delete node" onClick={() => handleDelete(selected)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Info grid */}
-          <div className="sys-grid" style={{ marginBottom: 12 }}>
-            {[
-              { label: "Provider", value: selected.provider },
-              { label: "Role", value: selected.role },
-              { label: "CPU", value: `${selected.cpu_allocated}/${selected.cpu_cores} cores` },
-              { label: "Memory", value: `${selected.mem_allocated_mb}/${selected.mem_total_mb} MB` },
-              { label: "Disk", value: `${selected.disk_total_gb} GB` },
-              { label: "Agent", value: selected.agent_reachable ? `v${selected.agent_version || "?"}` : "unreachable" },
-              { label: "Heartbeat", value: selected.last_heartbeat ? selected.last_heartbeat.split("T")[0] : "never" },
-              { label: "Created", value: selected.created_at?.split("T")[0] || "—" },
-            ].map((item) => (
-              <div key={item.label} className="sys-card">
-                <div className="sys-label">{item.label}</div>
-                <div className="sys-value">{item.value}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Provider Card ── */
 
 function providerColor(id: string): string {
   switch (id) {
@@ -1214,6 +1027,16 @@ function providerBg(id: string): string {
     default: return "rgba(100, 200, 180, 0.1)";
   }
 }
+
+type NodeProvider = "nso" | "vultr" | "hetzner" | "runpod" | "ssh" | null;
+
+const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string; primary?: boolean }[] = [
+  { id: "nso", name: "NSO Cloud", desc: "Get a server from us — ready in minutes", icon: "N", primary: true },
+  { id: "vultr", name: "Vultr", desc: "Use your own Vultr account (GPU available)", icon: "V" },
+  { id: "hetzner", name: "Hetzner", desc: "Use your own Hetzner Cloud account", icon: "H" },
+  { id: "runpod", name: "RunPod", desc: "GPU instances, volumes, and serverless", icon: "R" },
+  { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
+];
 
 function ProviderCard({ p, connected, needsSetup, onClick, highlight }: {
   p: typeof PROVIDER_OPTIONS[0];
@@ -1285,18 +1108,6 @@ function ProviderCard({ p, connected, needsSetup, onClick, highlight }: {
   );
 }
 
-/* ── Register Node Form (connector-style) ── */
-
-type NodeProvider = "nso" | "vultr" | "hetzner" | "runpod" | "ssh" | null;
-
-const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string; primary?: boolean }[] = [
-  { id: "nso", name: "NSO Cloud", desc: "Get a server from us — ready in minutes", icon: "N", primary: true },
-  { id: "vultr", name: "Vultr", desc: "Use your own Vultr account (GPU available)", icon: "V" },
-  { id: "hetzner", name: "Hetzner", desc: "Use your own Hetzner Cloud account", icon: "H" },
-  { id: "runpod", name: "RunPod", desc: "GPU instances, volumes, and serverless", icon: "R" },
-  { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
-];
-
 function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   projectId: string;
   onCreated: () => void;
@@ -1316,7 +1127,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   const [error, setError] = useState("");
   const [connectorStatus, setConnectorStatus] = useState<Record<string, boolean>>({});
 
-  // Check which cloud providers have connectors installed
   useEffect(() => {
     listAddons(projectId, "connector").then((res) => {
       const status: Record<string, boolean> = {};
@@ -1330,7 +1140,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   }, [projectId]);
 
   const pickProvider = (p: NodeProvider) => {
-    // If cloud provider not connected, send to Addons to set it up
     if ((p === "vultr" || p === "hetzner" || p === "runpod") && !connectorStatus[p]) {
       setActiveView("addons");
       return;
@@ -1350,7 +1159,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     setError("");
     try {
       if (selectedProvider === "nso") {
-        // Use the existing createInstance flow — provisions via NSO's own infra
         await createInstance(projectId, {
           label: label.trim() || undefined,
           region,
@@ -1370,12 +1178,11 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
       }
       onCreated();
     } catch (e: any) {
-      setError(e.message || "Failed to create node");
+      setError(e.message || "Failed to create instance");
     }
     setCreating(false);
   };
 
-  // Step 1: Provider picker (connector-style cards)
   if (step === "pick") {
     return (
       <div style={{
@@ -1383,18 +1190,15 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         marginBottom: 16, background: "var(--sidebar-background)",
       }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Node</div>
+          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Instance</div>
           <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
         </div>
-        {/* Primary: NSO Cloud */}
         <ProviderCard
           p={PROVIDER_OPTIONS[0]}
           connected={true}
           onClick={() => pickProvider("nso")}
           highlight
         />
-
-        {/* Separator */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
           <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
@@ -1402,8 +1206,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
           </span>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
         </div>
-
-        {/* BYOI options */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {PROVIDER_OPTIONS.slice(1).map((p) => {
             const isBYOCloud = p.id === "vultr" || p.id === "hetzner" || p.id === "runpod";
@@ -1423,7 +1225,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     );
   }
 
-  // Step 2: Configuration form based on provider
   return (
     <div style={{
       border: "1px solid var(--border)", borderRadius: 8, padding: 16,
@@ -1457,7 +1258,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
-      {/* NSO Cloud: just region + plan */}
       {selectedProvider === "nso" && (
         <>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -1488,7 +1288,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </>
       )}
 
-      {/* Non-NSO providers: Label required */}
       {selectedProvider !== "nso" && (
         <div style={{ marginBottom: 10 }}>
           <label style={labelStyle}>Label</label>
@@ -1496,7 +1295,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
-      {/* SSH / Manual: IP + SSH credentials */}
       {selectedProvider === "ssh" && (
         <>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -1523,7 +1321,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </>
       )}
 
-      {/* Vultr / Hetzner / RunPod: Region + Plan */}
       {(selectedProvider === "vultr" || selectedProvider === "hetzner" || selectedProvider === "runpod") && (
         <>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
@@ -1562,6 +1359,10 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     </div>
   );
 }
+
+/* ═══════════════════════════════════════════
+   SERVICES TAB
+   ═══════════════════════════════════════════ */
 
 export function ServicesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);
@@ -1612,7 +1413,6 @@ export function ServicesTab() {
   useEffect(() => {
     SYSTEM_SERVICES.forEach((svc) => handleService("status", svc.name));
     fetchSysInfo();
-    // Load workspaces if not already loaded
     if (activeProject && workspaces.length === 0) {
       listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch(() => {});
     }
@@ -1620,7 +1420,6 @@ export function ServicesTab() {
 
   return (
     <div style={{ padding: "16px 0" }}>
-      {/* Workspaces as services */}
       <div className="settings-section">
         <div className="settings-section-title">Workspaces</div>
         <div className="svc-list">
@@ -1659,7 +1458,6 @@ export function ServicesTab() {
         </div>
       </div>
 
-      {/* System services */}
       <div className="settings-section">
         <div className="settings-section-title">System Services</div>
         <div className="svc-list">
