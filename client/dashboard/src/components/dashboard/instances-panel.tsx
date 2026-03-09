@@ -235,21 +235,19 @@ function TopologyGraph({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
   if (items.length === 0) return null;
 
   const svgW = 480;
   const svgH = 200;
-  // Globe center and radius — curved surface effect
   const globeCX = svgW / 2;
   const globeCY = svgH / 2 + 10;
   const globeR = 160;
 
-  // Project region coords onto curved globe surface
   const projectToGlobe = (flatX: number, flatY: number) => {
-    // Normalize to -1..1 range relative to globe center
     const nx = (flatX - globeCX) / globeR;
     const ny = (flatY - globeCY) / globeR;
-    // Apply spherical distortion — push points inward near edges
     const dist = Math.sqrt(nx * nx + ny * ny);
     const scale = dist > 0 ? Math.sin(dist * 0.9) / (dist * 0.9) : 1;
     return {
@@ -260,7 +258,6 @@ function TopologyGraph({
 
   const hubPos = projectToGlobe(globeCX, globeCY - 5);
 
-  // Position items on the globe surface
   const positioned = useMemo(() => {
     const result: { item: UnifiedInstance; x: number; y: number }[] = [];
     const usedPositions = new Map<string, number>();
@@ -287,19 +284,21 @@ function TopologyGraph({
     return result;
   }, [items]);
 
-  // Curved connection path (arc)
   const curvedPath = (x1: number, y1: number, x2: number, y2: number) => {
     const mx = (x1 + x2) / 2;
     const my = (y1 + y2) / 2;
     const dx = x2 - x1;
     const dy = y2 - y1;
     const len = Math.sqrt(dx * dx + dy * dy);
-    // Perpendicular offset for arc curvature
     const offset = Math.min(len * 0.25, 30);
     const cx = mx - (dy / len) * offset;
     const cy = my + (dx / len) * offset;
     return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
   };
+
+  // Pin shape path: teardrop/marker shape, tip at (0, 0), body above
+  const pinPath = (s: number) =>
+    `M0,0 C${-s * 0.58},${-s * 0.4} ${-s * 0.58},${-s * 1.2} 0,${-s * 1.4} C${s * 0.58},${-s * 1.2} ${s * 0.58},${-s * 0.4} 0,0Z`;
 
   return (
     <div style={{
@@ -329,16 +328,24 @@ function TopologyGraph({
         style={{ display: "block" }}
       >
         <defs>
-          {/* Globe gradient — curved surface illusion */}
           <radialGradient id="globe-bg" cx="50%" cy="40%" r="55%">
             <stop offset="0%" stopColor="var(--border)" stopOpacity="0.08" />
             <stop offset="70%" stopColor="var(--border)" stopOpacity="0.03" />
             <stop offset="100%" stopColor="var(--border)" stopOpacity="0" />
           </radialGradient>
-          {/* Latitude/longitude line pattern for globe feel */}
           <clipPath id="globe-clip">
             <ellipse cx={globeCX} cy={globeCY} rx={globeR} ry={globeR * 0.7} />
           </clipPath>
+          {/* Pin gradients per status color */}
+          {positioned.map(({ item }) => {
+            const color = statusColor(item.state);
+            return (
+              <linearGradient key={`pin-grad-${item.id}`} id={`pin-grad-${item.id}`} x1="0" y1="1" x2="0.3" y2="0">
+                <stop offset="0%" stopColor={color} stopOpacity="1" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.45" />
+              </linearGradient>
+            );
+          })}
         </defs>
 
         {/* Globe surface */}
@@ -349,38 +356,38 @@ function TopologyGraph({
           stroke="var(--border)" strokeWidth="0.5" opacity="0.3"
         />
 
-        {/* Latitude lines (curved) for globe effect */}
+        {/* Latitude/longitude lines */}
         <g clipPath="url(#globe-clip)" opacity="0.12">
-          {[-50, -25, 0, 25, 50].map((offset) => (
+          {[-50, -25, 0, 25, 50].map((off) => (
             <ellipse
-              key={`lat-${offset}`}
-              cx={globeCX} cy={globeCY + offset}
-              rx={globeR * Math.cos((offset / globeR) * 1.2)}
+              key={`lat-${off}`}
+              cx={globeCX} cy={globeCY + off}
+              rx={globeR * Math.cos((off / globeR) * 1.2)}
               ry={8}
               fill="none" stroke="var(--border)" strokeWidth="0.5"
             />
           ))}
-          {[-60, -30, 0, 30, 60].map((offset) => (
+          {[-60, -30, 0, 30, 60].map((off) => (
             <ellipse
-              key={`lon-${offset}`}
-              cx={globeCX + offset} cy={globeCY}
+              key={`lon-${off}`}
+              cx={globeCX + off} cy={globeCY}
               rx={6}
-              ry={globeR * 0.7 * Math.cos((offset / globeR) * 1.2)}
+              ry={globeR * 0.7 * Math.cos((off / globeR) * 1.2)}
               fill="none" stroke="var(--border)" strokeWidth="0.5"
             />
           ))}
         </g>
 
-        {/* Curved connection lines from hub to each node */}
+        {/* Curved connection lines */}
         {positioned.map(({ item, x, y }) => (
           <path
             key={`line-${item.id}`}
             d={curvedPath(hubPos.x, hubPos.y, x, y)}
             fill="none"
-            stroke={selectedId === item.id ? statusColor(item.state) : "var(--border)"}
-            strokeWidth={selectedId === item.id ? 1.5 : 0.8}
+            stroke={selectedId === item.id || hoveredId === item.id ? statusColor(item.state) : "var(--border)"}
+            strokeWidth={selectedId === item.id || hoveredId === item.id ? 1.5 : 0.8}
             strokeDasharray={item.state === "creating" || item.state === "installing" ? "3,3" : undefined}
-            opacity={selectedId === item.id ? 0.8 : 0.35}
+            opacity={selectedId === item.id || hoveredId === item.id ? 0.8 : 0.35}
           />
         ))}
 
@@ -395,45 +402,80 @@ function TopologyGraph({
           NSO
         </text>
 
-        {/* Machine nodes */}
+        {/* Machine pin markers */}
         {positioned.map(({ item, x, y }) => {
           const isSelected = selectedId === item.id;
+          const isHovered = hoveredId === item.id;
+          const active = isSelected || isHovered;
+          const pinSize = active ? 12 : 8;
           const color = statusColor(item.state);
           return (
             <g
               key={item.id}
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", transition: "transform 0.15s ease" }}
               onClick={() => onSelect(item.id)}
+              onMouseEnter={() => setHoveredId(item.id)}
+              onMouseLeave={() => setHoveredId(null)}
             >
-              {isSelected && (
-                <circle cx={x} cy={y} r={10} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
-              )}
-              {(item.state === "ready" || item.state === "active" || item.state === "online") && (
-                <circle cx={x} cy={y} r={7} fill={color} opacity={0.1} />
-              )}
-              <circle
-                cx={x} cy={y} r={isSelected ? 5 : 4}
-                fill={color}
-                stroke={isSelected ? color : "none"}
-                strokeWidth={1}
+              {/* Drop shadow for pin */}
+              <ellipse
+                cx={x} cy={y + 1}
+                rx={active ? 5 : 3} ry={active ? 2 : 1.2}
+                fill="black" opacity="0.15"
               />
+              {/* Pin shape */}
+              <path
+                d={pinPath(pinSize)}
+                transform={`translate(${x},${y})`}
+                fill={`url(#pin-grad-${item.id})`}
+                stroke={active ? color : "none"}
+                strokeWidth={active ? 0.8 : 0}
+                style={{ transition: "all 0.15s ease" }}
+              />
+              {/* Inner dot on pin */}
+              <circle
+                cx={x} cy={y - pinSize * 0.85}
+                r={active ? 3 : 2}
+                fill="white" opacity="0.9"
+              />
+              {/* Region label (always visible) */}
               <text
-                x={x} y={y - 8}
-                textAnchor="middle" fontSize="7"
-                fill={isSelected ? "var(--foreground)" : "var(--muted-foreground)"}
-                fontFamily="inherit"
-                fontWeight={isSelected ? "600" : "400"}
-              >
-                {(item.label || item.ip || item.id).slice(0, 16)}
-              </text>
-              <text
-                x={x} y={y + 12}
-                textAnchor="middle" fontSize="6"
-                fill="var(--muted-foreground)" opacity="0.5"
+                x={x} y={y + (active ? 10 : 8)}
+                textAnchor="middle" fontSize={active ? "7" : "6"}
+                fill="var(--muted-foreground)" opacity={active ? 0.9 : 0.5}
                 fontFamily="monospace"
               >
                 {item.region || item.provider}
               </text>
+              {/* Hover tooltip: label + IP */}
+              {active && (
+                <g>
+                  <rect
+                    x={x - 45} y={y - pinSize * 1.4 - 24}
+                    width={90} height={22}
+                    rx={4} ry={4}
+                    fill="var(--sidebar-background)"
+                    stroke="var(--border)" strokeWidth="0.5"
+                    opacity="0.95"
+                  />
+                  <text
+                    x={x} y={y - pinSize * 1.4 - 15}
+                    textAnchor="middle" fontSize="7"
+                    fill="var(--foreground)"
+                    fontFamily="inherit" fontWeight="600"
+                  >
+                    {(item.label || item.id).slice(0, 18)}
+                  </text>
+                  <text
+                    x={x} y={y - pinSize * 1.4 - 6}
+                    textAnchor="middle" fontSize="6"
+                    fill="var(--muted-foreground)"
+                    fontFamily="monospace"
+                  >
+                    {item.ip || "no ip"}
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}
