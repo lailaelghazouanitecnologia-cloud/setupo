@@ -51,7 +51,7 @@ class UpdateUserRequest(BaseModel):
 
 # ── Dashboard overview ──
 
-@router.get("/overview")
+@router.get("/overview", summary="Dashboard overview")
 async def dashboard_overview(auth: AuthContext = Depends(require_admin)):
     """Quick admin dashboard overview."""
     return await analytics.get_dashboard_overview()
@@ -59,7 +59,7 @@ async def dashboard_overview(auth: AuthContext = Depends(require_admin)):
 
 # ── User management ──
 
-@router.get("/users")
+@router.get("/users", summary="List users")
 async def list_users(
     search: str = "",
     role: str = "",
@@ -79,7 +79,7 @@ async def list_users(
         raise HTTPException(e.status_code, e.message)
 
 
-@router.get("/users/{user_id}")
+@router.get("/users/{user_id}", summary="Get user details")
 async def get_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Get full user details (no password)."""
     _check_user_id(user_id)
@@ -89,7 +89,7 @@ async def get_user(user_id: str, auth: AuthContext = Depends(require_admin)):
         raise HTTPException(e.status_code, e.message)
 
 
-@router.patch("/users/{user_id}")
+@router.patch("/users/{user_id}", summary="Update user")
 async def update_user(
     user_id: str, req: UpdateUserRequest,
     auth: AuthContext = Depends(require_admin),
@@ -106,7 +106,7 @@ async def update_user(
     return {"ok": True, "user": user}
 
 
-@router.post("/users/{user_id}/reset-password")
+@router.post("/users/{user_id}/reset-password", summary="Reset user password")
 async def reset_password(
     user_id: str, req: ResetPasswordRequest,
     auth: AuthContext = Depends(require_admin),
@@ -122,7 +122,7 @@ async def reset_password(
     return {"ok": True}
 
 
-@router.post("/users/{user_id}/disable")
+@router.post("/users/{user_id}/disable", summary="Disable user")
 async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Disable a user account."""
     _check_user_id(user_id)
@@ -135,7 +135,7 @@ async def disable_user(user_id: str, auth: AuthContext = Depends(require_admin))
     return {"ok": True}
 
 
-@router.post("/users")
+@router.post("/users", summary="Create user")
 async def create_user(req: CreateUserRequest, auth: AuthContext = Depends(require_admin)):
     """Admin create a new user account."""
     from nso.engine.auth import service as users
@@ -151,7 +151,7 @@ async def create_user(req: CreateUserRequest, auth: AuthContext = Depends(requir
         raise HTTPException(e.status_code, e.message)
 
 
-@router.get("/users/{user_id}/projects")
+@router.get("/users/{user_id}/projects", summary="Get user projects")
 async def user_projects(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Get all projects owned by a specific user."""
     _check_user_id(user_id)
@@ -178,7 +178,7 @@ async def user_projects(user_id: str, auth: AuthContext = Depends(require_admin)
     return {"projects": projects}
 
 
-@router.get("/users/{user_id}/activity")
+@router.get("/users/{user_id}/activity", summary="Get user activity")
 async def user_activity(
     user_id: str,
     limit: int = Query(50, ge=1, le=200),
@@ -193,7 +193,7 @@ async def user_activity(
 
 # ── Analytics ──
 
-@router.get("/analytics/revenue")
+@router.get("/analytics/revenue", summary="Revenue analytics")
 async def revenue_analytics(
     days: int = Query(30, ge=1, le=365),
     auth: AuthContext = Depends(require_admin),
@@ -202,7 +202,7 @@ async def revenue_analytics(
     return await analytics.revenue_summary(days=days)
 
 
-@router.get("/analytics/growth")
+@router.get("/analytics/growth", summary="Growth analytics")
 async def growth_analytics(
     days: int = Query(30, ge=1, le=365),
     auth: AuthContext = Depends(require_admin),
@@ -211,7 +211,7 @@ async def growth_analytics(
     return await analytics.growth_summary(days=days)
 
 
-@router.get("/analytics/activity")
+@router.get("/analytics/activity", summary="Platform activity")
 async def recent_activity(
     limit: int = Query(100, ge=1, le=500),
     action: str = "",
@@ -222,7 +222,7 @@ async def recent_activity(
     return {"activity": activity, "count": len(activity)}
 
 
-@router.get("/analytics/cashflow")
+@router.get("/analytics/cashflow", summary="Cashflow analysis")
 async def cashflow(
     granularity: str = Query("month", regex="^(day|week|month|year)$"),
     periods: int = Query(12, ge=1, le=365),
@@ -237,14 +237,14 @@ async def cashflow(
         raise HTTPException(e.status_code, e.message)
 
 
-@router.post("/analytics/snapshot")
+@router.post("/analytics/snapshot", summary="Create analytics snapshot")
 async def create_snapshot(auth: AuthContext = Depends(require_admin)):
     """Generate a full analytics snapshot now."""
     snapshot = await analytics.generate_snapshot()
     return {"ok": True, "snapshot": snapshot}
 
 
-@router.get("/analytics/snapshots")
+@router.get("/analytics/snapshots", summary="List analytics snapshots")
 async def list_snapshots(
     limit: int = Query(24, ge=1, le=100),
     auth: AuthContext = Depends(require_admin),
@@ -256,7 +256,7 @@ async def list_snapshots(
 
 # ── Fraud detection ──
 
-@router.post("/fraud/scan")
+@router.post("/fraud/scan", summary="Run fraud scan")
 async def fraud_scan(auth: AuthContext = Depends(require_admin)):
     """Run comprehensive fraud detection scan."""
     results = await analytics.run_fraud_scan(admin_id=_admin_id(auth))
@@ -265,13 +265,13 @@ async def fraud_scan(auth: AuthContext = Depends(require_admin)):
 
 # ── Blockchain ledger ──
 
-@router.get("/ledger/stats")
+@router.get("/ledger/stats", summary="Get ledger stats")
 async def ledger_stats(auth: AuthContext = Depends(require_admin)):
     """Get global ledger statistics."""
     return await blockchain.get_global_stats()
 
 
-@router.get("/ledger/users/{user_id}")
+@router.get("/ledger/users/{user_id}", summary="Get user ledger")
 async def user_ledger(
     user_id: str,
     limit: int = Query(100, ge=1, le=500),
@@ -288,7 +288,7 @@ async def user_ledger(
     return {"blocks": chain, "total": length}
 
 
-@router.post("/ledger/users/{user_id}/verify")
+@router.post("/ledger/users/{user_id}/verify", summary="Verify user chain")
 async def verify_user_chain(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Verify integrity of a user's ledger chain."""
     _check_user_id(user_id)
@@ -299,14 +299,14 @@ async def verify_user_chain(user_id: str, auth: AuthContext = Depends(require_ad
     return result
 
 
-@router.post("/ledger/verify-all")
+@router.post("/ledger/verify-all", summary="Verify all chains")
 async def verify_all_chains(auth: AuthContext = Depends(require_admin)):
     """Verify all user chains (can be slow for many users)."""
     result = await blockchain.verify_all_chains()
     return result
 
 
-@router.get("/ledger/users/{user_id}/balance-proof")
+@router.get("/ledger/users/{user_id}/balance-proof", summary="Get balance proof")
 async def balance_proof(user_id: str, auth: AuthContext = Depends(require_admin)):
     """Get cryptographic balance proof for a user."""
     _check_user_id(user_id)
@@ -317,7 +317,7 @@ async def balance_proof(user_id: str, auth: AuthContext = Depends(require_admin)
     return proof
 
 
-@router.get("/ledger/discrepancies")
+@router.get("/ledger/discrepancies", summary="Find discrepancies")
 async def find_discrepancies(auth: AuthContext = Depends(require_admin)):
     """Find all balance discrepancies across all users."""
     discrepancies = await blockchain.find_discrepancies()
