@@ -1193,13 +1193,107 @@ export function NodesTab() {
   );
 }
 
+/* ── Provider Card ── */
+
+function providerColor(id: string): string {
+  switch (id) {
+    case "nso": return "var(--color-teal)";
+    case "vultr": return "#007CFF";
+    case "hetzner": return "#D50029";
+    case "runpod": return "#6C3AED";
+    default: return "var(--color-teal)";
+  }
+}
+
+function providerBg(id: string): string {
+  switch (id) {
+    case "nso": return "rgba(100, 200, 180, 0.12)";
+    case "vultr": return "rgba(0, 124, 255, 0.1)";
+    case "hetzner": return "rgba(213, 0, 41, 0.1)";
+    case "runpod": return "rgba(108, 58, 237, 0.1)";
+    default: return "rgba(100, 200, 180, 0.1)";
+  }
+}
+
+function ProviderCard({ p, connected, needsSetup, onClick, highlight }: {
+  p: typeof PROVIDER_OPTIONS[0];
+  connected: boolean;
+  needsSetup?: boolean;
+  onClick: () => void;
+  highlight?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: highlight ? "14px 14px" : "10px 14px", borderRadius: 8,
+        border: `1px solid ${highlight ? providerColor(p.id) + "40" : "var(--border)"}`,
+        background: highlight ? providerBg(p.id) : "var(--background)",
+        cursor: "pointer", textAlign: "left",
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = providerColor(p.id);
+        if (!highlight) e.currentTarget.style.background = "var(--accent)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = highlight ? providerColor(p.id) + "40" : "var(--border)";
+        if (!highlight) e.currentTarget.style.background = "var(--background)";
+      }}
+    >
+      <div style={{
+        width: highlight ? 40 : 32, height: highlight ? 40 : 32, borderRadius: 8,
+        background: highlight ? providerColor(p.id) + "20" : providerBg(p.id),
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontWeight: 700, fontSize: highlight ? 18 : 14, flexShrink: 0,
+        color: providerColor(p.id),
+      }}>
+        {p.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</span>
+          {highlight && (
+            <span style={{
+              fontSize: 9, padding: "1px 6px", borderRadius: 4,
+              background: "rgba(16, 185, 129, 0.15)", color: "var(--color-green)",
+              fontWeight: 600,
+            }}>recommended</span>
+          )}
+          {!highlight && needsSetup && (
+            <span style={{
+              fontSize: 9, padding: "1px 6px", borderRadius: 4,
+              background: "var(--accent)", color: "var(--muted-foreground)",
+              fontWeight: 500, opacity: 0.7,
+            }}>setup required</span>
+          )}
+          {!highlight && connected && !needsSetup && (p.id === "vultr" || p.id === "hetzner" || p.id === "runpod") && (
+            <span style={{
+              fontSize: 9, padding: "1px 6px", borderRadius: 4,
+              background: "rgba(16, 185, 129, 0.1)", color: "var(--color-green)",
+              fontWeight: 600,
+            }}>connected</span>
+          )}
+        </div>
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+          {needsSetup ? `Install the ${p.name} connector in Apps first` : p.desc}
+        </div>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+    </button>
+  );
+}
+
 /* ── Register Node Form (connector-style) ── */
 
-type NodeProvider = "vultr" | "hetzner" | "ssh" | null;
+type NodeProvider = "nso" | "vultr" | "hetzner" | "runpod" | "ssh" | null;
 
-const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string }[] = [
-  { id: "vultr", name: "Vultr", desc: "Provision a new VPS automatically", icon: "V" },
-  { id: "hetzner", name: "Hetzner", desc: "Provision a Hetzner Cloud server", icon: "H" },
+const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string; primary?: boolean }[] = [
+  { id: "nso", name: "NSO Cloud", desc: "Get a server from us — ready in minutes", icon: "N", primary: true },
+  { id: "vultr", name: "Vultr", desc: "Use your own Vultr account (GPU available)", icon: "V" },
+  { id: "hetzner", name: "Hetzner", desc: "Use your own Hetzner Cloud account", icon: "H" },
+  { id: "runpod", name: "RunPod", desc: "GPU instances, volumes, and serverless", icon: "R" },
   { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
 ];
 
@@ -1227,7 +1321,7 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     listAddons(projectId, "connector").then((res) => {
       const status: Record<string, boolean> = {};
       for (const addon of (res.addons || [])) {
-        if (addon.addon_id === "vultr" || addon.addon_id === "hetzner") {
+        if (addon.addon_id === "vultr" || addon.addon_id === "hetzner" || addon.addon_id === "runpod") {
           status[addon.addon_id] = !!(addon.installed && addon.enabled);
         }
       }
@@ -1237,37 +1331,46 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
 
   const pickProvider = (p: NodeProvider) => {
     // If cloud provider not connected, send to Addons to set it up
-    if ((p === "vultr" || p === "hetzner") && !connectorStatus[p]) {
+    if ((p === "vultr" || p === "hetzner" || p === "runpod") && !connectorStatus[p]) {
       setActiveView("addons");
       return;
     }
     setSelectedProvider(p);
     setStep("configure");
     setError("");
-    if (p === "vultr") setLabel("vultr-node");
+    if (p === "nso") setLabel("");
+    else if (p === "vultr") setLabel("vultr-node");
     else if (p === "hetzner") setLabel("hetzner-node");
     else setLabel("");
   };
 
   const submit = async () => {
-    if (!label.trim()) { setError("Label is required"); return; }
     if (selectedProvider === "ssh" && !ip.trim()) { setError("IP address is required"); return; }
     setCreating(true);
     setError("");
     try {
-      const selectedPlan = PLANS.find((p) => p.id === plan);
-      const providerName = selectedProvider === "ssh" ? "manual" : (selectedProvider || "manual");
-      await registerComputeNode(projectId, {
-        label: label.trim(),
-        provider: providerName,
-        ip: ip.trim() || undefined,
-        agent_port: parseInt(agentPort) || 8081,
-        cpu_cores: selectedPlan?.cpu || 1,
-        mem_total_mb: selectedProvider === "ssh" ? 1024 : (selectedPlan ? parseInt(selectedPlan.ram) * 1024 : 1024),
-      });
+      if (selectedProvider === "nso") {
+        // Use the existing createInstance flow — provisions via NSO's own infra
+        await createInstance(projectId, {
+          label: label.trim() || undefined,
+          region,
+          plan,
+        });
+      } else {
+        const selectedPlan = PLANS.find((p) => p.id === plan);
+        const providerName = selectedProvider === "ssh" ? "manual" : (selectedProvider || "manual");
+        await registerComputeNode(projectId, {
+          label: label.trim() || providerName + "-node",
+          provider: providerName,
+          ip: ip.trim() || undefined,
+          agent_port: parseInt(agentPort) || 8081,
+          cpu_cores: selectedPlan?.cpu || 1,
+          mem_total_mb: selectedProvider === "ssh" ? 1024 : (selectedPlan ? parseInt(selectedPlan.ram) * 1024 : 1024),
+        });
+      }
       onCreated();
     } catch (e: any) {
-      setError(e.message || "Failed to register node");
+      setError(e.message || "Failed to create node");
     }
     setCreating(false);
   };
@@ -1283,71 +1386,36 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
           <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Node</div>
           <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
         </div>
-        <div style={{ fontSize: "var(--font-xs)", color: "var(--muted-foreground)", marginBottom: 14 }}>
-          Choose how to connect your infrastructure
+        {/* Primary: NSO Cloud */}
+        <ProviderCard
+          p={PROVIDER_OPTIONS[0]}
+          connected={true}
+          onClick={() => pickProvider("nso")}
+          highlight
+        />
+
+        {/* Separator */}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
+          <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
+          <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            or bring your own
+          </span>
+          <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
         </div>
+
+        {/* BYOI options */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {PROVIDER_OPTIONS.map((p) => {
-            const isCloud = p.id === "vultr" || p.id === "hetzner";
-            const connected = isCloud ? connectorStatus[p.id] : true;
+          {PROVIDER_OPTIONS.slice(1).map((p) => {
+            const isBYOCloud = p.id === "vultr" || p.id === "hetzner" || p.id === "runpod";
+            const connected = isBYOCloud ? connectorStatus[p.id] : true;
             return (
-              <button
+              <ProviderCard
                 key={p.id}
+                p={p}
+                connected={connected}
+                needsSetup={isBYOCloud && !connected}
                 onClick={() => pickProvider(p.id as NodeProvider)}
-                style={{
-                  display: "flex", alignItems: "center", gap: 12,
-                  padding: "12px 14px", borderRadius: 8,
-                  border: `1px solid ${connected ? "var(--border)" : "var(--border)"}`,
-                  background: "var(--background)",
-                  cursor: "pointer", textAlign: "left",
-                  transition: "all 0.15s ease",
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = "var(--color-teal)";
-                  e.currentTarget.style.background = "var(--accent)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = "var(--border)";
-                  e.currentTarget.style.background = "var(--background)";
-                }}
-              >
-                <div style={{
-                  width: 36, height: 36, borderRadius: 8,
-                  background: p.id === "vultr" ? "rgba(0, 124, 255, 0.1)"
-                    : p.id === "hetzner" ? "rgba(213, 0, 41, 0.1)"
-                    : "rgba(100, 200, 180, 0.1)",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontWeight: 700, fontSize: 16, flexShrink: 0,
-                  color: p.id === "vultr" ? "#007CFF"
-                    : p.id === "hetzner" ? "#D50029"
-                    : "var(--color-teal)",
-                }}>
-                  {p.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</span>
-                    {isCloud && connected && (
-                      <span style={{
-                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                        background: "rgba(16, 185, 129, 0.1)", color: "var(--color-green)",
-                        fontWeight: 600, letterSpacing: "0.02em",
-                      }}>connected</span>
-                    )}
-                    {isCloud && !connected && (
-                      <span style={{
-                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
-                        background: "rgba(var(--muted-foreground), 0.1)", color: "var(--muted-foreground)",
-                        fontWeight: 500, letterSpacing: "0.02em", opacity: 0.7,
-                      }}>setup required</span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
-                    {isCloud && !connected ? `Install the ${p.name} connector in Apps first` : p.desc}
-                  </div>
-                </div>
-                <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-              </button>
+              />
             );
           })}
         </div>
@@ -1371,14 +1439,10 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </button>
         <div style={{
           width: 24, height: 24, borderRadius: 6,
-          background: selectedProvider === "vultr" ? "rgba(0, 124, 255, 0.1)"
-            : selectedProvider === "hetzner" ? "rgba(213, 0, 41, 0.1)"
-            : "rgba(100, 200, 180, 0.1)",
+          background: providerBg(selectedProvider || "nso"),
           display: "flex", alignItems: "center", justifyContent: "center",
           fontWeight: 700, fontSize: 12, flexShrink: 0,
-          color: selectedProvider === "vultr" ? "#007CFF"
-            : selectedProvider === "hetzner" ? "#D50029"
-            : "var(--color-teal)",
+          color: providerColor(selectedProvider || "nso"),
         }}>
           {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.icon}
         </div>
@@ -1393,11 +1457,44 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
-      {/* Label */}
-      <div style={{ marginBottom: 10 }}>
-        <label style={labelStyle}>Label</label>
-        <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
-      </div>
+      {/* NSO Cloud: just region + plan */}
+      {selectedProvider === "nso" && (
+        <>
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Region</label>
+              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
+                {REGIONS.map((r) => (
+                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={labelStyle}>Plan</label>
+              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
+                {PLANS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Label (optional)</label>
+            <input className="proj-input" type="text" placeholder="my-server" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+          </div>
+          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+            We provision and manage everything. Your server will be ready in a few minutes with the agent pre-installed.
+          </div>
+        </>
+      )}
+
+      {/* Non-NSO providers: Label required */}
+      {selectedProvider !== "nso" && (
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Label</label>
+          <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+        </div>
+      )}
 
       {/* SSH / Manual: IP + SSH credentials */}
       {selectedProvider === "ssh" && (
@@ -1426,8 +1523,8 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </>
       )}
 
-      {/* Vultr / Hetzner: Region + Plan */}
-      {(selectedProvider === "vultr" || selectedProvider === "hetzner") && (
+      {/* Vultr / Hetzner / RunPod: Region + Plan */}
+      {(selectedProvider === "vultr" || selectedProvider === "hetzner" || selectedProvider === "runpod") && (
         <>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
             <div style={{ flex: 1 }}>
@@ -1448,7 +1545,9 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
             </div>
           </div>
           <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            A new {selectedProvider === "vultr" ? "Vultr" : "Hetzner"} VPS will be provisioned and the NSO agent installed automatically.
+            {selectedProvider === "runpod"
+              ? "A RunPod GPU instance will be provisioned using your API key. Volumes and templates managed via your RunPod account."
+              : `A new ${selectedProvider === "vultr" ? "Vultr" : "Hetzner"} server will be provisioned and the NSO agent installed automatically.`}
           </div>
         </>
       )}
@@ -1456,7 +1555,7 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
       <div style={{ display: "flex", gap: 6 }}>
         <button className="deploy-action-btn teal" onClick={submit} disabled={creating} style={{ padding: "5px 14px" }}>
           {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-          <span>{creating ? "Connecting..." : "Connect Node"}</span>
+          <span>{creating ? "Provisioning..." : selectedProvider === "nso" ? "Create Server" : "Connect Node"}</span>
         </button>
         <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
       </div>

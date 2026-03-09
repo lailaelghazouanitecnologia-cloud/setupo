@@ -43,6 +43,7 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
   r2: Database,
   vultr: Server,
   hetzner: Server,
+  runpod: Zap,
   // Marketplace
   "uptime-monitor": HeartPulse,
   "ssl-manager": Shield,
@@ -261,6 +262,9 @@ const CONNECTOR_FIELDS: Record<string, { key: string; label: string; placeholder
   ],
   hetzner: [
     { key: "api_token", label: "API Token", placeholder: "Your Hetzner Cloud API token", secret: true },
+  ],
+  runpod: [
+    { key: "api_key", label: "API Key", placeholder: "Your RunPod API key", secret: true },
   ],
 };
 

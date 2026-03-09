@@ -60,6 +60,14 @@ DEFAULT_CONNECTORS = [
         "icon": "server",
         "addon_type": "connector",
     },
+    {
+        "addon_id": "runpod",
+        "name": "RunPod",
+        "description": "GPU instances, volumes, and serverless endpoints for ML workloads.",
+        "category": "compute",
+        "icon": "gpu",
+        "addon_type": "connector",
+    },
 ]
 
 # Default plugins — feature extensions

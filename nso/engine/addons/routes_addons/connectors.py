@@ -40,6 +40,7 @@ _REQUIRED = {
     "r2": ["endpoint", "access_key", "secret_key", "bucket"],
     "vultr": ["api_key"],
     "hetzner": ["api_token"],
+    "runpod": ["api_key"],
 }
 
 _ALTERNATIVES = {
@@ -234,10 +235,32 @@ async def _test_hetzner(config: dict) -> dict:
     return {"ok": False, "message": f"Hetzner API error ({resp.status_code})"}
 
 
+async def _test_runpod(config: dict) -> dict:
+    api_key = config.get("api_key", "")
+    if not api_key:
+        return {"ok": False, "message": "API key not configured"}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.post("https://api.runpod.io/graphql", headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }, json={"query": "{ myself { id email } }"})
+    if resp.status_code == 200:
+        d = resp.json()
+        me = d.get("data", {}).get("myself", {})
+        if me:
+            return {"ok": True, "message": f"Connected — {me.get('email', 'RunPod account')}"}
+        errors = d.get("errors", [])
+        if errors:
+            return {"ok": False, "message": errors[0].get("message", "Unknown error")}
+    if resp.status_code in (401, 403):
+        return {"ok": False, "message": "Invalid or expired API key"}
+    return {"ok": False, "message": f"RunPod API error ({resp.status_code})"}
+
+
 _TESTERS = {
     "github": _test_github, "s3": _test_s3, "slack": _test_slack,
     "cloudflare": _test_cloudflare, "r2": _test_r2,
-    "vultr": _test_vultr, "hetzner": _test_hetzner,
+    "vultr": _test_vultr, "hetzner": _test_hetzner, "runpod": _test_runpod,
 }
 
 
