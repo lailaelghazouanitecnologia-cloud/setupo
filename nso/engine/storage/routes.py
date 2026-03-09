@@ -53,10 +53,27 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
     state = inst.get("state", "")
     if state in ("creating", "installing"):
         raise HTTPException(409, f"Instance is still {state} — wait until it's ready")
+    if state == "deploying":
+        # Auto-recover stuck deploys older than 10 minutes
+        import time
+        updated = inst.get("updated_at", "")
+        if updated:
+            try:
+                from datetime import datetime, timezone
+                updated_dt = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                elapsed = (datetime.now(timezone.utc) - updated_dt).total_seconds()
+                if elapsed > 600:
+                    logger.warning("Instance %s stuck in deploying for %ds — allowing redeploy", instance_id, int(elapsed))
+                    await db.update("instances", instance_id, {"state": "error", "error": "Previous deploy timed out"})
+                else:
+                    raise HTTPException(409, f"Instance is still deploying (started {int(elapsed)}s ago) — wait or retry after 10min")
+            except (ValueError, TypeError):
+                raise HTTPException(409, "Instance is still deploying — wait until it's ready")
+        else:
+            raise HTTPException(409, "Instance is still deploying — wait until it's ready")
     if state == "destroying":
         raise HTTPException(409, "Instance is being destroyed")
-    if state == "error":
-        raise HTTPException(409, f"Instance in error state: {inst.get('error', 'unknown')}")
+    # "error" state allows redeploy — that's how you recover
 
     ip = inst.get("ip")
     if not ip:
@@ -65,7 +82,24 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
     # Check if there's a compute node with a custom agent_port for this instance
     node = await db.fetch_one("compute_nodes", instance_id=instance_id)
     port = node.get("agent_port", 8081) if node else 8081
-    return f"http://{ip}:{port}"
+    agent_url = f"http://{ip}:{port}"
+
+    # Quick health check — verify agent is reachable before proceeding
+    try:
+        async with _agent_client(5.0) as client:
+            resp = await client.get(f"{agent_url}/health")
+            if resp.status_code != 200:
+                raise HTTPException(502, f"Agent at {ip} is unhealthy (HTTP {resp.status_code})")
+    except httpx.ConnectError:
+        raise HTTPException(502, f"Agent at {ip}:{port} is not reachable — check if nso-agent is running")
+    except httpx.TimeoutException:
+        raise HTTPException(504, f"Agent at {ip}:{port} did not respond to health check")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # non-critical, proceed anyway
+
+    return agent_url
 
 
 async def _get_agent_token(agent_url: str) -> str:
@@ -109,18 +143,16 @@ async def _resolve_instance(name: str, project_id: str, instance_id: str = "") -
 async def _deploy_via_agent(agent_url: str, token: str, r2_key: str,
                             target_dir: str = "/opt/app", restart_service: str = "",
                             secrets: dict[str, str] | None = None) -> dict:
-    r2_cfg = settings.r2_config()
+    r2 = _get_r2()
+    presigned_url = r2.presign_get(r2_key, expires_in=900)
     try:
         async with _agent_client(DEPLOY_TIMEOUT) as client:
             resp = await client.post(
                 f"{agent_url}/deploy/pull",
                 headers={"Authorization": f"Bearer {token}"},
                 json={
+                    "presigned_url": presigned_url,
                     "r2_key": r2_key,
-                    "r2_endpoint": r2_cfg.endpoint,
-                    "r2_bucket": r2_cfg.bucket,
-                    "r2_access_key_id": r2_cfg.access_key_id,
-                    "r2_secret_access_key": r2_cfg.secret_access_key,
                     "target_dir": target_dir,
                     "restart_service": restart_service,
                     "install_deps": True,

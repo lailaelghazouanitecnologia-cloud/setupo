@@ -53,11 +53,12 @@ STACK_INDICATORS = [
 ]
 
 class PullRequest(BaseModel):
-    r2_key: str
-    r2_endpoint: str
-    r2_bucket: str
-    r2_access_key_id: str
-    r2_secret_access_key: str
+    r2_key: str = ""
+    r2_endpoint: str = ""
+    r2_bucket: str = ""
+    r2_access_key_id: str = ""
+    r2_secret_access_key: str = ""
+    presigned_url: str = ""  # preferred: presigned URL avoids sending R2 creds
     target_dir: str = "/opt/app"
     restart_service: str = "nso-app"
     install_deps: bool = True
@@ -224,6 +225,15 @@ async def _download_from_r2(
     return resp.content
 
 
+async def _download_from_presigned(url: str) -> bytes:
+    """Download a .zar using a presigned URL (no credentials needed)."""
+    async with httpx.AsyncClient(timeout=R2_DOWNLOAD_TIMEOUT) as client:
+        resp = await client.get(url)
+    if resp.status_code != 200:
+        raise HTTPException(502, f"Presigned download failed: {resp.status_code} {resp.text[:200]}")
+    return resp.content
+
+
 def _extract_zar(zar_bytes: bytes, target_dir: str) -> dict:
     target = Path(target_dir)
     env_backup = None
@@ -318,13 +328,16 @@ async def _restart_service(name: str) -> tuple[str, int]:
 
 @router.post("/pull")
 async def deploy_pull(req: PullRequest, admin: AdminUser = Depends(require_admin)):
-    logger.info("Deploy pull: %s → %s", req.r2_key, req.target_dir)
+    logger.info("Deploy pull: %s → %s", req.presigned_url and "(presigned)" or req.r2_key, req.target_dir)
 
-    zar_bytes = await _download_from_r2(
-        req.r2_endpoint, req.r2_bucket, req.r2_key,
-        req.r2_access_key_id, req.r2_secret_access_key,
-    )
-    logger.info("Downloaded %d bytes from R2", len(zar_bytes))
+    if req.presigned_url:
+        zar_bytes = await _download_from_presigned(req.presigned_url)
+    else:
+        zar_bytes = await _download_from_r2(
+            req.r2_endpoint, req.r2_bucket, req.r2_key,
+            req.r2_access_key_id, req.r2_secret_access_key,
+        )
+    logger.info("Downloaded %d bytes", len(zar_bytes))
 
     snap = _create_snapshot(req.target_dir)
     if snap:
@@ -658,10 +671,14 @@ async def platform_update(req: PlatformUpdateRequest, admin: AdminUser = Depends
     )
     _step("ensure_swap", out, code)
 
-    # 1. Git pull
+    # 1. Git pull (stash local changes first to avoid losing manual edits)
+    stash_out, stash_code = await _run("git stash --include-untracked -m 'auto-stash before platform-update'")
+    _step("git_stash", stash_out, stash_code)
     out, code = await _run(f"git fetch origin {req.branch} && git reset --hard origin/{req.branch}")
     _step("git_pull", out, code)
     if code != 0:
+        # Try to restore stash on failure
+        await _run("git stash pop || true")
         raise HTTPException(500, results)
 
     # 2. Copy updated code to production dirs
@@ -820,17 +837,6 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
             )
             await proc.communicate()
 
-    restart_ok = True
-    if service:
-        out, code = await _restart_service(service)
-        if code != 0:
-            logger.error("Self-update restart failed for %s, rolling back", service)
-            if snap:
-                _restore_snapshot(target, snap)
-                await _restart_service(service)
-            raise HTTPException(500, f"Service restart failed after update: {out}")
-        restart_ok = code == 0
-
     state = _load_state()
     state[f"self:{req.component}"] = {
         "version": manifest.get("version", ""),
@@ -840,13 +846,27 @@ async def self_update(req: SelfUpdateRequest, admin: AdminUser = Depends(require
     }
     _save_state(state)
 
+    if service:
+        # For agent self-update: schedule restart after response is sent
+        # This avoids killing the process before the HTTP response completes
+        async def _deferred_restart():
+            await asyncio.sleep(1)  # give time for response to be sent
+            out, code = await _restart_service(service)
+            if code != 0:
+                logger.error("Self-update restart failed for %s, rolling back", service)
+                if snap:
+                    _restore_snapshot(target, snap)
+                    await _restart_service(service)
+
+        asyncio.get_event_loop().create_task(_deferred_restart())
+
     return {
         "ok": True,
         "component": req.component,
         "version": manifest.get("version", ""),
         "snapshot": snap,
-        "restarted": service,
-        "restart_ok": restart_ok,
+        "restarted": service or "",
+        "restart_scheduled": bool(service),
     }
 
 

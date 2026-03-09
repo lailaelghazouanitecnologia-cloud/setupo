@@ -1,4 +1,5 @@
 import logging
+import os
 
 from nso.shared import db
 from nso.shared.errors import NotFoundError, ProviderError
@@ -169,6 +170,8 @@ async def deploy_to_instance(
 
     keys_dir = settings.keys_dir(project_id)
     key_path = str(keys_dir / "id_ed25519")
+    if not os.path.isfile(key_path):
+        raise ProviderError("deploy", f"SSH key not found at {key_path} — regenerate keys for this project")
     remote_dir = REMOTE_APP_DIR
 
     await db.update("instances", instance_id, {

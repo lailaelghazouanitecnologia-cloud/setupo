@@ -506,7 +506,7 @@ export function DashboardLayout() {
               <span>{item.label}</span>
             </button>
           ))}
-          {userRole === "admin" && typeof window !== "undefined" && window.location.hostname.startsWith("sonfazt") && (
+          {userRole === "admin" && typeof window !== "undefined" && window.location.hostname === "sonfazt.nso.dev" && (
             <>
               <div style={{ height: 1, background: "var(--border)", margin: "6px 0", opacity: 0.3 }} />
               <button

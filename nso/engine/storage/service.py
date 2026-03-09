@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import hmac
 import json
@@ -14,6 +15,8 @@ logger = logging.getLogger("nso.zar.storage")
 REGION = "auto"
 SERVICE = "s3"
 HTTP_TIMEOUT = 120.0
+R2_MAX_RETRIES = 3
+R2_RETRY_BACKOFF = 2  # seconds, doubles each retry
 
 
 class R2Client:
@@ -103,33 +106,49 @@ class R2Client:
         }
 
     async def upload(self, key: str, data: bytes, content_type: str = "application/gzip") -> bool:
-        payload_hash = hashlib.sha256(data).hexdigest()
-        headers = {"Content-Type": content_type}
-        sign_headers = self._sign("PUT", key, headers, payload_hash)
-        headers.update(sign_headers)
-
         url = f"{self.endpoint}/{self.bucket}/{quote(key, safe='/')}"
-        resp = await self.client.put(url, content=data, headers=headers)
-
-        if resp.status_code in (200, 201):
-            logger.info("Uploaded %s (%d bytes)", key, len(data))
-            return True
-        logger.error("Upload failed %s: %d %s", key, resp.status_code, resp.text[:200])
+        for attempt in range(R2_MAX_RETRIES):
+            payload_hash = hashlib.sha256(data).hexdigest()
+            headers = {"Content-Type": content_type}
+            sign_headers = self._sign("PUT", key, headers, payload_hash)
+            headers.update(sign_headers)
+            try:
+                resp = await self.client.put(url, content=data, headers=headers)
+                if resp.status_code in (200, 201):
+                    logger.info("Uploaded %s (%d bytes)", key, len(data))
+                    return True
+                if resp.status_code < 500:
+                    logger.error("Upload failed %s: %d %s", key, resp.status_code, resp.text[:200])
+                    return False
+                logger.warning("Upload %s got %d, retrying (%d/%d)", key, resp.status_code, attempt + 1, R2_MAX_RETRIES)
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                logger.warning("Upload %s failed: %s, retrying (%d/%d)", key, e, attempt + 1, R2_MAX_RETRIES)
+            if attempt < R2_MAX_RETRIES - 1:
+                await asyncio.sleep(R2_RETRY_BACKOFF * (2 ** attempt))
+        logger.error("Upload failed %s after %d retries", key, R2_MAX_RETRIES)
         return False
 
     async def download(self, key: str) -> bytes | None:
-        payload_hash = hashlib.sha256(b"").hexdigest()
-        sign_headers = self._sign("GET", key, {}, payload_hash)
-
         url = f"{self.endpoint}/{self.bucket}/{quote(key, safe='/')}"
-        resp = await self.client.get(url, headers=sign_headers)
-
-        if resp.status_code == 200:
-            logger.info("Downloaded %s (%d bytes)", key, len(resp.content))
-            return resp.content
-        if resp.status_code == 404:
-            return None
-        logger.error("Download failed %s: %d", key, resp.status_code)
+        for attempt in range(R2_MAX_RETRIES):
+            payload_hash = hashlib.sha256(b"").hexdigest()
+            sign_headers = self._sign("GET", key, {}, payload_hash)
+            try:
+                resp = await self.client.get(url, headers=sign_headers)
+                if resp.status_code == 200:
+                    logger.info("Downloaded %s (%d bytes)", key, len(resp.content))
+                    return resp.content
+                if resp.status_code == 404:
+                    return None
+                if resp.status_code < 500:
+                    logger.error("Download failed %s: %d", key, resp.status_code)
+                    return None
+                logger.warning("Download %s got %d, retrying (%d/%d)", key, resp.status_code, attempt + 1, R2_MAX_RETRIES)
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                logger.warning("Download %s failed: %s, retrying (%d/%d)", key, e, attempt + 1, R2_MAX_RETRIES)
+            if attempt < R2_MAX_RETRIES - 1:
+                await asyncio.sleep(R2_RETRY_BACKOFF * (2 ** attempt))
+        logger.error("Download failed %s after %d retries", key, R2_MAX_RETRIES)
         return None
 
     async def delete(self, key: str) -> bool:
@@ -147,6 +166,58 @@ class R2Client:
         url = f"{self.endpoint}/{self.bucket}/{quote(key, safe='/')}"
         resp = await self.client.head(url, headers=sign_headers)
         return resp.status_code == 200
+
+    def presign_get(self, key: str, expires_in: int = 900) -> str:
+        """Generate a presigned GET URL valid for `expires_in` seconds (default 15min)."""
+        now = datetime.now(timezone.utc)
+        date_stamp = now.strftime("%Y%m%d")
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        host = self.endpoint.replace("https://", "").replace("http://", "")
+
+        credential_scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
+        credential = f"{self.access_key}/{credential_scope}"
+
+        path = f"/{self.bucket}/{quote(key, safe='/')}"
+        query_params = (
+            f"X-Amz-Algorithm=AWS4-HMAC-SHA256"
+            f"&X-Amz-Credential={quote(credential, safe='')}"
+            f"&X-Amz-Date={amz_date}"
+            f"&X-Amz-Expires={expires_in}"
+            f"&X-Amz-SignedHeaders=host"
+        )
+
+        canonical_request = (
+            f"GET\n"
+            f"{path}\n"
+            f"{query_params}\n"
+            f"host:{host}\n\n"
+            f"host\n"
+            f"UNSIGNED-PAYLOAD"
+        )
+
+        string_to_sign = (
+            f"AWS4-HMAC-SHA256\n"
+            f"{amz_date}\n"
+            f"{credential_scope}\n"
+            f"{hashlib.sha256(canonical_request.encode()).hexdigest()}"
+        )
+
+        def _hmac_sha256(k: bytes, msg: str) -> bytes:
+            return hmac.new(k, msg.encode(), hashlib.sha256).digest()
+
+        signing_key = _hmac_sha256(
+            _hmac_sha256(
+                _hmac_sha256(
+                    _hmac_sha256(f"AWS4{self.secret_key}".encode(), date_stamp),
+                    REGION,
+                ),
+                SERVICE,
+            ),
+            "aws4_request",
+        )
+        signature = hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+        return f"{self.endpoint}{path}?{query_params}&X-Amz-Signature={signature}"
 
     async def list_keys(self, prefix: str) -> list[str]:
         payload_hash = hashlib.sha256(b"").hexdigest()

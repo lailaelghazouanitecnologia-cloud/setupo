@@ -249,7 +249,7 @@ async def _reconcile_instance(inst: InstanceResource):
 
         if spec.processes:
             # Apply process specs to supervisor
-            applied = await _apply_supervisor_specs(status.ip, spec.processes, "")
+            applied = await _apply_supervisor_specs(status.ip, spec.processes, "", inst=inst)
             if applied:
                 status.phase = InstancePhase.RUNNING
                 set_condition(conditions, "SupervisorReady", ConditionStatus.TRUE,
@@ -281,7 +281,7 @@ async def _reconcile_instance(inst: InstanceResource):
                 sup = health.get("supervisor", {})
                 if spec.processes and not sup.get("converged", True):
                     # Supervisor hasn't converged yet, re-apply specs
-                    await _apply_supervisor_specs(status.ip, spec.processes, "")
+                    await _apply_supervisor_specs(status.ip, spec.processes, "", inst=inst)
 
                 changed = True
             else:
@@ -576,24 +576,28 @@ async def _get_agent_health(ip: str) -> dict | None:
     return None
 
 
-async def _apply_supervisor_specs(ip: str, processes: list[dict], version: str) -> bool:
-    """Push process specs to agent's supervisor."""
-    try:
-        async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
-            resp = await client.post(
-                f"http://{ip}:{AGENT_PORT}/supervisor/apply",
-                json={"processes": processes, "version": version},
-                headers={},  # TODO: agent auth from instance metadata
-            )
-            return resp.status_code == 200
-    except Exception as e:
-        logger.warning("Failed to apply supervisor specs to %s: %s", ip, e)
-        return False
-
-
 def _agent_auth(inst: InstanceResource) -> dict:
     """Build auth headers for agent."""
     token = inst.spec.metadata.get("agent_token", "")
     if token:
         return {"Authorization": f"Bearer {token}"}
     return {}
+
+
+async def _apply_supervisor_specs(ip: str, processes: list[dict], version: str,
+                                  inst: InstanceResource | None = None) -> bool:
+    """Push process specs to agent's supervisor."""
+    headers = _agent_auth(inst) if inst else {}
+    try:
+        async with httpx.AsyncClient(timeout=AGENT_TIMEOUT) as client:
+            resp = await client.post(
+                f"http://{ip}:{AGENT_PORT}/supervisor/apply",
+                json={"processes": processes, "version": version},
+                headers=headers,
+            )
+            if resp.status_code == 401:
+                logger.warning("Agent auth rejected for %s — check agent_token in instance metadata", ip)
+            return resp.status_code == 200
+    except Exception as e:
+        logger.warning("Failed to apply supervisor specs to %s: %s", ip, e)
+        return False
