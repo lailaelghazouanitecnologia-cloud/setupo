@@ -16,11 +16,11 @@ router = APIRouter()
 async def create_domain(req: CreateDomainRequest, project_id: str = Depends(require_project)):
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:
-        raise HTTPException(404, "Instance not found")
+        raise HTTPException(404, "Machine not found")
 
     ip = inst.get("ip")
     if not ip:
-        raise HTTPException(400, "Instance has no IP yet — wait until it's ready")
+        raise HTTPException(400, "Machine has no IP yet — wait until it's ready")
 
     domain_id = f"dom_{secrets.token_hex(8)}"
     managed = False

@@ -152,7 +152,7 @@ DEFAULT_PLANS = [
     {
         "code": "free",
         "name": "Free",
-        "description": "Get started — 1 instance, 1 GB storage, community support.",
+        "description": "Get started — 1 machine, 1 GB storage, community support.",
         "interval": "monthly",
         "amount_cents": 0,
         "trial_days": 0,
@@ -168,7 +168,7 @@ DEFAULT_PLANS = [
     {
         "code": "starter",
         "name": "Starter",
-        "description": "For side projects — 3 instances, 10 GB storage, email support.",
+        "description": "For side projects — 3 machines, 10 GB storage, email support.",
         "interval": "monthly",
         "amount_cents": 900,
         "trial_days": 14,
@@ -184,7 +184,7 @@ DEFAULT_PLANS = [
     {
         "code": "pro",
         "name": "Pro",
-        "description": "For production — 10 instances, 50 GB storage, priority support.",
+        "description": "For production — 10 machines, 50 GB storage, priority support.",
         "interval": "monthly",
         "amount_cents": 2900,
         "trial_days": 14,
@@ -200,7 +200,7 @@ DEFAULT_PLANS = [
     {
         "code": "scale",
         "name": "Scale",
-        "description": "For teams — unlimited instances, 200 GB storage, dedicated support.",
+        "description": "For teams — unlimited machines, 200 GB storage, dedicated support.",
         "interval": "monthly",
         "amount_cents": 9900,
         "trial_days": 14,

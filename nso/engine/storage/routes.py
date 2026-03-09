@@ -46,13 +46,13 @@ def _get_r2() -> R2Client:
 async def _get_agent_url(instance_id: str, project_id: str) -> str:
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst:
-        raise HTTPException(404, f"Instance {instance_id} not found")
+        raise HTTPException(404, f"Machine {instance_id} not found")
     if inst.get("project_id") != project_id:
-        raise HTTPException(403, "Instance does not belong to this project")
+        raise HTTPException(403, "Machine does not belong to this project")
 
     state = inst.get("state", "")
     if state in ("creating", "installing"):
-        raise HTTPException(409, f"Instance is still {state} — wait until it's ready")
+        raise HTTPException(409, f"Machine is still {state} — wait until it's ready")
     if state == "deploying":
         # Auto-recover stuck deploys older than 10 minutes
         import time
@@ -66,18 +66,18 @@ async def _get_agent_url(instance_id: str, project_id: str) -> str:
                     logger.warning("Instance %s stuck in deploying for %ds — allowing redeploy", instance_id, int(elapsed))
                     await db.update("instances", instance_id, {"state": "error", "error": "Previous deploy timed out"})
                 else:
-                    raise HTTPException(409, f"Instance is still deploying (started {int(elapsed)}s ago) — wait or retry after 10min")
+                    raise HTTPException(409, f"Machine is still deploying (started {int(elapsed)}s ago) — wait or retry after 10min")
             except (ValueError, TypeError):
-                raise HTTPException(409, "Instance is still deploying — wait until it's ready")
+                raise HTTPException(409, "Machine is still deploying — wait until it's ready")
         else:
-            raise HTTPException(409, "Instance is still deploying — wait until it's ready")
+            raise HTTPException(409, "Machine is still deploying — wait until it's ready")
     if state == "destroying":
-        raise HTTPException(409, "Instance is being destroyed")
+        raise HTTPException(409, "Machine is being destroyed")
     # "error" state allows redeploy — that's how you recover
 
     ip = inst.get("ip")
     if not ip:
-        raise HTTPException(400, "Instance has no IP address yet")
+        raise HTTPException(400, "Machine has no IP address yet")
 
     # Check if there's a compute node with a custom agent_port for this instance
     node = await db.fetch_one("compute_nodes", instance_id=instance_id)
@@ -748,10 +748,10 @@ async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthConte
     # Step 2: Send platform-update to agent
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst:
-        raise HTTPException(404, f"Instance {req.instance_id} not found")
+        raise HTTPException(404, f"Machine {req.instance_id} not found")
     ip = inst.get("ip", "")
     if not ip:
-        raise HTTPException(400, "Instance has no IP address")
+        raise HTTPException(400, "Machine has no IP address")
     agent_url = f"http://{ip}:8081"
     token = await _get_agent_token(agent_url)
 

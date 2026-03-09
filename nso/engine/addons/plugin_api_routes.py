@@ -204,10 +204,10 @@ async def create_dns_record(
 
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:
-        raise HTTPException(404, "Instance not found")
+        raise HTTPException(404, "Machine not found")
     ip = inst.get("ip")
     if not ip:
-        raise HTTPException(400, "Instance has no IP yet")
+        raise HTTPException(400, "Machine has no IP yet")
 
     domain_id = f"dom_{stdlib_secrets.token_hex(8)}"
     managed = False

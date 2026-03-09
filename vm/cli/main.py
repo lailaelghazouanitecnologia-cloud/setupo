@@ -5,12 +5,12 @@ Usage:
     nso <command> [args] [options]
 
 Deploy:
-    nso ship <workspace> <instance>      Pack + push + deploy (all-in-one)
-    nso deploy <workspace> <instance>    Deploy from R2 to instance
-    nso rollback <workspace> <instance>  Restore previous snapshot
+    nso ship <workspace> <machine>       Pack + push + deploy (all-in-one)
+    nso deploy <workspace> <machine>     Deploy from R2 to machine
+    nso rollback <workspace> <machine>   Restore previous snapshot
     nso pack <workspace>                 Pack workspace into .zar
     nso push <workspace>                 Push .zar to R2
-    nso update <instance>                Self-update agent/frontend/core
+    nso update <machine>                 Self-update agent/frontend/core
 
 Versioning:
     nso versions <workspace>             List versions and branches
@@ -19,9 +19,9 @@ Versioning:
 
 Resources:
     nso projects [ls|create|rm]          Manage projects
-    nso inst [ls|create|rm|status]       Manage VPS instances
+    nso inst [ls|create|rm|status]       Manage VPS machines
     nso ws [ls|create]                   Manage workspaces
-    nso exec <instance> <command...>     Run command on instance
+    nso exec <machine> <command...>      Run command on machine
 
 System:
     nso login                            Authenticate
@@ -397,7 +397,7 @@ def cmd_instances(args):
         if getattr(args, "json", False):
             output.as_json(instances)
             return 0
-        output.header(f"Instances ({pid})")
+        output.header(f"Machines ({pid})")
         output.table(instances, ["id", "label", "ip", "status", "region", "plan"])
         return 0
 
@@ -416,7 +416,7 @@ def cmd_instances(args):
         if not ok:
             output.err(data.get("error", "Failed"))
             return 1
-        output.ok(f"Instance: {data.get('id', '?')}")
+        output.ok(f"Machine: {data.get('id', '?')}")
         output.kv({"IP": data.get("ip", "pending"), "Status": data.get("status", "?")})
         return 0
 
@@ -440,7 +440,7 @@ def cmd_instances(args):
         if getattr(args, "json", False):
             output.as_json(data)
             return 0
-        output.header(f"Instance: {data.get('label', args.id)}")
+        output.header(f"Machine: {data.get('label', args.id)}")
         output.kv(data)
         return 0
 
@@ -496,7 +496,7 @@ def cmd_exec(args):
 
     ip = inst.get("ip")
     if not ip:
-        output.err("Instance has no IP — not provisioned?")
+        output.err("Machine has no IP — not provisioned?")
         return 1
 
     command = " ".join(args.command)
@@ -809,7 +809,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("id")
     p.add_argument("-f", "--force", action="store_true")
 
-    inst = sub.add_parser("inst", help="Manage instances")
+    inst = sub.add_parser("inst", help="Manage machines")
     inst_sub = inst.add_subparsers(dest="subcmd")
     inst_sub.add_parser("ls", help="List")
     p = inst_sub.add_parser("create", help="Create VPS")
@@ -833,7 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("-b", "--branch")
 
     # ── Exec ──
-    ex = sub.add_parser("exec", help="Run command on instance")
+    ex = sub.add_parser("exec", help="Run command on machine")
     ex.add_argument("instance")
     ex.add_argument("command", nargs=argparse.REMAINDER)
     ex.add_argument("--timeout", type=int, default=30)

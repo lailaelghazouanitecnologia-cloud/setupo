@@ -128,17 +128,17 @@ async def add_backend(pool_id: str, req: AddBackendRequest) -> Backend:
 
     instance = await db.fetch_one("instances", id=req.instance_id)
     if not instance:
-        raise NotFoundError("Instance", req.instance_id)
+        raise NotFoundError("Machine", req.instance_id)
 
     # Check not already in this pool
     existing = await db.fetch_one("lb_backends", pool_id=pool_id, instance_id=req.instance_id)
     if existing:
-        raise ConflictError(f"Instance {req.instance_id} already in pool {pool_id}")
+        raise ConflictError(f"Machine {req.instance_id} already in pool {pool_id}")
 
     backend_id = _gen_id("lbbe")
     ip = instance.get("ip", "")
     if not ip:
-        raise ValidationError("Instance has no IP address")
+        raise ValidationError("Machine has no IP address")
 
     backend = Backend(
         id=backend_id,

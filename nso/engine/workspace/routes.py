@@ -488,7 +488,7 @@ async def deploy_workspace(name: str, project_id: str = Depends(require_project)
 
 @router.post("/seed/platform")
 async def seed_platform_workspaces(
-    instance_id: str = Query("", description="Instance to link workspaces to"),
+    instance_id: str = Query("", description="Machine to link workspaces to"),
     _=Depends(require_admin),
     project_id: str = Depends(require_project),
 ):

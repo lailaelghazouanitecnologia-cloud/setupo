@@ -130,7 +130,7 @@ export function InstancesPanel() {
       <div className="tab-bar">
         <button className={`tab-item ${tab === "instances" ? "active" : ""}`} onClick={() => setTab("instances")}>
           <Server className="h-3.5 w-3.5" />
-          <span>Instances</span>
+          <span>Machines</span>
         </button>
         <button className={`tab-item ${tab === "services" ? "active" : ""}`} onClick={() => setTab("services")}>
           <Activity className="h-3.5 w-3.5" />
@@ -555,7 +555,7 @@ export function InstancesTab() {
     return (
       <div className="panel-empty">
         <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-sub">Loading instances...</div>
+        <div className="panel-empty-sub">Loading machines...</div>
       </div>
     );
   }
@@ -567,7 +567,7 @@ export function InstancesTab() {
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">{isNoProjects ? "No project yet" : "Error"}</div>
-        <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage instances." : error}</div>
+        <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage machines." : error}</div>
         {isNoProjects ? (
           <button className="panel-btn" onClick={async () => {
             try { await apiCreateProject("main"); setError(""); fetchData(); } catch (e: any) { setError(e.message || "Failed"); }
@@ -586,11 +586,11 @@ export function InstancesTab() {
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-title">No instances</div>
+        <div className="panel-empty-title">No machines</div>
         <div className="panel-empty-sub">Add a server from NSO Cloud, connect via Vultr/Hetzner, or use SSH.</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3.5 w-3.5" /><span>Add Instance</span>
+            <Plus className="h-3.5 w-3.5" /><span>Add Machine</span>
           </button>
           <button className="panel-btn" onClick={handleSync} disabled={syncing}>
             <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync"}</span>
@@ -606,13 +606,13 @@ export function InstancesTab() {
       {/* Header */}
       <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
         <span className="panel-count">
-          {unified.length} instance{unified.length !== 1 ? "s" : ""}
+          {unified.length} machine{unified.length !== 1 ? "s" : ""}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync instances to nodes">
+          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync machines to nodes">
             <Download className="h-3 w-3" />
           </button>
           <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
@@ -1113,7 +1113,7 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     return (
       <div style={formBox}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Instance</div>
+          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Machine</div>
           <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
         </div>
 
