@@ -52,7 +52,7 @@ async def _require_member_access(project_id: str, auth: AuthContext, min_role: s
     return role
 
 
-@router.get("")
+@router.get("", summary="List project members")
 async def list_project_members(
     project_id: str = Depends(require_project),
     auth: AuthContext = Depends(require_user),
@@ -63,7 +63,7 @@ async def list_project_members(
     return {"members": member_list}
 
 
-@router.post("/invite")
+@router.post("/invite", summary="Create invite link")
 async def create_project_invite(
     req: InviteRequest,
     project_id: str = Depends(require_project),
@@ -84,7 +84,7 @@ async def create_project_invite(
     return {"ok": True, "invite": invite}
 
 
-@router.get("/invites")
+@router.get("/invites", summary="List invite links")
 async def list_project_invites(
     project_id: str = Depends(require_project),
     auth: AuthContext = Depends(require_user),
@@ -95,7 +95,7 @@ async def list_project_invites(
     return {"invites": invites}
 
 
-@router.delete("/invites/{invite_id}")
+@router.delete("/invites/{invite_id}", summary="Revoke invite")
 async def revoke_project_invite(
     invite_id: str,
     project_id: str = Depends(require_project),
@@ -110,7 +110,7 @@ async def revoke_project_invite(
     return {"ok": True}
 
 
-@router.patch("/{user_id}")
+@router.patch("/{user_id}", summary="Update member role")
 async def update_member_role(
     user_id: str,
     req: UpdateRoleRequest,
@@ -126,7 +126,7 @@ async def update_member_role(
     return {"ok": True}
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", summary="Remove member")
 async def remove_project_member(
     user_id: str,
     project_id: str = Depends(require_project),
@@ -147,7 +147,7 @@ async def remove_project_member(
 # ── Public join routes (require user JWT only) ──
 
 
-@join_router.get("/join/project/{code}")
+@join_router.get("/join/project/{code}", summary="Preview invite")
 async def preview_project_invite(code: str):
     """Preview a project invite without redeeming."""
     try:
@@ -157,7 +157,7 @@ async def preview_project_invite(code: str):
     return info
 
 
-@join_router.post("/join/project/{code}")
+@join_router.post("/join/project/{code}", summary="Redeem invite")
 async def redeem_project_invite(code: str, auth: AuthContext = Depends(require_user)):
     """Redeem a project invite and become a member."""
     try:

@@ -36,7 +36,7 @@ class UpdateWebhookRequest(BaseModel):
     auto_deploy: bool | None = None
 
 
-@router.get("")
+@router.get("", summary="List webhooks")
 async def list_webhooks(project_id: str = Depends(require_project)):
     """List all webhook configs for a project."""
     webhooks = await db.fetch_all("webhook_configs", project_id=project_id)
@@ -47,7 +47,7 @@ async def list_webhooks(project_id: str = Depends(require_project)):
     return {"webhooks": webhooks, "count": len(webhooks)}
 
 
-@router.post("")
+@router.post("", summary="Create webhook")
 async def create_webhook(req: CreateWebhookRequest, project_id: str = Depends(require_project)):
     """Create a webhook config. Returns the secret and the URL to configure in GitHub."""
     # Validate workspace exists
@@ -108,7 +108,7 @@ async def create_webhook(req: CreateWebhookRequest, project_id: str = Depends(re
     }
 
 
-@router.patch("/{webhook_id}")
+@router.patch("/{webhook_id}", summary="Update webhook")
 async def update_webhook(webhook_id: str, req: UpdateWebhookRequest, project_id: str = Depends(require_project)):
     """Update a webhook config."""
     wh = await db.fetch_one("webhook_configs", id=webhook_id)
@@ -130,7 +130,7 @@ async def update_webhook(webhook_id: str, req: UpdateWebhookRequest, project_id:
     return {"ok": True, "updated": list(updates.keys())}
 
 
-@router.delete("/{webhook_id}")
+@router.delete("/{webhook_id}", summary="Delete webhook")
 async def delete_webhook(webhook_id: str, project_id: str = Depends(require_project)):
     """Delete a webhook config and its delivery history."""
     wh = await db.fetch_one("webhook_configs", id=webhook_id)
@@ -144,7 +144,7 @@ async def delete_webhook(webhook_id: str, project_id: str = Depends(require_proj
     return {"ok": True}
 
 
-@router.post("/{webhook_id}/rotate-secret")
+@router.post("/{webhook_id}/rotate-secret", summary="Rotate webhook secret")
 async def rotate_webhook_secret(webhook_id: str, project_id: str = Depends(require_project)):
     """Rotate the HMAC secret. Returns new secret — update it in GitHub settings."""
     wh = await db.fetch_one("webhook_configs", id=webhook_id)
@@ -156,7 +156,7 @@ async def rotate_webhook_secret(webhook_id: str, project_id: str = Depends(requi
     return {"ok": True, "secret": new_secret, "note": "Update this secret in your GitHub webhook settings"}
 
 
-@router.get("/{webhook_id}/deliveries")
+@router.get("/{webhook_id}/deliveries", summary="List deliveries")
 async def list_deliveries(
     webhook_id: str,
     limit: int = Query(50, ge=1, le=200),
@@ -190,7 +190,7 @@ def _verify_github_signature(payload: bytes, signature: str, secret: str) -> boo
     return hmac.compare_digest(expected, signature)
 
 
-@router.post("/receive")
+@router.post("/receive", summary="Receive GitHub webhook")
 async def receive_github_webhook(request: Request):
     """
     GitHub webhook receiver. Validates HMAC signature, matches repo/branch

@@ -83,13 +83,13 @@ async def _ensure_catalog_seeded():
     logger.info("Seeded plugin catalog with %d default entries", len(_DEFAULT_CATALOG))
 
 
-@router.get("/catalog")
+@router.get("/catalog", summary="List plugin catalog")
 async def list_catalog(auth=Depends(require_admin)):
     entries = await db.fetch_all("plugin_catalog", order_by="created_at ASC")
     return {"catalog": entries}
 
 
-@router.post("/catalog")
+@router.post("/catalog", summary="Publish plugin")
 async def publish_plugin(entry: dict, auth=Depends(require_admin)):
     plugin_id = entry.get("plugin_id", "").strip().lower()
     name = entry.get("name", "").strip()
@@ -120,7 +120,7 @@ async def publish_plugin(entry: dict, auth=Depends(require_admin)):
     return {"ok": True, "entry": data}
 
 
-@router.patch("/catalog/{plugin_id}")
+@router.patch("/catalog/{plugin_id}", summary="Update catalog entry")
 async def update_catalog_entry(plugin_id: str, updates: dict, auth=Depends(require_admin)):
     existing = await db.fetch_one("plugin_catalog", plugin_id=plugin_id)
     if not existing:
@@ -136,7 +136,7 @@ async def update_catalog_entry(plugin_id: str, updates: dict, auth=Depends(requi
     return {"ok": True, "plugin_id": plugin_id, "updated": list(filtered.keys())}
 
 
-@router.delete("/catalog/{plugin_id}")
+@router.delete("/catalog/{plugin_id}", summary="Remove from catalog")
 async def remove_from_catalog(plugin_id: str, auth=Depends(require_admin)):
     existing = await db.fetch_one("plugin_catalog", plugin_id=plugin_id)
     if not existing:
@@ -147,7 +147,7 @@ async def remove_from_catalog(plugin_id: str, auth=Depends(require_admin)):
     return {"ok": True, "plugin_id": plugin_id}
 
 
-@router.get("")
+@router.get("", summary="List plugins")
 async def list_plugins(project_id: str = Depends(require_project)):
     await _ensure_catalog_seeded()
 
@@ -176,7 +176,7 @@ async def list_plugins(project_id: str = Depends(require_project)):
     return {"plugins": plugins}
 
 
-@router.post("/install")
+@router.post("/install", summary="Install plugin")
 async def install_plugin(req: InstallPluginRequest, project_id: str = Depends(require_project)):
     await _ensure_catalog_seeded()
 
@@ -206,7 +206,7 @@ async def install_plugin(req: InstallPluginRequest, project_id: str = Depends(re
     return {"ok": True, "plugin": {**plugin_data, "installed": True}}
 
 
-@router.patch("/{plugin_id}")
+@router.patch("/{plugin_id}", summary="Update plugin")
 async def update_plugin(plugin_id: str, req: UpdatePluginRequest, project_id: str = Depends(require_project)):
     existing = await db.fetch_one("plugins", project_id=project_id, plugin_id=plugin_id)
     if not existing:
@@ -224,7 +224,7 @@ async def update_plugin(plugin_id: str, req: UpdatePluginRequest, project_id: st
     return {"ok": True, "plugin_id": plugin_id, "updated": list(updates.keys())}
 
 
-@router.delete("/{plugin_id}")
+@router.delete("/{plugin_id}", summary="Uninstall plugin")
 async def uninstall_plugin(plugin_id: str, project_id: str = Depends(require_project)):
     existing = await db.fetch_one("plugins", project_id=project_id, plugin_id=plugin_id)
     if not existing:

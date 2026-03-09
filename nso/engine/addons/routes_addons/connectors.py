@@ -75,7 +75,7 @@ def _mask(v) -> str:
 #  STATUS & TEST
 # ═══════════════════════════════════════════════════════════════
 
-@router.get("/{connector_id}/status")
+@router.get("/{connector_id}/status", summary="Get connector status")
 async def connector_status(connector_id: str, project_id: str = Depends(require_project)):
     """Get status and masked config of an installed connector."""
     addon = await _require_connector(project_id, connector_id)
@@ -264,7 +264,7 @@ _TESTERS = {
 }
 
 
-@router.post("/{connector_id}/test")
+@router.post("/{connector_id}/test", summary="Test connector")
 async def test_connector(connector_id: str, project_id: str = Depends(require_project)):
     """Test connector by making real API calls to the external service."""
     addon = await _require_connector(project_id, connector_id)
@@ -292,7 +292,7 @@ async def test_connector(connector_id: str, project_id: str = Depends(require_pr
 #  GITHUB ACTIONS
 # ═══════════════════════════════════════════════════════════════
 
-@router.get("/github/repos")
+@router.get("/github/repos", summary="List GitHub repos")
 async def github_list_repos(
     project_id: str = Depends(require_project),
     per_page: int = Query(30, ge=1, le=100),
@@ -318,7 +318,7 @@ async def github_list_repos(
                         "updated_at": r["updated_at"]} for r in repos], "count": len(repos)}
 
 
-@router.get("/github/repos/{owner}/{repo}/branches")
+@router.get("/github/repos/{owner}/{repo}/branches", summary="List repo branches")
 async def github_list_branches(owner: str, repo: str, project_id: str = Depends(require_project)):
     """List branches for a GitHub repository."""
     config = await _get_config(project_id, "github")
@@ -334,7 +334,7 @@ async def github_list_branches(owner: str, repo: str, project_id: str = Depends(
     return {"branches": [{"name": b["name"], "sha": b["commit"]["sha"]} for b in resp.json()]}
 
 
-@router.get("/github/repos/{owner}/{repo}/commits")
+@router.get("/github/repos/{owner}/{repo}/commits", summary="List repo commits")
 async def github_list_commits(
     owner: str, repo: str,
     branch: str = Query(""),
@@ -367,7 +367,7 @@ class GitHubDownloadRequest(BaseModel):
     path: str = ""
 
 
-@router.post("/github/download")
+@router.post("/github/download", summary="Download GitHub file")
 async def github_download_file(req: GitHubDownloadRequest, project_id: str = Depends(require_project)):
     """Download a file from a GitHub repository."""
     config = await _get_config(project_id, "github")
@@ -401,7 +401,7 @@ class SlackMessageRequest(BaseModel):
     blocks: Optional[list] = None
 
 
-@router.post("/slack/send")
+@router.post("/slack/send", summary="Send Slack message")
 async def slack_send_message(req: SlackMessageRequest, project_id: str = Depends(require_project)):
     """Send a message to a Slack channel or webhook."""
     config = await _get_config(project_id, "slack")
@@ -436,7 +436,7 @@ async def slack_send_message(req: SlackMessageRequest, project_id: str = Depends
     raise HTTPException(400, "bot_token + channel or webhook_url required")
 
 
-@router.get("/slack/channels")
+@router.get("/slack/channels", summary="List Slack channels")
 async def slack_list_channels(project_id: str = Depends(require_project)):
     """List Slack channels the bot has access to."""
     config = await _get_config(project_id, "slack")
@@ -460,7 +460,7 @@ async def slack_list_channels(project_id: str = Depends(require_project)):
 #  S3 ACTIONS
 # ═══════════════════════════════════════════════════════════════
 
-@router.get("/s3/files")
+@router.get("/s3/files", summary="List S3 files")
 async def s3_list_files(
     prefix: str = Query(""),
     project_id: str = Depends(require_project),
@@ -486,7 +486,7 @@ class S3UploadRequest(BaseModel):
     content_type: str = "application/octet-stream"
 
 
-@router.post("/s3/upload")
+@router.post("/s3/upload", summary="Upload S3 file")
 async def s3_upload_file(req: S3UploadRequest, project_id: str = Depends(require_project)):
     """Upload a file to the configured S3 bucket."""
     config = await _get_config(project_id, "s3")
@@ -506,7 +506,7 @@ async def s3_upload_file(req: S3UploadRequest, project_id: str = Depends(require
         await r2.close()
 
 
-@router.get("/s3/download")
+@router.get("/s3/download", summary="Download S3 file")
 async def s3_download_file(key: str = Query(...), project_id: str = Depends(require_project)):
     """Download a file from the configured S3 bucket."""
     config = await _get_config(project_id, "s3")
@@ -525,7 +525,7 @@ async def s3_download_file(key: str = Query(...), project_id: str = Depends(requ
         await r2.close()
 
 
-@router.delete("/s3/files")
+@router.delete("/s3/files", summary="Delete S3 file")
 async def s3_delete_file(key: str = Query(...), project_id: str = Depends(require_project)):
     """Delete a file from the configured S3 bucket."""
     config = await _get_config(project_id, "s3")
@@ -560,7 +560,7 @@ def _cf_headers(config: dict) -> dict:
     }
 
 
-@router.get("/cloudflare/zones")
+@router.get("/cloudflare/zones", summary="List Cloudflare zones")
 async def cloudflare_list_zones(project_id: str = Depends(require_project)):
     """List DNS zones (domains) in the Cloudflare account."""
     config = await _get_config(project_id, "cloudflare")
@@ -577,7 +577,7 @@ async def cloudflare_list_zones(project_id: str = Depends(require_project)):
                         "name_servers": z.get("name_servers", [])} for z in d.get("result", [])]}
 
 
-@router.get("/cloudflare/zones/{zone_id}/records")
+@router.get("/cloudflare/zones/{zone_id}/records", summary="List zone DNS records")
 async def cloudflare_list_records(
     zone_id: str,
     name: str = Query(""),
@@ -613,7 +613,7 @@ class CloudflareDNSRequest(BaseModel):
     ttl: int = 1
 
 
-@router.post("/cloudflare/records")
+@router.post("/cloudflare/records", summary="Create DNS record")
 async def cloudflare_create_record(req: CloudflareDNSRequest, project_id: str = Depends(require_project)):
     """Create a DNS record via user's Cloudflare connector."""
     config = await _get_config(project_id, "cloudflare")
@@ -642,7 +642,7 @@ class CloudflareDNSUpdateRequest(BaseModel):
     ttl: int = 1
 
 
-@router.patch("/cloudflare/records")
+@router.patch("/cloudflare/records", summary="Update DNS record")
 async def cloudflare_update_record(req: CloudflareDNSUpdateRequest, project_id: str = Depends(require_project)):
     """Update a DNS record via user's Cloudflare connector."""
     config = await _get_config(project_id, "cloudflare")
@@ -664,7 +664,7 @@ async def cloudflare_update_record(req: CloudflareDNSUpdateRequest, project_id: 
     return {"ok": True, "updated": req.record_id}
 
 
-@router.delete("/cloudflare/records")
+@router.delete("/cloudflare/records", summary="Delete DNS record")
 async def cloudflare_delete_record(
     zone_id: str = Query(...),
     record_id: str = Query(...),
@@ -693,7 +693,7 @@ def _r2_client(config: dict):
     ))
 
 
-@router.get("/r2/files")
+@router.get("/r2/files", summary="List R2 files")
 async def r2_list_files(prefix: str = Query(""), project_id: str = Depends(require_project)):
     """List files in the configured R2 bucket."""
     config = await _get_config(project_id, "r2")
@@ -711,7 +711,7 @@ class R2UploadRequest(BaseModel):
     content_type: str = "application/octet-stream"
 
 
-@router.post("/r2/upload")
+@router.post("/r2/upload", summary="Upload R2 file")
 async def r2_upload_file(req: R2UploadRequest, project_id: str = Depends(require_project)):
     """Upload a file to the configured R2 bucket."""
     config = await _get_config(project_id, "r2")
@@ -726,7 +726,7 @@ async def r2_upload_file(req: R2UploadRequest, project_id: str = Depends(require
         await r2.close()
 
 
-@router.get("/r2/download")
+@router.get("/r2/download", summary="Download R2 file")
 async def r2_download_file(key: str = Query(...), project_id: str = Depends(require_project)):
     """Download a file from the configured R2 bucket."""
     config = await _get_config(project_id, "r2")
@@ -740,7 +740,7 @@ async def r2_download_file(key: str = Query(...), project_id: str = Depends(requ
         await r2.close()
 
 
-@router.delete("/r2/files")
+@router.delete("/r2/files", summary="Delete R2 file")
 async def r2_delete_file(key: str = Query(...), project_id: str = Depends(require_project)):
     """Delete a file from the configured R2 bucket."""
     config = await _get_config(project_id, "r2")

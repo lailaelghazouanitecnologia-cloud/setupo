@@ -36,7 +36,7 @@ async def _require_plugin(project_id: str, plugin_id: str):
 #  STORAGE PLUGIN
 # ═══════════════════════════════════════════
 
-@router.get("/storage/files")
+@router.get("/storage/files", summary="List storage files")
 async def list_storage_files(
     prefix: str = "",
     project_id: str = Depends(require_project),
@@ -59,7 +59,7 @@ class UploadRequest(BaseModel):
     content_type: str = "application/octet-stream"
 
 
-@router.post("/storage/upload")
+@router.post("/storage/upload", summary="Upload storage file")
 async def upload_storage_file(
     req: UploadRequest,
     project_id: str = Depends(require_project),
@@ -90,7 +90,7 @@ async def upload_storage_file(
         await r2.close()
 
 
-@router.get("/storage/download")
+@router.get("/storage/download", summary="Download storage file")
 async def download_storage_file(
     path: str = Query(...),
     project_id: str = Depends(require_project),
@@ -113,7 +113,7 @@ async def download_storage_file(
         await r2.close()
 
 
-@router.delete("/storage/files")
+@router.delete("/storage/files", summary="Delete storage file")
 async def delete_storage_file(
     path: str = Query(...),
     project_id: str = Depends(require_project),
@@ -135,7 +135,7 @@ async def delete_storage_file(
 #  LOGS PLUGIN
 # ═══════════════════════════════════════════
 
-@router.get("/logs")
+@router.get("/logs", summary="Get deploy logs")
 async def get_deploy_logs(
     instance_id: str = Query(""),
     level: str = Query(""),
@@ -180,7 +180,7 @@ async def get_deploy_logs(
 #  DNS PLUGIN
 # ═══════════════════════════════════════════
 
-@router.get("/dns/records")
+@router.get("/dns/records", summary="List DNS records")
 async def list_dns_records(
     project_id: str = Depends(require_project),
 ):
@@ -195,7 +195,7 @@ class CreateDnsRequest(BaseModel):
     proxied: bool = False
 
 
-@router.post("/dns/records")
+@router.post("/dns/records", summary="Create DNS record")
 async def create_dns_record(
     req: CreateDnsRequest,
     project_id: str = Depends(require_project),
@@ -253,7 +253,7 @@ async def create_dns_record(
     }
 
 
-@router.delete("/dns/records/{domain_id}")
+@router.delete("/dns/records/{domain_id}", summary="Delete DNS record")
 async def delete_dns_record(
     domain_id: str,
     project_id: str = Depends(require_project),
@@ -282,7 +282,7 @@ async def delete_dns_record(
 #  MONITORING PLUGIN
 # ═══════════════════════════════════════════
 
-@router.get("/monitoring/instances")
+@router.get("/monitoring/instances", summary="Get monitoring data")
 async def get_monitoring_data(
     project_id: str = Depends(require_project),
 ):
@@ -313,7 +313,7 @@ async def get_monitoring_data(
 #  BACKUPS PLUGIN
 # ═══════════════════════════════════════════
 
-@router.get("/backups/list")
+@router.get("/backups/list", summary="List backups")
 async def list_backups(
     project_id: str = Depends(require_project),
 ):

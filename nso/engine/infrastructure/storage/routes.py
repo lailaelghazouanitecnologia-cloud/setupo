@@ -19,7 +19,7 @@ class CreateBucketRequest(BaseModel):
 
 # ── Bucket CRUD ──────────────────────────────────────────────────
 
-@router.post("/buckets", status_code=201)
+@router.post("/buckets", status_code=201, summary="Create bucket")
 async def create_bucket(req: CreateBucketRequest, project_id: str = Depends(require_project)):
     try:
         return await service.create_bucket(project_id, req.name, req.public_access)
@@ -27,13 +27,13 @@ async def create_bucket(req: CreateBucketRequest, project_id: str = Depends(requ
         raise HTTPException(e.status_code, e.message)
 
 
-@router.get("/buckets")
+@router.get("/buckets", summary="List buckets")
 async def list_buckets(project_id: str = Depends(require_project)):
     buckets = await service.list_buckets(project_id)
     return {"buckets": buckets, "count": len(buckets)}
 
 
-@router.get("/buckets/{bucket_id}")
+@router.get("/buckets/{bucket_id}", summary="Get bucket")
 async def get_bucket(bucket_id: str, project_id: str = Depends(require_project)):
     try:
         return await service.get_bucket(project_id, bucket_id)
@@ -41,7 +41,7 @@ async def get_bucket(bucket_id: str, project_id: str = Depends(require_project))
         raise HTTPException(e.status_code, e.message)
 
 
-@router.delete("/buckets/{bucket_id}")
+@router.delete("/buckets/{bucket_id}", summary="Delete bucket")
 async def delete_bucket(bucket_id: str, project_id: str = Depends(require_project)):
     try:
         await service.delete_bucket(project_id, bucket_id)
@@ -52,7 +52,7 @@ async def delete_bucket(bucket_id: str, project_id: str = Depends(require_projec
 
 # ── Object operations ────────────────────────────────────────────
 
-@router.get("/buckets/{bucket_id}/objects")
+@router.get("/buckets/{bucket_id}/objects", summary="List objects")
 async def list_objects(bucket_id: str, prefix: str = "",
                        project_id: str = Depends(require_project)):
     try:
@@ -62,7 +62,7 @@ async def list_objects(bucket_id: str, prefix: str = "",
     return {"objects": objects, "count": len(objects)}
 
 
-@router.post("/buckets/{bucket_id}/upload")
+@router.post("/buckets/{bucket_id}/upload", summary="Upload object")
 async def upload_object(bucket_id: str, file: UploadFile = File(...),
                         key: str = Query(None),
                         project_id: str = Depends(require_project)):
@@ -83,7 +83,7 @@ async def upload_object(bucket_id: str, file: UploadFile = File(...),
     return result
 
 
-@router.get("/buckets/{bucket_id}/download/{key:path}")
+@router.get("/buckets/{bucket_id}/download/{key:path}", summary="Download object")
 async def download_object(bucket_id: str, key: str,
                           project_id: str = Depends(require_project)):
     try:
@@ -114,7 +114,7 @@ async def download_object(bucket_id: str, key: str,
     return Response(content=data, media_type=content_type)
 
 
-@router.delete("/buckets/{bucket_id}/objects/{key:path}")
+@router.delete("/buckets/{bucket_id}/objects/{key:path}", summary="Delete object")
 async def delete_object(bucket_id: str, key: str,
                         project_id: str = Depends(require_project)):
     try:

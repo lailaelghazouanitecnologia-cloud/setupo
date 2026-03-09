@@ -326,7 +326,7 @@ async def find_discrepancies(auth: AuthContext = Depends(require_admin)):
 
 # ── Projects & Workspaces (admin view) ──
 
-@router.get("/projects")
+@router.get("/projects", summary="List all projects")
 async def admin_list_projects(
     search: str = "",
     sort: str = "created_at",
@@ -391,7 +391,7 @@ async def admin_list_projects(
     return {"projects": projects, "total": total}
 
 
-@router.get("/projects/{project_id}/workspaces")
+@router.get("/projects/{project_id}/workspaces", summary="List project workspaces")
 async def admin_list_workspaces(
     project_id: str,
     auth: AuthContext = Depends(require_admin),
@@ -419,7 +419,7 @@ async def admin_list_workspaces(
     }}
 
 
-@router.get("/workspaces")
+@router.get("/workspaces", summary="List all workspaces")
 async def admin_list_all_workspaces(
     search: str = "",
     ws_type: str = "",
@@ -474,7 +474,7 @@ async def admin_list_all_workspaces(
     return {"workspaces": workspaces, "total": total}
 
 
-@router.get("/instances")
+@router.get("/instances", summary="List all instances")
 async def admin_list_all_instances(
     state: str = "",
     limit: int = Query(100, le=500),
@@ -516,7 +516,7 @@ async def admin_list_all_instances(
 
 # ── Infrastructure: Database ──
 
-@router.get("/infra/database")
+@router.get("/infra/database", summary="Get database info")
 async def database_info(auth: AuthContext = Depends(require_admin)):
     """Get database tables, row counts, and size."""
     from nso.shared import db
@@ -547,7 +547,7 @@ async def database_info(auth: AuthContext = Depends(require_admin)):
     }
 
 
-@router.get("/infra/database/{table_name}")
+@router.get("/infra/database/{table_name}", summary="Get table details")
 async def database_table_detail(
     table_name: str,
     limit: int = Query(50, le=200),
@@ -582,7 +582,7 @@ async def database_table_detail(
 
 # ── Infrastructure: R2 Storage ──
 
-@router.get("/infra/storage")
+@router.get("/infra/storage", summary="R2 storage overview")
 async def storage_overview(
     prefix: str = "",
     auth: AuthContext = Depends(require_admin),
@@ -630,7 +630,7 @@ async def storage_overview(
     }
 
 
-@router.delete("/infra/storage")
+@router.delete("/infra/storage", summary="Delete R2 object")
 async def storage_delete_object(
     key: str = Query(...),
     auth: AuthContext = Depends(require_admin),
@@ -653,7 +653,7 @@ async def storage_delete_object(
 
 # ── Infrastructure: Instances ──
 
-@router.post("/infra/instances")
+@router.post("/infra/instances", summary="Create instance")
 async def create_instance(
     auth: AuthContext = Depends(require_admin),
 ):
@@ -662,7 +662,7 @@ async def create_instance(
     raise HTTPException(501, "Use POST /api/projects/{pid}/instances instead")
 
 
-@router.post("/infra/instances/{instance_id}/action")
+@router.post("/infra/instances/{instance_id}/action", summary="Instance action")
 async def instance_action(
     instance_id: str,
     action: str = Query(..., regex="^(start|stop|reboot)$"),
