@@ -44,6 +44,22 @@ DEFAULT_CONNECTORS = [
         "icon": "database",
         "addon_type": "connector",
     },
+    {
+        "addon_id": "vultr",
+        "name": "Vultr",
+        "description": "Provision and manage cloud VPS nodes directly from Vultr.",
+        "category": "compute",
+        "icon": "server",
+        "addon_type": "connector",
+    },
+    {
+        "addon_id": "hetzner",
+        "name": "Hetzner Cloud",
+        "description": "Provision and manage Hetzner Cloud servers as compute nodes.",
+        "category": "compute",
+        "icon": "server",
+        "addon_type": "connector",
+    },
 ]
 
 # Default plugins — feature extensions

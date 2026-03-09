@@ -17,6 +17,7 @@ import {
   listWorkspaces, getInstanceMetrics,
   listComputeNodes, registerComputeNode, deleteComputeNode,
   drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
+  listAddons, type AddonInfo,
 } from "@/lib/api/client";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
@@ -1207,6 +1208,7 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   onCreated: () => void;
   onCancel: () => void;
 }) {
+  const setActiveView = useDashboardStore((s) => s.setActiveView);
   const [step, setStep] = useState<"pick" | "configure">("pick");
   const [selectedProvider, setSelectedProvider] = useState<NodeProvider>(null);
   const [label, setLabel] = useState("");
@@ -1218,8 +1220,27 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   const [plan, setPlan] = useState("vc2-1c-1gb");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
+  const [connectorStatus, setConnectorStatus] = useState<Record<string, boolean>>({});
+
+  // Check which cloud providers have connectors installed
+  useEffect(() => {
+    listAddons(projectId, "connector").then((res) => {
+      const status: Record<string, boolean> = {};
+      for (const addon of (res.addons || [])) {
+        if (addon.addon_id === "vultr" || addon.addon_id === "hetzner") {
+          status[addon.addon_id] = !!(addon.installed && addon.enabled);
+        }
+      }
+      setConnectorStatus(status);
+    }).catch(() => {});
+  }, [projectId]);
 
   const pickProvider = (p: NodeProvider) => {
+    // If cloud provider not connected, send to Addons to set it up
+    if ((p === "vultr" || p === "hetzner") && !connectorStatus[p]) {
+      setActiveView("addons");
+      return;
+    }
     setSelectedProvider(p);
     setStep("configure");
     setError("");
@@ -1266,47 +1287,69 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
           Choose how to connect your infrastructure
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {PROVIDER_OPTIONS.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => pickProvider(p.id as NodeProvider)}
-              style={{
-                display: "flex", alignItems: "center", gap: 12,
-                padding: "12px 14px", borderRadius: 8,
-                border: "1px solid var(--border)",
-                background: "var(--background)",
-                cursor: "pointer", textAlign: "left",
-                transition: "all 0.15s ease",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = "var(--color-teal)";
-                e.currentTarget.style.background = "var(--accent)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = "var(--border)";
-                e.currentTarget.style.background = "var(--background)";
-              }}
-            >
-              <div style={{
-                width: 36, height: 36, borderRadius: 8,
-                background: p.id === "vultr" ? "rgba(0, 124, 255, 0.1)"
-                  : p.id === "hetzner" ? "rgba(213, 0, 41, 0.1)"
-                  : "rgba(100, 200, 180, 0.1)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontWeight: 700, fontSize: 16, flexShrink: 0,
-                color: p.id === "vultr" ? "#007CFF"
-                  : p.id === "hetzner" ? "#D50029"
-                  : "var(--color-teal)",
-              }}>
-                {p.icon}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</div>
-                <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>{p.desc}</div>
-              </div>
-              <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-            </button>
-          ))}
+          {PROVIDER_OPTIONS.map((p) => {
+            const isCloud = p.id === "vultr" || p.id === "hetzner";
+            const connected = isCloud ? connectorStatus[p.id] : true;
+            return (
+              <button
+                key={p.id}
+                onClick={() => pickProvider(p.id as NodeProvider)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "12px 14px", borderRadius: 8,
+                  border: `1px solid ${connected ? "var(--border)" : "var(--border)"}`,
+                  background: "var(--background)",
+                  cursor: "pointer", textAlign: "left",
+                  transition: "all 0.15s ease",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--color-teal)";
+                  e.currentTarget.style.background = "var(--accent)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border)";
+                  e.currentTarget.style.background = "var(--background)";
+                }}
+              >
+                <div style={{
+                  width: 36, height: 36, borderRadius: 8,
+                  background: p.id === "vultr" ? "rgba(0, 124, 255, 0.1)"
+                    : p.id === "hetzner" ? "rgba(213, 0, 41, 0.1)"
+                    : "rgba(100, 200, 180, 0.1)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontWeight: 700, fontSize: 16, flexShrink: 0,
+                  color: p.id === "vultr" ? "#007CFF"
+                    : p.id === "hetzner" ? "#D50029"
+                    : "var(--color-teal)",
+                }}>
+                  {p.icon}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</span>
+                    {isCloud && connected && (
+                      <span style={{
+                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                        background: "rgba(16, 185, 129, 0.1)", color: "var(--color-green)",
+                        fontWeight: 600, letterSpacing: "0.02em",
+                      }}>connected</span>
+                    )}
+                    {isCloud && !connected && (
+                      <span style={{
+                        fontSize: 9, padding: "1px 6px", borderRadius: 4,
+                        background: "rgba(var(--muted-foreground), 0.1)", color: "var(--muted-foreground)",
+                        fontWeight: 500, letterSpacing: "0.02em", opacity: 0.7,
+                      }}>setup required</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+                    {isCloud && !connected ? `Install the ${p.name} connector in Apps first` : p.desc}
+                  </div>
+                </div>
+                <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+              </button>
+            );
+          })}
         </div>
       </div>
     );

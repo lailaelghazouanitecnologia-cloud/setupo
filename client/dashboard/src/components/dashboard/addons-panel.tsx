@@ -9,7 +9,7 @@ import {
   Link2, ShoppingBag, Zap, Github,
   Cloud, MessageSquare, Database,
   HeartPulse, Shield, Timer,
-  Star, Check,
+  Star, Check, Server,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import {
@@ -41,6 +41,8 @@ const ADDON_ICONS: Record<string, typeof Puzzle> = {
   slack: MessageSquare,
   cloudflare: Globe,
   r2: Database,
+  vultr: Server,
+  hetzner: Server,
   // Marketplace
   "uptime-monitor": HeartPulse,
   "ssl-manager": Shield,
@@ -253,6 +255,12 @@ const CONNECTOR_FIELDS: Record<string, { key: string; label: string; placeholder
     { key: "access_key", label: "Access Key ID", placeholder: "Your R2 access key", secret: true },
     { key: "secret_key", label: "Secret Access Key", placeholder: "Your R2 secret key", secret: true },
     { key: "bucket", label: "Bucket Name", placeholder: "my-bucket" },
+  ],
+  vultr: [
+    { key: "api_key", label: "API Key", placeholder: "Your Vultr API key", secret: true },
+  ],
+  hetzner: [
+    { key: "api_token", label: "API Token", placeholder: "Your Hetzner Cloud API token", secret: true },
   ],
 };
 

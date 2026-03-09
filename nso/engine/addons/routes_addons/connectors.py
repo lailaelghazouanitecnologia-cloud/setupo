@@ -38,6 +38,8 @@ _REQUIRED = {
     "slack": ["bot_token"],
     "cloudflare": ["api_token"],
     "r2": ["endpoint", "access_key", "secret_key", "bucket"],
+    "vultr": ["api_key"],
+    "hetzner": ["api_token"],
 }
 
 _ALTERNATIVES = {
@@ -200,9 +202,42 @@ async def _test_r2(config: dict) -> dict:
         await r2.close()
 
 
+async def _test_vultr(config: dict) -> dict:
+    api_key = config.get("api_key", "")
+    if not api_key:
+        return {"ok": False, "message": "API key not configured"}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.get("https://api.vultr.com/v2/account", headers={
+            "Authorization": f"Bearer {api_key}",
+        })
+    if resp.status_code == 200:
+        d = resp.json().get("account", {})
+        return {"ok": True, "message": f"Connected — {d.get('name', 'Vultr account')}", "balance": d.get("balance", 0)}
+    if resp.status_code in (401, 403):
+        return {"ok": False, "message": "Invalid or expired API key"}
+    return {"ok": False, "message": f"Vultr API error ({resp.status_code})"}
+
+
+async def _test_hetzner(config: dict) -> dict:
+    api_token = config.get("api_token", "")
+    if not api_token:
+        return {"ok": False, "message": "API token not configured"}
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as c:
+        resp = await c.get("https://api.hetzner.cloud/v1/servers", headers={
+            "Authorization": f"Bearer {api_token}",
+        }, params={"per_page": 1})
+    if resp.status_code == 200:
+        total = resp.json().get("meta", {}).get("pagination", {}).get("total_entries", 0)
+        return {"ok": True, "message": f"Connected — {total} server(s)", "servers": total}
+    if resp.status_code in (401, 403):
+        return {"ok": False, "message": "Invalid or expired API token"}
+    return {"ok": False, "message": f"Hetzner API error ({resp.status_code})"}
+
+
 _TESTERS = {
     "github": _test_github, "s3": _test_s3, "slack": _test_slack,
     "cloudflare": _test_cloudflare, "r2": _test_r2,
+    "vultr": _test_vultr, "hetzner": _test_hetzner,
 }
 
 
