@@ -18,7 +18,6 @@ import {
   listWorkspaces, getInstanceMetrics,
   listComputeNodes, registerComputeNode, deleteComputeNode,
   drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
-  listAddons,
 } from "@/lib/api/client";
 // UI select not needed — using native <select> for simplicity
 
@@ -1002,115 +1001,14 @@ const labelStyle: React.CSSProperties = {
 };
 
 /* ═══════════════════════════════════════════
-   PROVIDER CARD + REGISTER NODE FORM
+   ADD INSTANCE FORM
    ═══════════════════════════════════════════ */
-
-function providerColor(id: string): string {
-  switch (id) {
-    case "nso": return "var(--color-teal)";
-    case "vultr": return "#007CFF";
-    case "hetzner": return "#D50029";
-    case "runpod": return "#6C3AED";
-    default: return "var(--color-teal)";
-  }
-}
-
-function providerBg(id: string): string {
-  switch (id) {
-    case "nso": return "rgba(100, 200, 180, 0.12)";
-    case "vultr": return "rgba(0, 124, 255, 0.1)";
-    case "hetzner": return "rgba(213, 0, 41, 0.1)";
-    case "runpod": return "rgba(108, 58, 237, 0.1)";
-    default: return "rgba(100, 200, 180, 0.1)";
-  }
-}
-
-type NodeProvider = "nso" | "vultr" | "hetzner" | "runpod" | "ssh" | null;
-
-const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string; primary?: boolean }[] = [
-  { id: "nso", name: "NSO Cloud", desc: "Get a server from us — ready in minutes", icon: "N", primary: true },
-  { id: "vultr", name: "Vultr", desc: "Use your own Vultr account (GPU available)", icon: "V" },
-  { id: "hetzner", name: "Hetzner", desc: "Use your own Hetzner Cloud account", icon: "H" },
-  { id: "runpod", name: "RunPod", desc: "GPU instances, volumes, and serverless", icon: "R" },
-  { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
-];
-
-function ProviderCard({ p, connected, needsSetup, onClick, highlight }: {
-  p: typeof PROVIDER_OPTIONS[0];
-  connected: boolean;
-  needsSetup?: boolean;
-  onClick: () => void;
-  highlight?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: highlight ? "14px 14px" : "10px 14px", borderRadius: 8,
-        border: `1px solid ${highlight ? providerColor(p.id) + "40" : "var(--border)"}`,
-        background: highlight ? providerBg(p.id) : "var(--background)",
-        cursor: "pointer", textAlign: "left",
-        transition: "all 0.15s ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = providerColor(p.id);
-        if (!highlight) e.currentTarget.style.background = "var(--accent)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = highlight ? providerColor(p.id) + "40" : "var(--border)";
-        if (!highlight) e.currentTarget.style.background = "var(--background)";
-      }}
-    >
-      <div style={{
-        width: highlight ? 40 : 32, height: highlight ? 40 : 32, borderRadius: 8,
-        background: highlight ? providerColor(p.id) + "20" : providerBg(p.id),
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontWeight: 700, fontSize: highlight ? 18 : 14, flexShrink: 0,
-        color: providerColor(p.id),
-      }}>
-        {p.icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</span>
-          {highlight && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "rgba(16, 185, 129, 0.15)", color: "var(--color-green)",
-              fontWeight: 600,
-            }}>recommended</span>
-          )}
-          {!highlight && needsSetup && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "var(--accent)", color: "var(--muted-foreground)",
-              fontWeight: 500, opacity: 0.7,
-            }}>setup required</span>
-          )}
-          {!highlight && connected && !needsSetup && (p.id === "vultr" || p.id === "hetzner" || p.id === "runpod") && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "rgba(16, 185, 129, 0.1)", color: "var(--color-green)",
-              fontWeight: 600,
-            }}>connected</span>
-          )}
-        </div>
-        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
-          {needsSetup ? `Install the ${p.name} connector in Apps first` : p.desc}
-        </div>
-      </div>
-      <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-    </button>
-  );
-}
 
 function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   projectId: string;
   onCreated: () => void;
   onCancel: () => void;
 }) {
-  const setActiveView = useDashboardStore((s) => s.setActiveView);
   const userEmail = useDashboardStore((s) => s.userEmail);
   const [method, setMethod] = useState<"pick" | "nso" | "ssh" | "install">("pick");
   const [label, setLabel] = useState("");
@@ -1120,19 +1018,6 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [connectorStatus, setConnectorStatus] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    listAddons(projectId, "connector").then((res) => {
-      const status: Record<string, boolean> = {};
-      for (const addon of (res.addons || [])) {
-        if (addon.addon_id === "vultr" || addon.addon_id === "hetzner" || addon.addon_id === "runpod") {
-          status[addon.addon_id] = !!(addon.installed && addon.enabled);
-        }
-      }
-      setConnectorStatus(status);
-    }).catch(() => {});
-  }, [projectId]);
 
   const installCmd = `curl -fsSL https://nso.dev/install | bash -s -- \\
   --host https://nso.dev \\
@@ -1186,6 +1071,43 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
     marginBottom: 16, background: "var(--sidebar-background)",
   };
 
+  const optionBtn = (
+    onClick: () => void,
+    icon: React.ReactNode,
+    iconBg: string,
+    iconColor: string,
+    title: string,
+    desc: string,
+    hoverColor: string,
+  ) => (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "10px 14px", borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--background)",
+        cursor: "pointer", textAlign: "left",
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = hoverColor; e.currentTarget.style.background = "var(--accent)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
+    >
+      <div style={{
+        width: 32, height: 32, borderRadius: 8, background: iconBg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontWeight: 700, fontSize: 14, flexShrink: 0, color: iconColor,
+      }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{title}</div>
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>{desc}</div>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+    </button>
+  );
+
   // ── Step 1: Pick method ──
   if (method === "pick") {
     return (
@@ -1196,12 +1118,41 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
 
         {/* NSO Cloud — primary */}
-        <ProviderCard
-          p={PROVIDER_OPTIONS[0]}
-          connected={true}
+        <button
           onClick={() => setMethod("nso")}
-          highlight
-        />
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "14px 14px", borderRadius: 8,
+            border: "1px solid rgba(100, 200, 180, 0.3)",
+            background: "rgba(100, 200, 180, 0.06)",
+            cursor: "pointer", textAlign: "left",
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-teal)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(100, 200, 180, 0.3)"; }}
+        >
+          <div style={{
+            width: 40, height: 40, borderRadius: 8,
+            background: "rgba(100, 200, 180, 0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 700, fontSize: 18, flexShrink: 0,
+            color: "var(--color-teal)",
+          }}>
+            N
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>NSO Cloud</span>
+              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "rgba(16, 185, 129, 0.15)", color: "var(--color-green)", fontWeight: 600 }}>
+                recommended
+              </span>
+            </div>
+            <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+              Get a server from us — ready in minutes
+            </div>
+          </div>
+          <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+        </button>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
@@ -1212,77 +1163,21 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {/* SSH Connect */}
-          <button
-            onClick={() => setMethod("ssh")}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "10px 14px", borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--background)",
-              cursor: "pointer", textAlign: "left",
-              transition: "all 0.15s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-teal)"; e.currentTarget.style.background = "var(--accent)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
-          >
-            <div style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "rgba(100, 200, 180, 0.1)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontWeight: 700, fontSize: 14, flexShrink: 0,
-              color: "var(--color-teal)", fontFamily: "monospace",
-            }}>
-              {">_"}
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>Server or computer</div>
-              <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
-                Hetzner, OVH, a VPS, or your own machine
-              </div>
-            </div>
-            <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-          </button>
-
-          {/* Install command */}
-          <button
-            onClick={() => setMethod("install")}
-            style={{
-              display: "flex", alignItems: "center", gap: 12,
-              padding: "10px 14px", borderRadius: 8,
-              border: "1px solid var(--border)",
-              background: "var(--background)",
-              cursor: "pointer", textAlign: "left",
-              transition: "all 0.15s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "#6C3AED"; e.currentTarget.style.background = "var(--accent)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
-          >
-            <div style={{
-              width: 32, height: 32, borderRadius: 8,
-              background: "rgba(108, 58, 237, 0.1)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontWeight: 700, fontSize: 14, flexShrink: 0,
-              color: "#6C3AED",
-            }}>
-              <Download className="h-4 w-4" />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>Install command</div>
-              <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
-                Run a one-liner on any machine to connect it
-              </div>
-            </div>
-            <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-          </button>
-
-          {/* Existing Vultr instance (if connected) */}
-          {connectorStatus["vultr"] && (
-            <ProviderCard
-              p={PROVIDER_OPTIONS.find(p => p.id === "vultr")!}
-              connected={true}
-              onClick={() => { setActiveView("addons"); }}
-            />
+          {optionBtn(
+            () => setMethod("ssh"),
+            <span style={{ fontFamily: "monospace" }}>{">_"}</span>,
+            "rgba(100, 200, 180, 0.1)", "var(--color-teal)",
+            "Server or computer",
+            "Hetzner, OVH, a VPS, or your own machine",
+            "var(--color-teal)",
+          )}
+          {optionBtn(
+            () => setMethod("install"),
+            <Download className="h-4 w-4" />,
+            "rgba(108, 58, 237, 0.1)", "#6C3AED",
+            "Install command",
+            "Run a one-liner on any machine to connect it",
+            "#6C3AED",
           )}
         </div>
       </div>
@@ -1419,10 +1314,10 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </button>
         <div style={{
           width: 24, height: 24, borderRadius: 6,
-          background: providerBg("nso"),
+          background: "rgba(100, 200, 180, 0.12)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontWeight: 700, fontSize: 12, flexShrink: 0,
-          color: providerColor("nso"),
+          color: "var(--color-teal)",
         }}>
           N
         </div>
