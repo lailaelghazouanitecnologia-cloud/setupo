@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from nso.engine.services import service as svc
 from nso.shared.errors import NsoError
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_owner
 
 router = APIRouter()
 
@@ -33,7 +33,7 @@ async def list_services(
 @router.post("")
 async def create_service(
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Register a new service."""
     name = body.get("name")
@@ -77,7 +77,7 @@ async def get_service_overview(
 async def update_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Update service configuration."""
     try:
@@ -90,7 +90,7 @@ async def update_service(
 @router.delete("/{service_id}")
 async def delete_service(
     service_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Delete a service and all its replicas."""
     try:
@@ -107,7 +107,7 @@ async def delete_service(
 async def deploy_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Deploy a service to target(s). Body: {"target_ids": ["node_xxx", "inst_xxx", ...]}"""
     target_ids = body.get("target_ids") or body.get("instance_ids") or body.get("node_ids", [])
@@ -127,7 +127,7 @@ async def deploy_service(
 async def start_service(
     service_id: str,
     body: dict = Body(default={}),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Re-deploy a stopped service to its existing replicas' instances."""
     try:
@@ -145,7 +145,7 @@ async def start_service(
 @router.post("/{service_id}/stop")
 async def stop_service(
     service_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Stop all replicas of a service across all nodes/instances."""
     try:
@@ -219,7 +219,7 @@ async def get_service_health(
 async def scale_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Set desired replica count. Body: {"replicas": 3}"""
     replicas = body.get("replicas")
@@ -251,7 +251,7 @@ async def get_scaling(
 async def set_scaling(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Set scaling policy. Body: {"min_replicas": 1, "max_replicas": 5, "metric": "cpu", "target_value": 70}"""
     try:
@@ -337,7 +337,7 @@ async def list_connections(
 @connections_router.post("")
 async def create_connection(
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Create a resource connection. Body: {"source_type": "service", "source_id": "svc_xxx", "target_type": "database", "target_id": "db_xxx", "config": {}}"""
     for field in ("source_type", "source_id", "target_type", "target_id"):
@@ -358,7 +358,7 @@ async def create_connection(
 @connections_router.delete("/{connection_id}")
 async def delete_connection(
     connection_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Delete a resource connection."""
     try:

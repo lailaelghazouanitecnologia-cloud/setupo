@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from nso.shared import db
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_owner
 from nso.engine.build.service import (
     compute_source_hash,
     check_cache,
@@ -36,7 +36,7 @@ class BuildCacheQuery(BaseModel):
 
 
 @router.post("/{name}/build")
-async def build_workspace(name: str, req: BuildRequest, project_id: str = Depends(require_project)):
+async def build_workspace(name: str, req: BuildRequest, project_id: str = Depends(require_project_owner)):
     """Build a workspace. Smart routing decides where the build runs.
 
     Flow:

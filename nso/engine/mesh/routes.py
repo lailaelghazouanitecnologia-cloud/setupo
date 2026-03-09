@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_owner
 from nso.shared.errors import NsoError
 from nso.engine.mesh import service as mesh
 from nso.engine.mesh.models import (
@@ -35,7 +35,7 @@ async def list_devices(
 @router.post("/devices")
 async def register_device(
     req: RegisterDeviceRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         device = await mesh.register_device(
@@ -73,7 +73,7 @@ async def get_device(
 async def update_device(
     device_id: str,
     req: UpdateDeviceRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         device = await mesh.update_device(
@@ -88,7 +88,7 @@ async def update_device(
 @router.delete("/devices/{device_id}")
 async def delete_device(
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         await mesh.delete_device(project_id, device_id)
@@ -125,7 +125,7 @@ async def activate_device(
 async def exec_on_device(
     device_id: str,
     req: DeviceExecRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         result = await mesh.exec_on_device(
@@ -180,7 +180,7 @@ async def read_device_file(
 @router.post("/devices/{device_id}/files/write")
 async def write_device_file(
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
     path: str = "",
     content: str = "",
 ):
@@ -218,7 +218,7 @@ async def list_groups(project_id: str = Depends(require_project)):
 @router.post("/groups")
 async def create_group(
     req: CreateGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         group = await mesh.create_group(project_id, req.name, req.description)
@@ -231,7 +231,7 @@ async def create_group(
 async def update_group(
     group_id: str,
     req: UpdateGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         group = await mesh.update_group(
@@ -246,7 +246,7 @@ async def update_group(
 @router.delete("/groups/{group_id}")
 async def delete_group(
     group_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         await mesh.delete_group(project_id, group_id)
@@ -259,7 +259,7 @@ async def delete_group(
 async def add_devices_to_group(
     group_id: str,
     req: AddDevicesToGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         await mesh.add_devices_to_group(project_id, group_id, req.device_ids)
@@ -272,7 +272,7 @@ async def add_devices_to_group(
 async def remove_device_from_group(
     group_id: str,
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         await mesh.remove_device_from_group(project_id, group_id, device_id)
@@ -288,7 +288,7 @@ async def remove_device_from_group(
 async def exec_on_group(
     group_id: str,
     req: GroupExecRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     try:
         results = await mesh.exec_on_group(

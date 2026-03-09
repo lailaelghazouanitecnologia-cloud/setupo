@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from nso.shared import db
-from nso.shared.deps import require_project, require_user, AuthContext
+from nso.shared.deps import require_project, require_project_owner, require_user, AuthContext
 from nso.config import settings
 from . import service
 
@@ -154,7 +154,7 @@ async def list_checks(project_id: str = Depends(require_project)):
 @router.post("/checks")
 async def create_check(
     req: SaveCheckRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
     auth: AuthContext = Depends(require_user),
 ):
     """Save a validation check definition (upserts by name)."""
@@ -189,7 +189,7 @@ async def get_check(
 @router.delete("/checks/{name}")
 async def delete_check(
     name: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_owner),
 ):
     """Delete a saved check definition."""
     deleted = await service.delete_validation(project_id, name)
