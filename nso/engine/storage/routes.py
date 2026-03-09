@@ -6,6 +6,7 @@ import tarfile
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from nso.shared import db
@@ -14,7 +15,7 @@ from nso.engine.storage.zar_packer import pack, read_manifest
 from nso.engine.storage.service import R2Client
 from nso.engine.workspace.config import read_config, read_package_config
 from nso.config import settings
-from nso.shared.deps import require_project, require_admin, AuthContext
+from nso.shared.deps import require_project, require_project_admin, require_admin, AuthContext
 from nso.engine.build.service import (
     compute_source_hash,
     check_cache as check_build_cache,
@@ -215,8 +216,8 @@ class SelfUpdateRequest(BaseModel):
     r2_key: str = ""
 
 
-@router.post("/{name}/pack")
-async def pack_workspace(name: str, project_id: str = Depends(require_project)):
+@router.post("/{name}/pack", summary="Pack workspace into .zar")
+async def pack_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -239,8 +240,8 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project)):
     return {"ok": True, "manifest": manifest.model_dump(), "size": len(zar_bytes)}
 
 
-@router.post("/{name}/push")
-async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project)):
+@router.post("/{name}/push", summary="Push .zar to R2")
+async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -274,8 +275,8 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
     ).model_dump()
 
 
-@router.post("/{name}/deploy")
-async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project)):
+@router.post("/{name}/deploy", summary="Deploy .zar to instance")
+async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project_admin)):
     instance_id = await _resolve_instance(name, project_id, req.instance_id)
 
     if req.version:
@@ -324,8 +325,8 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     }
 
 
-@router.post("/{name}/ship")
-async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project)):
+@router.post("/{name}/ship", summary="Ship workspace")
+async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")
@@ -496,8 +497,166 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     }
 
 
-@router.post("/{name}/rollback")
-async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project)):
+class DeployStreamRequest(BaseModel):
+    branch: str = "main"
+    instance_id: str = ""
+    domain: str = ""
+
+
+@router.post("/{name}/ship-stream", summary="Ship workspace with SSE progress")
+async def ship_workspace_stream(name: str, req: DeployStreamRequest, project_id: str = Depends(require_project_admin)):
+    """Ship a workspace with real-time SSE progress streaming.
+
+    Returns an SSE stream that emits phase completion events as the deploy
+    pipeline progresses on the agent.
+    """
+    ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
+    if not ws:
+        raise HTTPException(404, f"Workspace '{name}' not found")
+
+    ws_path = ws.get("path", "")
+    if not ws_path:
+        raise HTTPException(400, f"Workspace '{name}' has no path configured")
+
+    instance_id = await _resolve_instance(name, project_id, req.instance_id)
+    agent_url = await _get_agent_url(instance_id, project_id)
+    token = await _get_agent_token(agent_url)
+
+    async def event_stream():
+        import json as _json
+
+        # Phase 1: Pack
+        yield _sse_event("phase", {"phase": "pack", "status": "running"})
+        try:
+            pkg_config = read_package_config(ws_path)
+            zar_bytes, manifest = pack(
+                workspace_path=ws_path,
+                version=pkg_config.version if pkg_config else None,
+                branch=req.branch,
+                project_id=project_id,
+            )
+            yield _sse_event("phase", {"phase": "pack", "status": "done", "size": len(zar_bytes)})
+        except Exception as exc:
+            yield _sse_event("error", {"phase": "pack", "message": str(exc)[:500]})
+            return
+
+        # Phase 2: Push to R2
+        yield _sse_event("phase", {"phase": "push", "status": "running"})
+        try:
+            r2 = _get_r2()
+            try:
+                r2_key = await r2.upload_zar(project_id, name, req.branch, manifest.version, zar_bytes)
+            finally:
+                await r2.close()
+            yield _sse_event("phase", {"phase": "push", "status": "done", "r2_key": r2_key})
+        except Exception as exc:
+            yield _sse_event("error", {"phase": "push", "message": str(exc)[:500]})
+            return
+
+        # Phase 3: Resolve secrets + smart build
+        resolved_secrets: dict[str, str] = {}
+        try:
+            rows = await db.fetch_all("project_secrets", project_id=project_id)
+            for row in rows:
+                k = row.get("key", "")
+                v = row.get("value", "")
+                if k:
+                    resolved_secrets[k] = v
+        except Exception:
+            pass
+
+        build_command = _detect_build_command(ws_path)
+        config = read_config(ws_path)
+        stack = config.type if config else ""
+        if build_command:
+            yield _sse_event("phase", {"phase": "build_check", "status": "running"})
+            build_result = await execute_build(
+                project_id=project_id, workspace=name,
+                zar_bytes=zar_bytes, build_command=build_command,
+                stack=stack, secrets=resolved_secrets,
+            )
+            if build_result.get("artifact_r2_key"):
+                resolved_secrets["__BUILD_ARTIFACT_R2_KEY"] = build_result["artifact_r2_key"]
+            yield _sse_event("phase", {
+                "phase": "build_check", "status": "done",
+                "strategy": build_result.get("strategy", ""),
+                "cached": build_result.get("cached", False),
+            })
+
+        # Phase 4: Deploy to agent (non-blocking — poll for progress)
+        yield _sse_event("phase", {"phase": "deploy", "status": "running"})
+        await db.update("instances", instance_id, {"state": "deploying", "workspace": name})
+
+        r2 = _get_r2()
+        presigned_url = r2.presign_get(r2_key, expires_in=900)
+        await r2.close()
+
+        # Start deploy in background via agent
+        deploy_task = asyncio.create_task(_deploy_via_agent(
+            agent_url, token, r2_key, secrets=resolved_secrets,
+        ))
+
+        # Poll agent for progress while deploy runs
+        seen_phases = 0
+        poll_interval = 2.0
+        while not deploy_task.done():
+            await asyncio.sleep(poll_interval)
+            try:
+                async with _agent_client(5.0) as client:
+                    resp = await client.get(
+                        f"{agent_url}/deploy/progress",
+                        headers={"Authorization": f"Bearer {token}"},
+                        params={"target_dir": "/opt/app"},
+                    )
+                    if resp.status_code == 200:
+                        progress = resp.json()
+                        phases = progress.get("phases", [])
+                        # Emit new phases since last check
+                        for p in phases[seen_phases:]:
+                            yield _sse_event("pipeline_phase", p)
+                        seen_phases = len(phases)
+            except Exception:
+                pass  # polling failure is non-fatal
+
+        # Get deploy result
+        try:
+            result = await deploy_task
+            await db.update("instances", instance_id, {"state": "running", "error": ""})
+
+            # Emit any remaining phases
+            for p in result.get("phases", [])[seen_phases:]:
+                yield _sse_event("pipeline_phase", p)
+
+            yield _sse_event("done", {
+                "ok": True,
+                "version": manifest.version,
+                "workspace": name,
+                "branch": req.branch,
+                "snapshot": result.get("snapshot", ""),
+            })
+        except Exception as exc:
+            await db.update("instances", instance_id, {"state": "error", "error": str(exc)[:500]})
+            yield _sse_event("error", {"phase": "deploy", "message": str(exc)[:500]})
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+def _sse_event(event_type: str, data: dict) -> str:
+    """Format an SSE event."""
+    import json as _json
+    return f"event: {event_type}\ndata: {_json.dumps(data)}\n\n"
+
+
+@router.post("/{name}/rollback", summary="Rollback deployment")
+async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project_admin)):
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
 
@@ -526,8 +685,8 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
         raise HTTPException(502, "Agent returned invalid response")
 
 
-@router.post("/{name}/branch")
-async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project)):
+@router.post("/{name}/branch", summary="Create branch")
+async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
         key = await r2.copy_branch(project_id, name, req.from_branch, req.name)
@@ -538,8 +697,8 @@ async def create_branch(name: str, req: BranchRequest, project_id: str = Depends
     return {"ok": True, "branch": req.name, "from": req.from_branch, "r2_key": key}
 
 
-@router.post("/{name}/merge")
-async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project)):
+@router.post("/{name}/merge", summary="Merge branches")
+async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
         zar_bytes = await r2.download_zar(project_id, name, req.from_branch)
@@ -553,7 +712,7 @@ async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(r
     return {"ok": True, "merged": f"{req.from_branch} → {req.to_branch}", "version": version, "r2_key": key}
 
 
-@router.get("/{name}/versions")
+@router.get("/{name}/versions", summary="List versions and branches")
 async def list_versions(name: str, branch: str = "main", project_id: str = Depends(require_project)):
     r2 = _get_r2()
     try:
@@ -573,6 +732,8 @@ def _detect_build_command(ws_path: str) -> str:
         ("Makefile", "make build"),
         ("Cargo.toml", "cargo build --release"),
         ("go.mod", "go build -o app ./..."),
+        ("setup.py", "python setup.py build"),
+        ("pyproject.toml", "python -m build"),
     ]
 
     for filename, command in checks:
@@ -583,6 +744,15 @@ def _detect_build_command(ws_path: str) -> str:
                     with open(fpath) as f:
                         pkg = _json.load(f)
                     if "build" not in pkg.get("scripts", {}):
+                        continue
+                except Exception:
+                    continue
+            elif filename == "pyproject.toml":
+                # Only suggest build if there's a [build-system] section
+                try:
+                    with open(fpath) as f:
+                        content = f.read()
+                    if "[build-system]" not in content:
                         continue
                 except Exception:
                     continue
@@ -605,7 +775,7 @@ class PlatformUpdateProxyRequest(BaseModel):
     server_side_build: bool = True  # Build frontends on main server (recommended)
 
 
-@router.post("/build-frontends")
+@router.post("/build-frontends", summary="Build frontend assets")
 async def build_frontends(req: BuildFrontendsRequest, auth: AuthContext = Depends(require_admin)):
     """Build dashboard and admin frontends on the main server.
 
@@ -713,7 +883,7 @@ async def build_frontends(req: BuildFrontendsRequest, auth: AuthContext = Depend
     return results
 
 
-@router.post("/platform-update")
+@router.post("/platform-update", summary="Update platform on instance")
 async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthContext = Depends(require_admin)):
     """Full platform update: build frontends on main server, then update instance.
 
@@ -793,8 +963,8 @@ async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthConte
         raise HTTPException(502, "Agent returned invalid response")
 
 
-@router.post("/self-update")
-async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project)):
+@router.post("/self-update", summary="Self-update agent on instance")
+async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project_admin)):
     r2_cfg = settings.r2_config()
     if not req.r2_key:
         default_keys = {

@@ -44,6 +44,7 @@ class PipelineResult:
         self.ok = True
         self.error = ""
         self.rolled_back = False
+        self.on_phase_callback = None
 
     def log_phase(self, name: str, ok: bool, message: str = "", duration: float = 0):
         self.phases.append({
@@ -55,6 +56,8 @@ class PipelineResult:
         if not ok:
             self.ok = False
             self.error = f"Phase '{name}' failed: {message[:300]}"
+        if self.on_phase_callback:
+            self.on_phase_callback(name, ok, message, duration)
 
     def to_dict(self) -> dict:
         return {
@@ -81,6 +84,7 @@ class DeployPipeline:
         self.snapshot_name: str = ""
         self.is_first_deploy = False
         self.skip_build = False  # skip build phase when pre-built artifact was applied
+        self.on_phase = None  # optional callback: fn(name, ok, message, duration)
 
     async def run(self, deploy_toml_content: str | None = None) -> PipelineResult:
         """Execute the full pipeline.
@@ -88,6 +92,10 @@ class DeployPipeline:
         Args:
             deploy_toml_content: Raw deploy.toml text. If None, reads from target_dir.
         """
+        # Wire up phase callback
+        if self.on_phase:
+            self.result.on_phase_callback = self.on_phase
+
         # Phase 0: Prepare
         t0 = _now()
         try:
@@ -680,6 +688,12 @@ class DeployPipeline:
         if ok:
             self.result.rolled_back = True
             logger.info("Rolled back to snapshot %s", self.snapshot_name)
+
+            # Reload systemd and nginx after config restore
+            await _run_cmd("systemctl daemon-reload")
+            out, code = await _run_cmd("nginx -t 2>&1")
+            if code == 0:
+                await _run_cmd("systemctl reload nginx")
 
             # Restart all services
             services = self.config.get("services", {})

@@ -34,6 +34,30 @@ async def require_project(request: Request, auth: AuthContext = Depends(get_auth
     raise AuthError("This endpoint requires authentication")
 
 
+async def require_project_admin(request: Request, auth: AuthContext = Depends(get_auth)) -> str:
+    """Requires project admin role — project owner, project admin member, or platform admin."""
+    if not auth:
+        raise AuthError("Authentication required")
+    if auth.project_id:
+        return auth.project_id
+    project_id = request.path_params.get("project_id")
+    if not project_id:
+        raise NsoError("Request must include project_id in URL", 400)
+    if auth.is_admin:
+        return project_id
+    if auth.user_id:
+        from nso.shared import db
+        project = await db.fetch_one("projects", id=project_id)
+        if project and project.get("owner") == auth.user_id:
+            return project_id
+        member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
+        if member and member.get("role") == "admin":
+            return project_id
+        raise NsoError("Admin access required for this project", 403)
+    raise AuthError("This endpoint requires authentication")
+
+
+
 async def require_admin(auth: AuthContext = Depends(get_auth)) -> AuthContext:
     if not auth or not auth.is_admin:
         raise NsoError("Admin access required", 403)

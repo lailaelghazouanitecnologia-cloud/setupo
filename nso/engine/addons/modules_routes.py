@@ -108,14 +108,14 @@ async def _ensure_modules_seeded():
     logger.info("Seeded %d default modules", len(_DEFAULT_MODULES))
 
 
-@router.get("/catalog")
+@router.get("/catalog", summary="List module catalog")
 async def list_catalog():
     await _ensure_modules_seeded()
     modules = await db.fetch_all("modules", order_by="name ASC", published=True)
     return {"modules": modules, "count": len(modules)}
 
 
-@router.get("/catalog/{name}")
+@router.get("/catalog/{name}", summary="Get module details")
 async def get_module(name: str):
     mod = await db.fetch_one("modules", name=name)
     if not mod or not mod.get("published"):
@@ -123,14 +123,14 @@ async def get_module(name: str):
     return {"module": mod}
 
 
-@router.get("")
+@router.get("", summary="List all modules")
 async def list_all_modules(auth: AuthContext = Depends(require_admin)):
     await _ensure_modules_seeded()
     modules = await db.fetch_all("modules", order_by="name ASC")
     return {"modules": modules, "count": len(modules)}
 
 
-@router.post("")
+@router.post("", summary="Publish module")
 async def publish_module(req: PublishModuleRequest, auth: AuthContext = Depends(require_admin)):
     name = req.name.strip().lower()
     if not name:
@@ -171,7 +171,7 @@ async def publish_module(req: PublishModuleRequest, auth: AuthContext = Depends(
     return {"ok": True, "action": "created", "name": name, "version": req.version}
 
 
-@router.post("/{name}/upload")
+@router.post("/{name}/upload", summary="Upload module package")
 async def upload_module_zar(
     name: str,
     version: str = Form(""),
@@ -222,7 +222,7 @@ async def upload_module_zar(
     }
 
 
-@router.get("/{name}/versions")
+@router.get("/{name}/versions", summary="List module versions")
 async def list_module_versions(name: str):
     mod = await db.fetch_one("modules", name=name)
     if not mod:
@@ -249,7 +249,7 @@ async def list_module_versions(name: str):
     }
 
 
-@router.get("/{name}/download")
+@router.get("/{name}/download", summary="Get download info")
 async def download_module_info(name: str, version: str = ""):
     mod = await db.fetch_one("modules", name=name)
     if not mod or not mod.get("published"):
@@ -280,7 +280,7 @@ async def download_module_info(name: str, version: str = ""):
     }
 
 
-@router.patch("/{name}")
+@router.patch("/{name}", summary="Update module")
 async def update_module(name: str, updates: dict, auth: AuthContext = Depends(require_admin)):
     existing = await db.fetch_one("modules", name=name)
     if not existing:
@@ -296,7 +296,7 @@ async def update_module(name: str, updates: dict, auth: AuthContext = Depends(re
     return {"ok": True, "name": name, "updated": list(filtered.keys())}
 
 
-@router.delete("/{name}")
+@router.delete("/{name}", summary="Remove module")
 async def remove_module(name: str, auth: AuthContext = Depends(require_admin)):
     existing = await db.fetch_one("modules", name=name)
     if not existing:

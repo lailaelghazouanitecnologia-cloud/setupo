@@ -126,7 +126,7 @@ class WalletTopUpRequest(BaseModel):
 #  Plans
 # ──────────────────────────────────────────────
 
-@router.get("/plans")
+@router.get("/plans", summary="List billing plans")
 async def list_plans():
     """List available billing plans (public)."""
     plans = await billing.list_plans()
@@ -151,7 +151,7 @@ async def list_plans():
 #  Subscriptions
 # ──────────────────────────────────────────────
 
-@router.get("/subscription")
+@router.get("/subscription", summary="Get subscription")
 async def get_subscription(auth: AuthContext = Depends(require_user)):
     """Get current user's active subscription."""
     sub = await billing.get_subscription(auth.user_id)
@@ -161,7 +161,7 @@ async def get_subscription(auth: AuthContext = Depends(require_user)):
     return {"subscription": sub, "plan": plan}
 
 
-@router.post("/subscribe")
+@router.post("/subscribe", summary="Subscribe to plan")
 async def subscribe(req: SubscribeRequest, auth: AuthContext = Depends(require_user)):
     """Subscribe to a plan (free plans only — paid plans use /checkout)."""
     try:
@@ -179,7 +179,7 @@ async def subscribe(req: SubscribeRequest, auth: AuthContext = Depends(require_u
     return {"ok": True, "subscription": sub}
 
 
-@router.post("/cancel")
+@router.post("/cancel", summary="Cancel subscription")
 async def cancel_subscription(auth: AuthContext = Depends(require_user)):
     """Cancel the current subscription."""
     try:
@@ -189,7 +189,7 @@ async def cancel_subscription(auth: AuthContext = Depends(require_user)):
     return {"ok": True, "subscription": sub}
 
 
-@router.post("/pause")
+@router.post("/pause", summary="Pause subscription")
 async def pause_subscription(auth: AuthContext = Depends(require_user)):
     """Pause the current subscription."""
     try:
@@ -199,7 +199,7 @@ async def pause_subscription(auth: AuthContext = Depends(require_user)):
     return {"ok": True, "subscription": sub}
 
 
-@router.post("/resume")
+@router.post("/resume", summary="Resume subscription")
 async def resume_subscription(auth: AuthContext = Depends(require_user)):
     """Resume a paused subscription."""
     try:
@@ -213,14 +213,14 @@ async def resume_subscription(auth: AuthContext = Depends(require_user)):
 #  Coupons
 # ──────────────────────────────────────────────
 
-@router.get("/coupons")
+@router.get("/coupons", summary="List coupons")
 async def list_coupons(auth: AuthContext = Depends(require_admin)):
     """List all coupons (admin only)."""
     coupons = await billing.list_coupons(active_only=False)
     return {"coupons": coupons, "count": len(coupons)}
 
 
-@router.post("/coupons")
+@router.post("/coupons", summary="Create coupon")
 async def create_coupon(req: CouponCreateRequest, auth: AuthContext = Depends(require_admin)):
     """Create a coupon (admin only)."""
     try:
@@ -236,7 +236,7 @@ async def create_coupon(req: CouponCreateRequest, auth: AuthContext = Depends(re
     return {"ok": True, "coupon": coupon}
 
 
-@router.post("/coupons/{code}/deactivate")
+@router.post("/coupons/{code}/deactivate", summary="Deactivate coupon")
 async def deactivate_coupon(code: str, auth: AuthContext = Depends(require_admin)):
     """Deactivate a coupon (admin only)."""
     try:
@@ -246,7 +246,7 @@ async def deactivate_coupon(code: str, auth: AuthContext = Depends(require_admin
     return {"ok": True, "coupon": coupon}
 
 
-@router.post("/coupons/apply")
+@router.post("/coupons/apply", summary="Apply coupon code")
 async def apply_coupon(req: ApplyCouponRequest, auth: AuthContext = Depends(require_user)):
     """Apply a coupon code to the current user."""
     sub = await billing.get_subscription(auth.user_id)
@@ -260,7 +260,7 @@ async def apply_coupon(req: ApplyCouponRequest, auth: AuthContext = Depends(requ
     return {"ok": True, "applied_coupon": applied}
 
 
-@router.delete("/coupons/applied/{applied_id}")
+@router.delete("/coupons/applied/{applied_id}", summary="Remove applied coupon")
 async def remove_applied_coupon(applied_id: str, auth: AuthContext = Depends(require_user)):
     """Remove an applied coupon."""
     try:
@@ -270,7 +270,7 @@ async def remove_applied_coupon(applied_id: str, auth: AuthContext = Depends(req
     return {"ok": True}
 
 
-@router.get("/coupons/applied")
+@router.get("/coupons/applied", summary="List applied coupons")
 async def list_applied_coupons(auth: AuthContext = Depends(require_user)):
     """List user's active applied coupons."""
     applied = await billing.list_applied_coupons(auth.user_id)
@@ -281,14 +281,14 @@ async def list_applied_coupons(auth: AuthContext = Depends(require_user)):
 #  Credit Notes
 # ──────────────────────────────────────────────
 
-@router.get("/credit-notes")
+@router.get("/credit-notes", summary="List credit notes")
 async def list_credit_notes(auth: AuthContext = Depends(require_user)):
     """List user's credit notes."""
     notes = await billing.list_credit_notes(auth.user_id)
     return {"credit_notes": notes, "count": len(notes)}
 
 
-@router.post("/credit-notes")
+@router.post("/credit-notes", summary="Create credit note")
 async def create_credit_note(req: CreditNoteRequest, auth: AuthContext = Depends(require_admin)):
     """Create a credit note (admin only)."""
     user_id = req.user_id
@@ -305,7 +305,7 @@ async def create_credit_note(req: CreditNoteRequest, auth: AuthContext = Depends
     return {"ok": True, "credit_note": cn}
 
 
-@router.get("/credit-notes/{cn_id}")
+@router.get("/credit-notes/{cn_id}", summary="Get credit note")
 async def get_credit_note(cn_id: str, auth: AuthContext = Depends(require_user)):
     """Get a credit note."""
     try:
@@ -317,7 +317,7 @@ async def get_credit_note(cn_id: str, auth: AuthContext = Depends(require_user))
     return {"credit_note": cn}
 
 
-@router.post("/credit-notes/{cn_id}/void")
+@router.post("/credit-notes/{cn_id}/void", summary="Void credit note")
 async def void_credit_note(cn_id: str, auth: AuthContext = Depends(require_admin)):
     """Void a credit note (admin only)."""
     try:
@@ -331,14 +331,14 @@ async def void_credit_note(cn_id: str, auth: AuthContext = Depends(require_admin
 #  Billable Metrics
 # ──────────────────────────────────────────────
 
-@router.get("/metrics")
+@router.get("/metrics", summary="List billable metrics")
 async def list_billable_metrics(auth: AuthContext = Depends(require_admin)):
     """List all billable metrics (admin only)."""
     metrics = await billing.list_billable_metrics()
     return {"metrics": metrics, "count": len(metrics)}
 
 
-@router.post("/metrics")
+@router.post("/metrics", summary="Create billable metric")
 async def create_billable_metric(req: BillableMetricRequest, auth: AuthContext = Depends(require_admin)):
     """Create a billable metric (admin only)."""
     try:
@@ -352,7 +352,7 @@ async def create_billable_metric(req: BillableMetricRequest, auth: AuthContext =
     return {"ok": True, "metric": m}
 
 
-@router.patch("/metrics/{code}")
+@router.patch("/metrics/{code}", summary="Update billable metric")
 async def update_billable_metric(code: str, updates: dict, auth: AuthContext = Depends(require_admin)):
     """Update a billable metric (admin only)."""
     try:
@@ -362,7 +362,7 @@ async def update_billable_metric(code: str, updates: dict, auth: AuthContext = D
     return {"ok": True, "metric": m}
 
 
-@router.delete("/metrics/{code}")
+@router.delete("/metrics/{code}", summary="Delete billable metric")
 async def delete_billable_metric(code: str, auth: AuthContext = Depends(require_admin)):
     """Delete a billable metric (admin only)."""
     try:
@@ -376,7 +376,7 @@ async def delete_billable_metric(code: str, auth: AuthContext = Depends(require_
 #  Usage Events
 # ──────────────────────────────────────────────
 
-@router.post("/usage")
+@router.post("/usage", summary="Record usage event")
 async def record_usage(req: UsageEventRequest, auth: AuthContext = Depends(require_user)):
     """Record a usage event for the current user."""
     event_id = await billing.record_usage(
@@ -386,7 +386,7 @@ async def record_usage(req: UsageEventRequest, auth: AuthContext = Depends(requi
     return {"ok": True, "event_id": event_id}
 
 
-@router.get("/usage/summary")
+@router.get("/usage/summary", summary="Get usage summary")
 async def get_usage_summary(auth: AuthContext = Depends(require_user)):
     """Get usage summary for the current billing period."""
     sub = await billing.get_subscription(auth.user_id)
@@ -409,14 +409,14 @@ async def get_usage_summary(auth: AuthContext = Depends(require_user)):
 #  Tax Rates
 # ──────────────────────────────────────────────
 
-@router.get("/taxes")
+@router.get("/taxes", summary="List tax rates")
 async def list_tax_rates(auth: AuthContext = Depends(require_admin)):
     """List tax rates (admin only)."""
     taxes = await billing.list_tax_rates(active_only=False)
     return {"taxes": taxes, "count": len(taxes)}
 
 
-@router.post("/taxes")
+@router.post("/taxes", summary="Create tax rate")
 async def create_tax_rate(req: TaxRateRequest, auth: AuthContext = Depends(require_admin)):
     """Create a tax rate (admin only)."""
     try:
@@ -429,7 +429,7 @@ async def create_tax_rate(req: TaxRateRequest, auth: AuthContext = Depends(requi
     return {"ok": True, "tax": tax}
 
 
-@router.patch("/taxes/{code}")
+@router.patch("/taxes/{code}", summary="Update tax rate")
 async def update_tax_rate(code: str, updates: dict, auth: AuthContext = Depends(require_admin)):
     """Update a tax rate (admin only)."""
     try:
@@ -443,14 +443,14 @@ async def update_tax_rate(code: str, updates: dict, auth: AuthContext = Depends(
 #  Wallets
 # ──────────────────────────────────────────────
 
-@router.get("/wallets")
+@router.get("/wallets", summary="List wallets")
 async def list_wallets(auth: AuthContext = Depends(require_user)):
     """List user's wallets."""
     wallets = await billing.list_wallets(auth.user_id)
     return {"wallets": wallets, "count": len(wallets)}
 
 
-@router.post("/wallets")
+@router.post("/wallets", summary="Create wallet")
 async def create_wallet(req: WalletCreateRequest, auth: AuthContext = Depends(require_user)):
     """Create a prepaid wallet."""
     try:
@@ -464,7 +464,7 @@ async def create_wallet(req: WalletCreateRequest, auth: AuthContext = Depends(re
     return {"ok": True, "wallet": wallet}
 
 
-@router.get("/wallets/{wallet_id}")
+@router.get("/wallets/{wallet_id}", summary="Get wallet")
 async def get_wallet(wallet_id: str, auth: AuthContext = Depends(require_user)):
     """Get a wallet."""
     try:
@@ -476,7 +476,7 @@ async def get_wallet(wallet_id: str, auth: AuthContext = Depends(require_user)):
     return {"wallet": wallet}
 
 
-@router.post("/wallets/{wallet_id}/topup")
+@router.post("/wallets/{wallet_id}/topup", summary="Top up wallet")
 async def top_up_wallet(wallet_id: str, req: WalletTopUpRequest, auth: AuthContext = Depends(require_user)):
     """Top up a wallet with credits."""
     try:
@@ -492,7 +492,7 @@ async def top_up_wallet(wallet_id: str, req: WalletTopUpRequest, auth: AuthConte
     return {"ok": True, "wallet": wallet}
 
 
-@router.get("/wallets/{wallet_id}/transactions")
+@router.get("/wallets/{wallet_id}/transactions", summary="List wallet transactions")
 async def wallet_transactions(wallet_id: str, auth: AuthContext = Depends(require_user)):
     """List transactions for a wallet."""
     try:
@@ -509,7 +509,7 @@ async def wallet_transactions(wallet_id: str, auth: AuthContext = Depends(requir
 #  Stripe Checkout
 # ──────────────────────────────────────────────
 
-@router.post("/checkout")
+@router.post("/checkout", summary="Create Stripe checkout")
 async def create_checkout(req: CheckoutRequest, auth: AuthContext = Depends(require_user)):
     """Create a Stripe checkout session for a paid plan."""
     success_url = req.success_url or "https://nso.dev/dashboard?billing=success"
@@ -524,7 +524,7 @@ async def create_checkout(req: CheckoutRequest, auth: AuthContext = Depends(requ
     return result
 
 
-@router.post("/topup/checkout")
+@router.post("/topup/checkout", summary="Create top-up checkout")
 async def create_topup_checkout(req: TopUpCheckoutRequest, auth: AuthContext = Depends(require_user)):
     """Create a Stripe checkout session for wallet top-up."""
     if req.amount_cents < 500:
@@ -544,7 +544,7 @@ async def create_topup_checkout(req: TopUpCheckoutRequest, auth: AuthContext = D
     return result
 
 
-@router.post("/stripe/webhook")
+@router.post("/stripe/webhook", summary="Handle Stripe webhook")
 async def stripe_webhook(request: Request):
     """Stripe webhook handler. Verifies signature, processes events."""
     body = await request.body()
@@ -591,14 +591,14 @@ def _verify_stripe_signature(payload: bytes, sig_header: str, secret: str):
 #  Invoices
 # ──────────────────────────────────────────────
 
-@router.get("/invoices")
+@router.get("/invoices", summary="List invoices")
 async def list_invoices(auth: AuthContext = Depends(require_user)):
     """List user's invoices."""
     invoices = await billing.list_invoices(auth.user_id)
     return {"invoices": invoices, "count": len(invoices)}
 
 
-@router.get("/invoices/{invoice_id}")
+@router.get("/invoices/{invoice_id}", summary="Get invoice")
 async def get_invoice(invoice_id: str, auth: AuthContext = Depends(require_user)):
     """Get a specific invoice with line items."""
     try:
@@ -610,7 +610,7 @@ async def get_invoice(invoice_id: str, auth: AuthContext = Depends(require_user)
     return {"invoice": inv}
 
 
-@router.post("/invoices/generate")
+@router.post("/invoices/generate", summary="Generate draft invoice")
 async def generate_invoice(auth: AuthContext = Depends(require_user)):
     """Generate a draft invoice for the current billing period."""
     try:
@@ -620,7 +620,7 @@ async def generate_invoice(auth: AuthContext = Depends(require_user)):
     return {"ok": True, "invoice": inv}
 
 
-@router.post("/invoices/{invoice_id}/finalize")
+@router.post("/invoices/{invoice_id}/finalize", summary="Finalize invoice")
 async def finalize_invoice(invoice_id: str, auth: AuthContext = Depends(require_admin)):
     """Finalize a draft invoice (admin only)."""
     try:
@@ -630,7 +630,7 @@ async def finalize_invoice(invoice_id: str, auth: AuthContext = Depends(require_
     return {"ok": True, "invoice": inv}
 
 
-@router.post("/invoices/{invoice_id}/void")
+@router.post("/invoices/{invoice_id}/void", summary="Void invoice")
 async def void_invoice(invoice_id: str, auth: AuthContext = Depends(require_admin)):
     """Void an invoice (admin only)."""
     try:
@@ -644,14 +644,14 @@ async def void_invoice(invoice_id: str, auth: AuthContext = Depends(require_admi
 #  Payment Methods
 # ──────────────────────────────────────────────
 
-@router.get("/payment-methods")
+@router.get("/payment-methods", summary="List payment methods")
 async def list_payment_methods(auth: AuthContext = Depends(require_user)):
     """List user's payment methods."""
     methods = await billing.list_payment_methods(auth.user_id)
     return {"payment_methods": methods}
 
 
-@router.delete("/payment-methods/{pm_id}")
+@router.delete("/payment-methods/{pm_id}", summary="Remove payment method")
 async def remove_payment_method(pm_id: str, auth: AuthContext = Depends(require_user)):
     """Remove a payment method."""
     try:
@@ -661,7 +661,7 @@ async def remove_payment_method(pm_id: str, auth: AuthContext = Depends(require_
     return {"ok": True}
 
 
-@router.post("/payment-methods/{pm_id}/default")
+@router.post("/payment-methods/{pm_id}/default", summary="Set default payment method")
 async def set_default_pm(pm_id: str, auth: AuthContext = Depends(require_user)):
     """Set a payment method as default."""
     try:
@@ -675,7 +675,7 @@ async def set_default_pm(pm_id: str, auth: AuthContext = Depends(require_user)):
 #  Wallet (legacy balance + transactions)
 # ──────────────────────────────────────────────
 
-@router.get("/balance")
+@router.get("/balance", summary="Get balance")
 async def get_balance(auth: AuthContext = Depends(require_user)):
     """Get current wallet balance."""
     user = await db.fetch_one("users", id=auth.user_id)
@@ -684,7 +684,7 @@ async def get_balance(auth: AuthContext = Depends(require_user)):
     return {"balance": user["balance"], "currency": "USD"}
 
 
-@router.get("/transactions")
+@router.get("/transactions", summary="List transactions")
 async def list_transactions(auth: AuthContext = Depends(require_user)):
     """List wallet transactions."""
     txns = await db.fetch_all("transactions", user_id=auth.user_id)
@@ -704,7 +704,7 @@ async def list_transactions(auth: AuthContext = Depends(require_user)):
     }
 
 
-@router.post("/topup")
+@router.post("/topup", summary="Top up balance")
 async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
     """Top up wallet balance (admin only — for real payments use /topup/checkout)."""
     if req.amount <= 0:
@@ -733,7 +733,7 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
     return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
 
 
-@router.post("/charge")
+@router.post("/charge", summary="Charge user")
 async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_admin)):
     """Charge a user (admin only)."""
     if req.amount <= 0:
@@ -766,7 +766,7 @@ async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_ad
 #  Billing Events (audit trail)
 # ──────────────────────────────────────────────
 
-@router.get("/events")
+@router.get("/events", summary="List billing events")
 async def list_billing_events(
     event_type: str = "", limit: int = 50,
     auth: AuthContext = Depends(require_admin),
@@ -780,7 +780,7 @@ async def list_billing_events(
     return {"events": events, "count": len(events)}
 
 
-@router.get("/events/user")
+@router.get("/events/user", summary="List user billing events")
 async def list_user_billing_events(
     event_type: str = "", limit: int = 50,
     auth: AuthContext = Depends(require_user),
@@ -798,7 +798,7 @@ async def list_user_billing_events(
 #  Billing overview
 # ──────────────────────────────────────────────
 
-@router.get("/overview")
+@router.get("/overview", summary="Get billing overview")
 async def billing_overview(auth: AuthContext = Depends(require_user)):
     """Complete billing overview for the dashboard."""
     try:
@@ -812,7 +812,7 @@ async def billing_overview(auth: AuthContext = Depends(require_user)):
 #  Admin: list users with balances
 # ──────────────────────────────────────────────
 
-@router.get("/users")
+@router.get("/users", summary="List users with billing")
 async def list_users(auth: AuthContext = Depends(require_admin)):
     """List all users with billing info (admin only)."""
     users = await db.fetch_all("users")

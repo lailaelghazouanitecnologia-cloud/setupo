@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from nso.shared import db
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_admin
 from nso.engine.build.service import (
     compute_source_hash,
     check_cache,
@@ -35,8 +35,8 @@ class BuildCacheQuery(BaseModel):
     branch: str = "main"
 
 
-@router.post("/{name}/build")
-async def build_workspace(name: str, req: BuildRequest, project_id: str = Depends(require_project)):
+@router.post("/{name}/build", summary="Build workspace")
+async def build_workspace(name: str, req: BuildRequest, project_id: str = Depends(require_project_admin)):
     """Build a workspace. Smart routing decides where the build runs.
 
     Flow:
@@ -113,7 +113,7 @@ async def build_workspace(name: str, req: BuildRequest, project_id: str = Depend
     return result
 
 
-@router.get("/{name}/build/cache")
+@router.get("/{name}/build/cache", summary="Get build cache")
 async def check_build_cache(name: str, branch: str = "main", project_id: str = Depends(require_project)):
     """Check if a cached build exists for the current workspace source."""
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
@@ -154,7 +154,7 @@ async def check_build_cache(name: str, branch: str = "main", project_id: str = D
     }
 
 
-@router.get("/{name}/build/logs")
+@router.get("/{name}/build/logs", summary="Get build logs")
 async def list_build_logs(name: str, project_id: str = Depends(require_project)):
     """List recent build logs for a workspace."""
     logs = await db.fetch_all("build_logs", project_id=project_id, workspace=name)

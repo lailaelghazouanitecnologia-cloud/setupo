@@ -108,8 +108,8 @@ POOL_MIGRATIONS = [
         created_at TEXT DEFAULT (datetime('now')),
         started_at TEXT,
         stopped_at TEXT,
-        FOREIGN KEY (host_id) REFERENCES compute_hosts(id),
-        FOREIGN KEY (project_id) REFERENCES projects(id)
+        FOREIGN KEY (host_id) REFERENCES compute_hosts(id) ON DELETE CASCADE,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_compute_vms_host ON compute_vms(host_id)",

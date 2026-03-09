@@ -66,7 +66,7 @@ class ResendVerificationRequest(BaseModel):
     email: str
 
 
-@router.post("/register", response_model=RegisterResponse)
+@router.post("/register", response_model=RegisterResponse, summary="Register new user")
 async def register(req: RegisterRequest):
     try:
         user = await users.create_user(req.email, req.password, req.name)
@@ -91,7 +91,7 @@ async def register(req: RegisterRequest):
     return RegisterResponse(token=token, email=user["email"], role=user["role"], user_id=user["id"])
 
 
-@router.post("/login", response_model=LoginResponse)
+@router.post("/login", response_model=LoginResponse, summary="Login")
 async def login(req: LoginRequest, request: Request):
     admin = verify_password(req.email, req.password)
     is_admin_host = getattr(request.state, "is_admin_host", False)
@@ -138,7 +138,7 @@ async def login(req: LoginRequest, request: Request):
     return LoginResponse(token=token, email=user["email"], role=user["role"])
 
 
-@router.get("/me", response_model=UserProfile)
+@router.get("/me", response_model=UserProfile, summary="Get current user")
 async def get_me(auth: AuthContext = Depends(require_user)):
     try:
         user = await users.get_user(auth.user_id)
@@ -147,7 +147,7 @@ async def get_me(auth: AuthContext = Depends(require_user)):
     return UserProfile(**user)
 
 
-@router.patch("/profile")
+@router.patch("/profile", summary="Update profile")
 async def update_profile(req: UpdateProfileRequest, auth: AuthContext = Depends(require_user)):
     try:
         user = await users.update_profile(auth.user_id, name=req.name, email=req.email)
@@ -156,7 +156,7 @@ async def update_profile(req: UpdateProfileRequest, auth: AuthContext = Depends(
     return {"ok": True, "user": user}
 
 
-@router.post("/change-password")
+@router.post("/change-password", summary="Change password")
 async def change_password(req: ChangePasswordRequest, auth: AuthContext = Depends(require_user)):
     try:
         await users.change_password(auth.user_id, req.current_password, req.new_password)
@@ -165,7 +165,7 @@ async def change_password(req: ChangePasswordRequest, auth: AuthContext = Depend
     return {"ok": True}
 
 
-@router.get("/users")
+@router.get("/users", summary="List users")
 async def list_all_users(auth: AuthContext = Depends(require_admin)):
     all_users = await users.list_users()
     return {"users": all_users, "count": len(all_users)}
@@ -173,7 +173,7 @@ async def list_all_users(auth: AuthContext = Depends(require_admin)):
 
 # ── Email verification ────────────────────────────────────────
 
-@router.post("/verify-email")
+@router.post("/verify-email", summary="Verify email")
 async def verify_email(req: VerifyEmailRequest):
     """Verify email address using token from verification email."""
     try:
@@ -192,7 +192,7 @@ async def verify_email(req: VerifyEmailRequest):
     return {"ok": True, "user_id": user_id, "email": user["email"]}
 
 
-@router.post("/resend-verification")
+@router.post("/resend-verification", summary="Resend verification email")
 async def resend_verification(req: ResendVerificationRequest):
     """Resend verification email. Silent if email not found (security)."""
     user = await users.get_user_by_email(req.email)
@@ -207,7 +207,7 @@ async def resend_verification(req: ResendVerificationRequest):
 
 # ── Password reset ────────────────────────────────────────────
 
-@router.post("/forgot-password")
+@router.post("/forgot-password", summary="Request password reset")
 async def forgot_password(req: ForgotPasswordRequest):
     """Send password reset email. Silent if email not found (security)."""
     try:
@@ -217,7 +217,7 @@ async def forgot_password(req: ForgotPasswordRequest):
     return {"ok": True, "message": "If the email exists, a reset link has been sent."}
 
 
-@router.post("/reset-password")
+@router.post("/reset-password", summary="Reset password")
 async def reset_password(req: ResetPasswordRequest):
     """Reset password using token from reset email."""
     try:

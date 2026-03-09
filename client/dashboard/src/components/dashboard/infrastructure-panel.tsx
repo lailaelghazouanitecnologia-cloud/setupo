@@ -234,7 +234,7 @@ function DatabaseDetail({ db, projectId, onBack }: {
 
   useEffect(() => {
     if (db.state === "running") {
-      getDatabaseStatus(projectId, db.id).then(setStatus).catch(() => {});
+      getDatabaseStatus(projectId, db.id).then(setStatus).catch((e) => console.error(e));
     }
   }, [projectId, db.id, db.state]);
 

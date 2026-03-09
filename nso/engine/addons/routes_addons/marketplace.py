@@ -28,7 +28,7 @@ async def _require_marketplace_app(project_id: str, app_id: str):
     return addon
 
 
-@router.get("/{app_id}/status")
+@router.get("/{app_id}/status", summary="Get app status")
 async def marketplace_app_status(app_id: str, project_id: str = Depends(require_project)):
     """Get the status of an installed marketplace app."""
     addon = await _require_marketplace_app(project_id, app_id)
@@ -73,7 +73,7 @@ class UptimeTargetRequest(BaseModel):
     notify_email: bool = False
 
 
-@router.get("/uptime-monitor/targets")
+@router.get("/uptime-monitor/targets", summary="List uptime targets")
 async def list_uptime_targets(project_id: str = Depends(require_project)):
     """List all uptime monitoring targets."""
     await _require_marketplace_app(project_id, "uptime-monitor")
@@ -81,7 +81,7 @@ async def list_uptime_targets(project_id: str = Depends(require_project)):
     return {"targets": targets, "count": len(targets)}
 
 
-@router.post("/uptime-monitor/targets")
+@router.post("/uptime-monitor/targets", summary="Create uptime target")
 async def create_uptime_target(req: UptimeTargetRequest, project_id: str = Depends(require_project)):
     """Add a URL to monitor for uptime."""
     await _require_marketplace_app(project_id, "uptime-monitor")
@@ -106,7 +106,7 @@ async def create_uptime_target(req: UptimeTargetRequest, project_id: str = Depen
     return {"ok": True, "target": data}
 
 
-@router.delete("/uptime-monitor/targets/{target_id}")
+@router.delete("/uptime-monitor/targets/{target_id}", summary="Delete uptime target")
 async def delete_uptime_target(target_id: str, project_id: str = Depends(require_project)):
     """Remove an uptime target and its history."""
     await _require_marketplace_app(project_id, "uptime-monitor")
@@ -121,7 +121,7 @@ async def delete_uptime_target(target_id: str, project_id: str = Depends(require
     return {"ok": True}
 
 
-@router.post("/uptime-monitor/targets/{target_id}/check")
+@router.post("/uptime-monitor/targets/{target_id}/check", summary="Check uptime target")
 async def check_uptime_target(target_id: str, project_id: str = Depends(require_project)):
     """Run an immediate health check on a target."""
     await _require_marketplace_app(project_id, "uptime-monitor")
@@ -179,7 +179,7 @@ async def _do_uptime_check(target: dict) -> dict:
     return result
 
 
-@router.get("/uptime-monitor/targets/{target_id}/history")
+@router.get("/uptime-monitor/targets/{target_id}/history", summary="Get uptime history")
 async def uptime_history(
     target_id: str,
     limit: int = Query(100, ge=1, le=1000),
@@ -214,7 +214,7 @@ async def uptime_history(
     }
 
 
-@router.get("/uptime-monitor/summary")
+@router.get("/uptime-monitor/summary", summary="Get uptime summary")
 async def uptime_summary(project_id: str = Depends(require_project)):
     """Get uptime summary for all targets in the project."""
     await _require_marketplace_app(project_id, "uptime-monitor")
@@ -255,7 +255,7 @@ class SSLDomainRequest(BaseModel):
     auto_renew: bool = True
 
 
-@router.get("/ssl-manager/certificates")
+@router.get("/ssl-manager/certificates", summary="List SSL certificates")
 async def list_ssl_certificates(project_id: str = Depends(require_project)):
     """List all tracked SSL certificates."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -263,7 +263,7 @@ async def list_ssl_certificates(project_id: str = Depends(require_project)):
     return {"certificates": certs, "count": len(certs)}
 
 
-@router.post("/ssl-manager/certificates")
+@router.post("/ssl-manager/certificates", summary="Add SSL domain")
 async def add_ssl_domain(req: SSLDomainRequest, project_id: str = Depends(require_project)):
     """Add a domain to track SSL certificate status."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -299,7 +299,7 @@ async def add_ssl_domain(req: SSLDomainRequest, project_id: str = Depends(requir
     return {"ok": True, "certificate": data}
 
 
-@router.delete("/ssl-manager/certificates/{cert_id}")
+@router.delete("/ssl-manager/certificates/{cert_id}", summary="Remove SSL domain")
 async def remove_ssl_domain(cert_id: str, project_id: str = Depends(require_project)):
     """Stop tracking an SSL certificate."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -310,7 +310,7 @@ async def remove_ssl_domain(cert_id: str, project_id: str = Depends(require_proj
     return {"ok": True}
 
 
-@router.post("/ssl-manager/certificates/{cert_id}/check")
+@router.post("/ssl-manager/certificates/{cert_id}/check", summary="Check SSL certificate")
 async def check_ssl_certificate(cert_id: str, project_id: str = Depends(require_project)):
     """Re-check an SSL certificate right now."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -373,7 +373,7 @@ async def _check_ssl_cert(domain: str) -> dict:
         return {"status": "unreachable", "days_remaining": -1, "error": str(e)}
 
 
-@router.post("/ssl-manager/check-all")
+@router.post("/ssl-manager/check-all", summary="Check all SSL certs")
 async def check_all_ssl(project_id: str = Depends(require_project)):
     """Re-check all tracked SSL certificates."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -395,7 +395,7 @@ async def check_all_ssl(project_id: str = Depends(require_project)):
     return {"ok": True, "results": results, "count": len(results)}
 
 
-@router.get("/ssl-manager/summary")
+@router.get("/ssl-manager/summary", summary="Get SSL summary")
 async def ssl_summary(project_id: str = Depends(require_project)):
     """Get SSL health summary for the project."""
     await _require_marketplace_app(project_id, "ssl-manager")
@@ -446,7 +446,7 @@ class UpdateTaskRequest(BaseModel):
     timeout_seconds: Optional[int] = None
 
 
-@router.get("/scheduled-tasks/tasks")
+@router.get("/scheduled-tasks/tasks", summary="List scheduled tasks")
 async def list_scheduled_tasks(project_id: str = Depends(require_project)):
     """List all scheduled tasks for the project."""
     await _require_marketplace_app(project_id, "scheduled-tasks")
@@ -454,7 +454,7 @@ async def list_scheduled_tasks(project_id: str = Depends(require_project)):
     return {"tasks": tasks, "count": len(tasks)}
 
 
-@router.post("/scheduled-tasks/tasks")
+@router.post("/scheduled-tasks/tasks", summary="Create scheduled task")
 async def create_scheduled_task(req: CreateTaskRequest, project_id: str = Depends(require_project)):
     """Create a new scheduled task."""
     await _require_marketplace_app(project_id, "scheduled-tasks")
@@ -488,7 +488,7 @@ async def create_scheduled_task(req: CreateTaskRequest, project_id: str = Depend
     return {"ok": True, "task": data}
 
 
-@router.patch("/scheduled-tasks/tasks/{task_id}")
+@router.patch("/scheduled-tasks/tasks/{task_id}", summary="Update scheduled task")
 async def update_scheduled_task(task_id: str, req: UpdateTaskRequest, project_id: str = Depends(require_project)):
     """Update a scheduled task."""
     await _require_marketplace_app(project_id, "scheduled-tasks")
@@ -518,7 +518,7 @@ async def update_scheduled_task(task_id: str, req: UpdateTaskRequest, project_id
     return {"ok": True, "updated": list(updates.keys())}
 
 
-@router.delete("/scheduled-tasks/tasks/{task_id}")
+@router.delete("/scheduled-tasks/tasks/{task_id}", summary="Delete scheduled task")
 async def delete_scheduled_task(task_id: str, project_id: str = Depends(require_project)):
     """Delete a scheduled task and its execution history."""
     await _require_marketplace_app(project_id, "scheduled-tasks")
@@ -533,7 +533,7 @@ async def delete_scheduled_task(task_id: str, project_id: str = Depends(require_
     return {"ok": True}
 
 
-@router.post("/scheduled-tasks/tasks/{task_id}/run")
+@router.post("/scheduled-tasks/tasks/{task_id}/run", summary="Run task now")
 async def run_task_now(task_id: str, project_id: str = Depends(require_project)):
     """Execute a scheduled task immediately via the agent."""
     await _require_marketplace_app(project_id, "scheduled-tasks")
@@ -599,7 +599,7 @@ async def _exec_on_agent(ip: str, command: str, timeout: int) -> dict:
     }
 
 
-@router.get("/scheduled-tasks/tasks/{task_id}/executions")
+@router.get("/scheduled-tasks/tasks/{task_id}/executions", summary="List task executions")
 async def list_task_executions(
     task_id: str,
     limit: int = Query(50, ge=1, le=500),

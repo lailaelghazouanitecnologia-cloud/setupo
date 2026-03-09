@@ -629,7 +629,7 @@ export function InstancesTab() {
         await deleteInstance(projectId, item.raw_instance.id);
       }
       if (item.raw_node) {
-        await deleteComputeNode(projectId, item.raw_node.id).catch(() => {});
+        await deleteComputeNode(projectId, item.raw_node.id).catch((e) => console.error(e));
       } else if (item.type === "node") {
         await deleteComputeNode(projectId, item.id);
       }
@@ -703,14 +703,16 @@ export function InstancesTab() {
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">No machines</div>
         <div className="panel-empty-sub">Add a server from NSO Cloud, connect via Vultr/Hetzner, or use SSH.</div>
-        <div style={{ display: "flex", gap: 6 }}>
-          <button className="panel-btn" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3.5 w-3.5" /><span>Add Machine</span>
-          </button>
-          <button className="panel-btn" onClick={handleSync} disabled={syncing}>
-            <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync"}</span>
-          </button>
-        </div>
+        {activeProject?.role === "admin" && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button className="panel-btn" onClick={() => setShowCreate(true)}>
+              <Plus className="h-3.5 w-3.5" /><span>Add Machine</span>
+            </button>
+            <button className="panel-btn" onClick={handleSync} disabled={syncing}>
+              <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync"}</span>
+            </button>
+          </div>
+        )}
         {syncResult && <div className="panel-empty-sub" style={{ marginTop: 8 }}>{syncResult}</div>}
       </div>
     );
@@ -727,12 +729,16 @@ export function InstancesTab() {
           <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync machines to nodes">
-            <Download className="h-3 w-3" />
-          </button>
-          <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3 w-3" /><span>New</span>
-          </button>
+          {activeProject?.role === "admin" && (
+            <>
+              <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync machines to nodes">
+                <Download className="h-3 w-3" />
+              </button>
+              <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
+                <Plus className="h-3 w-3" /><span>New</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -839,11 +845,11 @@ export function InstancesTab() {
                   >
                     <FolderOpen className="h-3.5 w-3.5" />
                   </button>
-                  {selected.state === "ready" || selected.state === "active" ? (
+                  {activeProject?.role === "admin" && (selected.state === "ready" || selected.state === "active") ? (
                     <button className="svc-btn yellow" title="Stop" onClick={() => handleStop(selected.raw_instance!)}>
                       <Power className="h-3.5 w-3.5" />
                     </button>
-                  ) : selected.state === "stopped" ? (
+                  ) : activeProject?.role === "admin" && selected.state === "stopped" ? (
                     <button className="svc-btn green" title="Start" onClick={() => handleStart(selected.raw_instance!)}>
                       <Play className="h-3.5 w-3.5" />
                     </button>
@@ -851,7 +857,7 @@ export function InstancesTab() {
                 </>
               )}
               {/* Node actions */}
-              {selected.raw_node && selected.raw_node.status === "online" && (
+              {activeProject?.role === "admin" && selected.raw_node && selected.raw_node.status === "online" && (
                 <>
                   <button className="svc-btn yellow" title="Drain" onClick={() => handleDrain(selected.raw_node!)}>
                     <Pause className="h-3.5 w-3.5" />
@@ -861,14 +867,16 @@ export function InstancesTab() {
                   </button>
                 </>
               )}
-              {selected.raw_node && (selected.raw_node.status === "draining" || selected.raw_node.status === "maintenance") && (
+              {activeProject?.role === "admin" && selected.raw_node && (selected.raw_node.status === "draining" || selected.raw_node.status === "maintenance") && (
                 <button className="svc-btn green" title="Uncordon" onClick={() => handleUncordon(selected.raw_node!)}>
                   <ShieldOff className="h-3.5 w-3.5" />
                 </button>
               )}
-              <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
+              {activeProject?.role === "admin" && (
+                <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -1538,7 +1546,7 @@ export function ServicesTab() {
     SYSTEM_SERVICES.forEach((svc) => handleService("status", svc.name));
     fetchSysInfo();
     if (activeProject && workspaces.length === 0) {
-      listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch(() => {});
+      listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch((e) => console.error(e));
     }
   }, [activeProject]);
 

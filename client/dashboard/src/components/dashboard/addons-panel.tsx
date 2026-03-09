@@ -447,11 +447,12 @@ const CATEGORY_COLORS: Record<string, string> = {
   automation: "var(--color-orange, #fb923c)",
 };
 
-function MarketplaceCard({ addon, onInstall, onUninstall, busy }: {
+function MarketplaceCard({ addon, onInstall, onUninstall, busy, isAdmin }: {
   addon: AddonInfo;
   onInstall: () => void;
   onUninstall: () => void;
   busy: boolean;
+  isAdmin: boolean;
 }) {
   const Icon = ADDON_ICONS[addon.addon_id] || Package;
   const schema = addon.config || {};
@@ -539,16 +540,18 @@ function MarketplaceCard({ addon, onInstall, onUninstall, busy }: {
             <span style={{ fontSize: "var(--font-xxs)", color: "var(--color-green)", display: "flex", alignItems: "center", gap: 3 }}>
               <Check style={{ width: 10, height: 10 }} /> Instalado
             </span>
-            <button
-              className="plugin-action"
-              onClick={onUninstall}
-              disabled={busy}
-              style={{ fontSize: "var(--font-xxs)", padding: "3px 8px", color: "var(--color-red)" }}
-            >
-              {busy ? <Loader style={{ width: 10, height: 10 }} className="animate-spin" /> : <Trash2 style={{ width: 10, height: 10 }} />}
-            </button>
+            {isAdmin && (
+              <button
+                className="plugin-action"
+                onClick={onUninstall}
+                disabled={busy}
+                style={{ fontSize: "var(--font-xxs)", padding: "3px 8px", color: "var(--color-red)" }}
+              >
+                {busy ? <Loader style={{ width: 10, height: 10 }} className="animate-spin" /> : <Trash2 style={{ width: 10, height: 10 }} />}
+              </button>
+            )}
           </div>
-        ) : (
+        ) : isAdmin ? (
           <button
             className="plugin-action"
             onClick={onInstall}
@@ -561,18 +564,19 @@ function MarketplaceCard({ addon, onInstall, onUninstall, busy }: {
               <><Download style={{ width: 10, height: 10 }} /> Instalar</>
             )}
           </button>
-        )}
+        ) : null}
       </div>
     </div>
   );
 }
 
-function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninstall }: {
+function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninstall, isAdmin }: {
   addons: AddonInfo[];
   projectId: string;
   actionId: string | null;
   onInstall: (id: string, type: string) => void;
   onUninstall: (id: string, type: string) => void;
+  isAdmin: boolean;
 }) {
   const featured = addons.filter((a) => a.config?.featured);
   const rest = addons.filter((a) => !a.config?.featured);
@@ -604,6 +608,7 @@ function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninsta
                 key={a.addon_id}
                 addon={a}
                 busy={actionId === a.addon_id}
+                isAdmin={isAdmin}
                 onInstall={() => onInstall(a.addon_id, a.addon_type)}
                 onUninstall={() => onUninstall(a.addon_id, a.addon_type)}
               />
@@ -627,6 +632,7 @@ function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninsta
                 key={a.addon_id}
                 addon={a}
                 busy={actionId === a.addon_id}
+                isAdmin={isAdmin}
                 onInstall={() => onInstall(a.addon_id, a.addon_type)}
                 onUninstall={() => onUninstall(a.addon_id, a.addon_type)}
               />
@@ -650,13 +656,14 @@ function MarketplaceShowcase({ addons, projectId, actionId, onInstall, onUninsta
 // ═══════════════════════════════════════════
 
 function AddonCard({
-  addon, projectId, busy, expanded,
+  addon, projectId, busy, expanded, isAdmin,
   onInstall, onUninstall, onToggle, onToggleExpand, onRefresh,
 }: {
   addon: AddonInfo;
   projectId: string;
   busy: boolean;
   expanded: boolean;
+  isAdmin: boolean;
   onInstall: () => void;
   onUninstall: () => void;
   onToggle: (enabled: boolean) => void;
@@ -687,19 +694,21 @@ function AddonCard({
         <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-end", flexShrink: 0 }}>
           {addon.installed ? (
             <>
-              <button
-                className="plugin-action installed"
-                onClick={() => onToggle(!addon.enabled)}
-                disabled={busy}
-              >
-                {busy ? (
-                  <Loader className="h-3 w-3 animate-spin" />
-                ) : addon.enabled ? (
-                  <><ToggleRight className="h-3 w-3" /><span>Enabled</span></>
-                ) : (
-                  <><ToggleLeft className="h-3 w-3" /><span>Disabled</span></>
-                )}
-              </button>
+              {isAdmin && (
+                <button
+                  className="plugin-action installed"
+                  onClick={() => onToggle(!addon.enabled)}
+                  disabled={busy}
+                >
+                  {busy ? (
+                    <Loader className="h-3 w-3 animate-spin" />
+                  ) : addon.enabled ? (
+                    <><ToggleRight className="h-3 w-3" /><span>Enabled</span></>
+                  ) : (
+                    <><ToggleLeft className="h-3 w-3" /><span>Disabled</span></>
+                  )}
+                </button>
+              )}
               <div style={{ display: "flex", gap: 4 }}>
                 <button
                   className="plugin-action"
@@ -709,17 +718,19 @@ function AddonCard({
                   {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
                   <span>{expanded ? "Close" : "Open"}</span>
                 </button>
-                <button
-                  className="plugin-action"
-                  onClick={onUninstall}
-                  disabled={busy}
-                  style={{ color: "var(--color-red)", fontSize: 10 }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                {isAdmin && (
+                  <button
+                    className="plugin-action"
+                    onClick={onUninstall}
+                    disabled={busy}
+                    style={{ color: "var(--color-red)", fontSize: 10 }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
               </div>
             </>
-          ) : (
+          ) : isAdmin ? (
             <button className="plugin-action" onClick={onInstall} disabled={busy}>
               {busy ? (
                 <Loader className="h-3 w-3 animate-spin" />
@@ -727,7 +738,7 @@ function AddonCard({
                 <><Download className="h-3 w-3" /><span>Install</span></>
               )}
             </button>
-          )}
+          ) : null}
         </div>
       </div>
       {expanded && addon.installed && addon.enabled && (
@@ -748,6 +759,7 @@ function AddonCard({
 export function AddonsPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || "";
+  const isAdmin = activeProject?.role === "admin";
   const [addons, setAddons] = useState<AddonInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -857,6 +869,7 @@ export function AddonsPanel() {
           addons={addons}
           projectId={projectId}
           actionId={actionId}
+          isAdmin={isAdmin}
           onInstall={handleInstall}
           onUninstall={handleUninstall}
         />
@@ -876,6 +889,7 @@ export function AddonsPanel() {
                     projectId={projectId}
                     busy={actionId === a.addon_id}
                     expanded={expandedId === a.addon_id}
+                    isAdmin={isAdmin}
                     onInstall={() => handleInstall(a.addon_id, a.addon_type)}
                     onUninstall={() => handleUninstall(a.addon_id, a.addon_type)}
                     onToggle={(enabled) => handleToggle(a.addon_id, enabled, a.addon_type)}
@@ -910,6 +924,7 @@ export function AddonsPanel() {
                     projectId={projectId}
                     busy={actionId === a.addon_id}
                     expanded={false}
+                    isAdmin={isAdmin}
                     onInstall={() => handleInstall(a.addon_id, a.addon_type)}
                     onUninstall={() => handleUninstall(a.addon_id, a.addon_type)}
                     onToggle={(enabled) => handleToggle(a.addon_id, enabled, a.addon_type)}

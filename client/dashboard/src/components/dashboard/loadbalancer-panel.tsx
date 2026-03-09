@@ -74,7 +74,7 @@ function OverviewTab() {
     setLoading(true);
     try {
       setData(await getLBOverview());
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
 
@@ -195,7 +195,7 @@ function PoolsTab() {
     setLoading(true);
     try {
       setPools(await listLBPools());
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, []);
 
@@ -376,7 +376,7 @@ function RulesTab() {
       setRules(r);
       setPools(p);
       if (p.length > 0 && !newPoolId) setNewPoolId(p[0].id);
-    } catch {}
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, [newPoolId]);
 

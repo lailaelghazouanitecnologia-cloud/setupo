@@ -6,6 +6,7 @@ aiosqlite==0.20.0
 aiofiles==24.1.0
 tomli==2.2.1
 python-multipart==0.0.20
+scalar-fastapi==1.8.0
 rich==13.9.4
 openai>=1.0.0
 websockets==16.0

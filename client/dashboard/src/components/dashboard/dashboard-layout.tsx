@@ -6,7 +6,7 @@ import {
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
   FolderOpen, Plus, Check, Layers, Shield, Cpu,
-  Users, Copy, Link, Trash2, Crown, Pencil, Eye,
+  Users, Copy, Link, Trash2, Crown, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -149,7 +149,7 @@ function ProjectSwitcher() {
         const { listWorkspaces } = await import("@/lib/api/client");
         const wsRes = await listWorkspaces(proj.id);
         setWorkspaces(wsRes.workspaces || []);
-      } catch {}
+      } catch (e) { console.error(e); }
       setNewName("");
       setCreating(false);
       setOpen(false);
@@ -173,7 +173,8 @@ function ProjectSwitcher() {
       const wsList: WorkspaceInfo[] = res.workspaces || [];
       setWorkspaces(wsList);
       setActiveWorkspace(wsList[0] || null);
-    } catch {
+    } catch (e) {
+      console.error(e);
       setWorkspaces([]);
     }
   };
@@ -410,7 +411,7 @@ function MembersPopover() {
   const [invites, setInvites] = useState<ProjectInvite[]>([]);
   const [loading, setLoading] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
-  const [inviteRole, setInviteRole] = useState("viewer");
+  const [inviteRole, setInviteRole] = useState("member");
   const [inviteLink, setInviteLink] = useState("");
   const [copied, setCopied] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -441,7 +442,7 @@ function MembersPopover() {
       ]);
       setMembers(mRes.members || []);
       setInvites(iRes.invites || []);
-    } catch { }
+    } catch (e) { console.error(e); }
     setLoading(false);
   }, [projectId]);
 
@@ -480,7 +481,7 @@ function MembersPopover() {
       const { revokeProjectInvite } = await import("@/lib/api/client");
       await revokeProjectInvite(projectId, inviteId);
       refresh();
-    } catch { }
+    } catch (e) { console.error(e); }
   };
 
   const handleRemoveMember = async (userId: string) => {
@@ -507,8 +508,7 @@ function MembersPopover() {
   };
 
   const roleIcon = (role: string) => {
-    if (role === "owner") return <Crown className="h-3 w-3" style={{ color: "var(--color-amber, #f59e0b)" }} />;
-    if (role === "editor") return <Pencil className="h-3 w-3" style={{ color: "var(--color-teal, #14b8a6)" }} />;
+    if (role === "admin") return <Crown className="h-3 w-3" style={{ color: "var(--color-amber, #f59e0b)" }} />;
     return <Eye className="h-3 w-3" style={{ color: "var(--muted-foreground)" }} />;
   };
 
@@ -545,17 +545,19 @@ function MembersPopover() {
           {/* Header */}
           <div style={{ padding: "6px 14px 10px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span style={{ fontSize: 12, fontWeight: 600 }}>Members</span>
-            <button
-              onClick={() => { setShowInvite(!showInvite); setInviteLink(""); }}
-              style={{
-                fontSize: 11, padding: "3px 10px", borderRadius: 6,
-                background: "var(--accent)", border: "1px solid var(--border)",
-                color: "var(--foreground)", cursor: "pointer",
-                display: "flex", alignItems: "center", gap: 4,
-              }}
-            >
-              <Plus className="h-3 w-3" /> Invite
-            </button>
+            {activeProject?.role === "admin" && (
+              <button
+                onClick={() => { setShowInvite(!showInvite); setInviteLink(""); }}
+                style={{
+                  fontSize: 11, padding: "3px 10px", borderRadius: 6,
+                  background: "var(--accent)", border: "1px solid var(--border)",
+                  color: "var(--foreground)", cursor: "pointer",
+                  display: "flex", alignItems: "center", gap: 4,
+                }}
+              >
+                <Plus className="h-3 w-3" /> Invite
+              </button>
+            )}
           </div>
 
           {/* Invite form */}
@@ -572,8 +574,8 @@ function MembersPopover() {
                       color: "var(--foreground)", flex: 1,
                     }}
                   >
-                    <option value="viewer">Viewer</option>
-                    <option value="editor">Editor</option>
+                    <option value="member">Member</option>
+                    <option value="admin">Admin</option>
                   </select>
                   <button
                     onClick={handleCreateInvite}
@@ -649,11 +651,11 @@ function MembersPopover() {
                   <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
                     {roleIcon(m.role)}
                     <span style={{ fontSize: 10, opacity: 0.6 }}>{m.role}</span>
-                    {m.role !== "owner" && (
+                    {activeProject?.role === "admin" && m.role !== "admin" && (
                       <div style={{ display: "flex", gap: 2, marginLeft: 4 }}>
                         <button
-                          onClick={() => handleChangeRole(m.user_id, m.role === "editor" ? "viewer" : "editor")}
-                          title={m.role === "editor" ? "Demote to viewer" : "Promote to editor"}
+                          onClick={() => handleChangeRole(m.user_id, m.role === "member" ? "admin" : "member")}
+                          title={m.role === "member" ? "Promote to admin" : "Demote to member"}
                           style={{
                             width: 20, height: 20, borderRadius: 4,
                             background: "transparent", border: "none",
@@ -662,7 +664,7 @@ function MembersPopover() {
                             color: "var(--muted-foreground)",
                           }}
                         >
-                          {m.role === "editor" ? <Eye className="h-2.5 w-2.5" /> : <Pencil className="h-2.5 w-2.5" />}
+                          {m.role === "member" ? <Crown className="h-2.5 w-2.5" /> : <Eye className="h-2.5 w-2.5" />}
                         </button>
                         <button
                           onClick={() => handleRemoveMember(m.user_id)}
@@ -706,19 +708,21 @@ function MembersPopover() {
                   <span style={{ flex: 1, opacity: 0.6 }}>
                     {inv.role} &middot; {inv.uses}/{inv.max_uses || "\u221E"} uses
                   </span>
-                  <button
-                    onClick={() => handleRevokeInvite(inv.id)}
-                    title="Revoke invite"
-                    style={{
-                      width: 20, height: 20, borderRadius: 4,
-                      background: "transparent", border: "none",
-                      cursor: "pointer", display: "flex",
-                      alignItems: "center", justifyContent: "center",
-                      color: "var(--destructive, #ef4444)",
-                    }}
-                  >
-                    <Trash2 className="h-2.5 w-2.5" />
-                  </button>
+                  {activeProject?.role === "admin" && (
+                    <button
+                      onClick={() => handleRevokeInvite(inv.id)}
+                      title="Revoke invite"
+                      style={{
+                        width: 20, height: 20, borderRadius: 4,
+                        background: "transparent", border: "none",
+                        cursor: "pointer", display: "flex",
+                        alignItems: "center", justifyContent: "center",
+                        color: "var(--destructive, #ef4444)",
+                      }}
+                    >
+                      <Trash2 className="h-2.5 w-2.5" />
+                    </button>
+                  )}
                 </div>
               ))}
             </>
@@ -760,7 +764,7 @@ export function DashboardLayout() {
         try {
           const created = await createProject("main");
           projs = [created.project];
-        } catch { /* ignore */ }
+        } catch (e) { console.error(e); /* ignore */ }
       }
 
       setProjects(projs);
@@ -781,11 +785,13 @@ export function DashboardLayout() {
           const savedWsId = localStorage.getItem("nso_active_workspace");
           const restoredWs = wsList.find((w: WorkspaceInfo) => w.id === savedWsId);
           setActiveWorkspace(restoredWs || wsList[0] || null);
-        } catch {
+        } catch (e) {
+          console.error(e);
           setWorkspaces([]);
         }
       }
-    } catch {
+    } catch (e) {
+      console.error(e);
       setProjects([]);
     }
     setProjectLoading(false);
@@ -797,8 +803,8 @@ export function DashboardLayout() {
 
   useEffect(() => {
     import("@/lib/api/client").then(({ getMe, listNotifications }) => {
-      getMe().then((me) => setBalance(me.balance)).catch(() => {});
-      listNotifications().then((n) => setUnread(n.unread)).catch(() => {});
+      getMe().then((me) => setBalance(me.balance)).catch((e) => console.error(e));
+      listNotifications().then((n) => setUnread(n.unread)).catch((e) => console.error(e));
     });
   }, [activeView]);
 

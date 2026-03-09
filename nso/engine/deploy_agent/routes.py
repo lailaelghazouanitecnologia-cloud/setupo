@@ -19,7 +19,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from nso.shared import db
-from nso.shared.deps import require_project, require_user, AuthContext
+from nso.shared.deps import require_project, require_project_admin, require_user, AuthContext
 from nso.shared.agent import Agent, RunEvent, OpenAILike
 from nso.shared.agent.tools import ToolRegistry
 from nso.shared.agent.run import run_agent_loop, run_dual_agent_loop
@@ -236,7 +236,7 @@ class SendMessageRequest(BaseModel):
     message: str
 
 
-@router.post("/threads")
+@router.post("/threads", summary="Create deploy thread")
 async def create_thread(
     req: CreateThreadRequest,
     project_id: str = Depends(require_project),
@@ -257,13 +257,13 @@ async def create_thread(
     return {"id": thread_id, "title": title, "workspace": req.workspace}
 
 
-@router.get("/threads")
+@router.get("/threads", summary="List deploy threads")
 async def list_threads(project_id: str = Depends(require_project)):
     threads = await db.fetch_all("deploy_threads", project_id=project_id)
     return {"threads": threads}
 
 
-@router.get("/threads/{thread_id}")
+@router.get("/threads/{thread_id}", summary="Get deploy thread")
 async def get_thread(thread_id: str, project_id: str = Depends(require_project)):
     thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
     if not thread:
@@ -289,11 +289,11 @@ async def get_thread(thread_id: str, project_id: str = Depends(require_project))
     return {"thread": thread, "messages": messages}
 
 
-@router.patch("/threads/{thread_id}")
+@router.patch("/threads/{thread_id}", summary="Update deploy thread")
 async def update_thread(
     thread_id: str,
     req: CreateThreadRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
     if not thread:
@@ -308,8 +308,8 @@ async def update_thread(
     return {"ok": True, **updates}
 
 
-@router.delete("/threads/{thread_id}")
-async def delete_thread(thread_id: str, project_id: str = Depends(require_project)):
+@router.delete("/threads/{thread_id}", summary="Delete deploy thread")
+async def delete_thread(thread_id: str, project_id: str = Depends(require_project_admin)):
     thread = await db.fetch_one("deploy_threads", id=thread_id, project_id=project_id)
     if not thread:
         raise HTTPException(404, "Thread not found")
@@ -319,7 +319,7 @@ async def delete_thread(thread_id: str, project_id: str = Depends(require_projec
     return {"ok": True, "deleted": thread_id}
 
 
-@router.post("/threads/{thread_id}/stream")
+@router.post("/threads/{thread_id}/stream", summary="Stream agent response")
 async def stream_message(
     thread_id: str,
     req: SendMessageRequest,

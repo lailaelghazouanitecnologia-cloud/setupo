@@ -25,7 +25,7 @@ class QueryRequest(BaseModel):
 
 # ── CRUD ─────────────────────────────────────────────────────────
 
-@router.post("")
+@router.post("", status_code=201, summary="Create database")
 async def create_database(req: CreateDatabaseRequest, project_id: str = Depends(require_project)):
     try:
         record = await service.create_database(
@@ -36,13 +36,13 @@ async def create_database(req: CreateDatabaseRequest, project_id: str = Depends(
     return record
 
 
-@router.get("")
+@router.get("", summary="List databases")
 async def list_databases(project_id: str = Depends(require_project)):
     databases = await service.list_databases(project_id)
     return {"databases": databases, "count": len(databases)}
 
 
-@router.get("/{database_id}")
+@router.get("/{database_id}", summary="Get database")
 async def get_database(database_id: str, project_id: str = Depends(require_project)):
     try:
         return await service.get_database(project_id, database_id)
@@ -50,7 +50,7 @@ async def get_database(database_id: str, project_id: str = Depends(require_proje
         raise HTTPException(e.status_code, e.message)
 
 
-@router.delete("/{database_id}")
+@router.delete("/{database_id}", summary="Delete database")
 async def delete_database(database_id: str, project_id: str = Depends(require_project)):
     try:
         await service.delete_database(project_id, database_id)
@@ -61,7 +61,7 @@ async def delete_database(database_id: str, project_id: str = Depends(require_pr
 
 # ── Query ────────────────────────────────────────────────────────
 
-@router.post("/{database_id}/query")
+@router.post("/{database_id}/query", summary="Query database")
 async def query_database(database_id: str, req: QueryRequest, project_id: str = Depends(require_project)):
     try:
         result = await service.execute_query(project_id, database_id, req.sql)
@@ -72,7 +72,7 @@ async def query_database(database_id: str, req: QueryRequest, project_id: str = 
 
 # ── Status ───────────────────────────────────────────────────────
 
-@router.get("/{database_id}/status")
+@router.get("/{database_id}/status", summary="Get database status")
 async def database_status(database_id: str, project_id: str = Depends(require_project)):
     try:
         return await service.get_database_status(project_id, database_id)

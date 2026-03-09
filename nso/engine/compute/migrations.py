@@ -129,6 +129,57 @@ TABLES += """
     );
 """
 
+async def run_alterations(conn, logger):
+    """Fix FK constraints on existing tables (SQLite requires table recreation)."""
+
+    # ── Fix compute_vms: add ON DELETE CASCADE to both FKs ──
+    cursor = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='compute_vms'"
+    )
+    if await cursor.fetchone():
+        # Check if already fixed by looking at the SQL
+        cursor = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='compute_vms'"
+        )
+        row = await cursor.fetchone()
+        if row and "ON DELETE CASCADE" not in (row[0] or "").upper():
+            logger.info("Migrating compute_vms: adding ON DELETE CASCADE")
+            await conn.executescript("""
+                CREATE TABLE IF NOT EXISTS compute_vms_new (
+                    id TEXT PRIMARY KEY,
+                    host_id TEXT NOT NULL,
+                    project_id TEXT NOT NULL,
+                    instance_id TEXT DEFAULT '',
+                    plan_id TEXT DEFAULT '',
+                    label TEXT DEFAULT '',
+                    status TEXT DEFAULT 'creating',
+                    vcpus INTEGER DEFAULT 1,
+                    ram_mb INTEGER DEFAULT 512,
+                    disk_gb INTEGER DEFAULT 10,
+                    bandwidth_gb INTEGER DEFAULT 100,
+                    ip_internal TEXT DEFAULT '',
+                    ip_external TEXT DEFAULT '',
+                    port_start INTEGER DEFAULT 0,
+                    port_end INTEGER DEFAULT 0,
+                    container_id TEXT DEFAULT '',
+                    pid INTEGER DEFAULT 0,
+                    metadata TEXT DEFAULT '{}',
+                    created_at TEXT DEFAULT (datetime('now')),
+                    started_at TEXT,
+                    stopped_at TEXT,
+                    FOREIGN KEY (host_id) REFERENCES compute_hosts(id) ON DELETE CASCADE,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                INSERT OR IGNORE INTO compute_vms_new SELECT * FROM compute_vms;
+                DROP TABLE compute_vms;
+                ALTER TABLE compute_vms_new RENAME TO compute_vms;
+                CREATE INDEX IF NOT EXISTS idx_compute_vms_host ON compute_vms(host_id);
+                CREATE INDEX IF NOT EXISTS idx_compute_vms_project ON compute_vms(project_id);
+                CREATE INDEX IF NOT EXISTS idx_compute_vms_status ON compute_vms(status);
+            """)
+            logger.info("compute_vms FK migration complete")
+
+
 INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_instances_project ON instances(project_id);
     CREATE INDEX IF NOT EXISTS idx_instances_state ON instances(state);

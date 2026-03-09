@@ -18,7 +18,7 @@ class ClaimRequest(BaseModel):
     subdomain: str
 
 
-@router.get("")
+@router.get("", summary="Get subdomain")
 async def get_subdomain(auth: AuthContext = Depends(require_user)):
     try:
         user = await users.get_user(auth.user_id)
@@ -31,7 +31,7 @@ async def get_subdomain(auth: AuthContext = Depends(require_user)):
     return {"subdomain": sub, "domain": f"{sub}.{settings.NSO_BASE_DOMAIN}"}
 
 
-@router.get("/check")
+@router.get("/check", summary="Check availability")
 async def check_availability(name: str = Query(..., min_length=3, max_length=32)):
     try:
         available = await users.check_subdomain_available(name)
@@ -45,7 +45,7 @@ async def check_availability(name: str = Query(..., min_length=3, max_length=32)
     }
 
 
-@router.post("/claim")
+@router.post("/claim", summary="Claim subdomain")
 async def claim_subdomain(req: ClaimRequest, auth: AuthContext = Depends(require_user)):
     try:
         sub = await users.claim_subdomain(auth.user_id, req.subdomain)

@@ -132,7 +132,7 @@ async def _sync_connector_secrets(project_id: str, connector_id: str, config: di
 #  CATALOG (admin)
 # ═══════════════════════════════════════════
 
-@router.get("/catalog")
+@router.get("/catalog", summary="List addon catalog")
 async def list_catalog(addon_type: str = "", auth=Depends(require_admin)):
     """List catalog entries. Optionally filter by addon_type (connector, plugin, marketplace)."""
     await _ensure_catalog_seeded()
@@ -143,7 +143,7 @@ async def list_catalog(addon_type: str = "", auth=Depends(require_admin)):
     return {"catalog": entries}
 
 
-@router.post("/catalog")
+@router.post("/catalog", summary="Publish addon")
 async def publish_addon(entry: dict, auth=Depends(require_admin)):
     """Publish a new addon to the catalog."""
     addon_id = entry.get("addon_id", "").strip().lower()
@@ -180,7 +180,7 @@ async def publish_addon(entry: dict, auth=Depends(require_admin)):
     return {"ok": True, "entry": data}
 
 
-@router.patch("/catalog/{addon_type}/{addon_id}")
+@router.patch("/catalog/{addon_type}/{addon_id}", summary="Update catalog entry")
 async def update_catalog_entry(addon_type: str, addon_id: str, updates: dict, auth=Depends(require_admin)):
     """Update a catalog entry."""
     if addon_type not in ADDON_TYPES:
@@ -200,7 +200,7 @@ async def update_catalog_entry(addon_type: str, addon_id: str, updates: dict, au
     return {"ok": True, "addon_id": addon_id, "addon_type": addon_type, "updated": list(filtered.keys())}
 
 
-@router.delete("/catalog/{addon_type}/{addon_id}")
+@router.delete("/catalog/{addon_type}/{addon_id}", summary="Remove from catalog")
 async def remove_from_catalog(addon_type: str, addon_id: str, auth=Depends(require_admin)):
     """Remove an addon from the catalog."""
     if addon_type not in ADDON_TYPES:
@@ -219,7 +219,7 @@ async def remove_from_catalog(addon_type: str, addon_id: str, auth=Depends(requi
 #  ADDONS (per-project install/manage)
 # ═══════════════════════════════════════════
 
-@router.get("")
+@router.get("", summary="List addons")
 async def list_addons(addon_type: str = "", project_id: str = Depends(require_project)):
     """List addons for a project, combining catalog + install status."""
     await _ensure_catalog_seeded()
@@ -255,7 +255,7 @@ async def list_addons(addon_type: str = "", project_id: str = Depends(require_pr
     return {"addons": addons}
 
 
-@router.post("/install")
+@router.post("/install", summary="Install addon")
 async def install_addon(req: InstallPluginRequest, addon_type: str = "plugin", project_id: str = Depends(require_project)):
     """Install an addon from the catalog."""
     await _ensure_catalog_seeded()
@@ -323,7 +323,7 @@ async def install_addon(req: InstallPluginRequest, addon_type: str = "plugin", p
     return {"ok": True, "addon": {**addon_data, "installed": True}}
 
 
-@router.patch("/{addon_id}")
+@router.patch("/{addon_id}", summary="Update addon")
 async def update_addon(addon_id: str, req: UpdatePluginRequest, addon_type: str = "", project_id: str = Depends(require_project)):
     """Update an installed addon (enable/disable, config)."""
     if addon_type and addon_type in ADDON_TYPES:
@@ -359,7 +359,7 @@ async def update_addon(addon_id: str, req: UpdatePluginRequest, addon_type: str 
     return {"ok": True, "addon_id": addon_id, "updated": list(updates.keys())}
 
 
-@router.delete("/{addon_id}")
+@router.delete("/{addon_id}", summary="Uninstall addon")
 async def uninstall_addon(addon_id: str, addon_type: str = "", project_id: str = Depends(require_project)):
     """Uninstall an addon."""
     if addon_type and addon_type in ADDON_TYPES:

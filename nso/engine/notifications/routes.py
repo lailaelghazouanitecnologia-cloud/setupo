@@ -12,14 +12,14 @@ router = APIRouter()
 MAX_NOTIFICATIONS_PER_PAGE = 100
 
 
-@router.get("")
+@router.get("", summary="List notifications")
 async def list_notifications(auth: AuthContext = Depends(require_user)):
     items = await db.fetch_all("notifications", user_id=auth.user_id)
     unread = sum(1 for n in items if not n.get("read"))
     return {"notifications": items, "count": len(items), "unread": unread}
 
 
-@router.post("/{notification_id}/read")
+@router.post("/{notification_id}/read", summary="Mark as read")
 async def mark_read(notification_id: str, auth: AuthContext = Depends(require_user)):
     notif = await db.fetch_one("notifications", id=notification_id)
     if not notif or notif["user_id"] != auth.user_id:
@@ -28,7 +28,7 @@ async def mark_read(notification_id: str, auth: AuthContext = Depends(require_us
     return {"ok": True}
 
 
-@router.post("/read-all")
+@router.post("/read-all", summary="Mark all as read")
 async def mark_all_read(auth: AuthContext = Depends(require_user)):
     d = await db.get_db()
     await d.execute(
@@ -39,7 +39,7 @@ async def mark_all_read(auth: AuthContext = Depends(require_user)):
     return {"ok": True}
 
 
-@router.delete("/{notification_id}")
+@router.delete("/{notification_id}", summary="Delete notification")
 async def delete_notification(notification_id: str, auth: AuthContext = Depends(require_user)):
     notif = await db.fetch_one("notifications", id=notification_id)
     if not notif or notif["user_id"] != auth.user_id:
@@ -62,7 +62,7 @@ async def create_notification(user_id: str, title: str, message: str = "", notif
     return notif_id
 
 
-@router.post("")
+@router.post("", summary="Send notification")
 async def send_notification(
     user_id: str,
     title: str,

@@ -137,7 +137,7 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
     if (!activeThreadId) { setMessages([]); return; }
     getDeployThread(projectId, activeThreadId)
       .then((t) => setMessages((t.messages || []).flatMap(dbMsgToChat)))
-      .catch(() => {});
+      .catch((e) => console.error(e));
   }, [activeThreadId, projectId]);
 
   // Auto-delete empty threads when switching away
@@ -242,7 +242,7 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
       }
       if (Object.keys(updates).length > 0) {
         setThreads((prev) => prev.map((t) => t.id === activeThreadId ? { ...t, ...updates } : t));
-        updateDeployThread(projectId, activeThreadId, updates).catch(() => {});
+        updateDeployThread(projectId, activeThreadId, updates).catch((e) => console.error(e));
       }
     }
     await doStream(activeThreadId, content);
@@ -378,14 +378,16 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
             <div className="da-welcome-inner">
               <h2 className="da-welcome-title">What can I help you deploy?</h2>
 
-              <div className="da-welcome-suggestions">
-                {SUGGESTIONS.map((s) => (
-                  <button key={s.text} className="da-suggestion" onClick={() => sendMessage(s.text)}>
-                    <s.icon className="h-3.5 w-3.5 da-suggestion-icon" />
-                    <span>{s.text}</span>
-                  </button>
-                ))}
-              </div>
+              {activeProject?.role === "admin" && (
+                <div className="da-welcome-suggestions">
+                  {SUGGESTIONS.map((s) => (
+                    <button key={s.text} className="da-suggestion" onClick={() => sendMessage(s.text)}>
+                      <s.icon className="h-3.5 w-3.5 da-suggestion-icon" />
+                      <span>{s.text}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {/* Input inside welcome */}
               <div className="da-input-container">
                 <ChatInputBox
@@ -696,9 +698,9 @@ function ChatInputBox({ input, streaming, textareaRef, onInputChange, onKeyDown,
               ) : (
                 <button
                   onClick={onSend}
-                  disabled={!input.trim() && attachments.length === 0}
+                  disabled={(!input.trim() && attachments.length === 0) || activeProject?.role !== "admin"}
                   className="da-send-btn active"
-                  title="Send"
+                  title={activeProject?.role !== "admin" ? "Admin access required" : "Send"}
                 >
                   <ArrowUp className="h-4 w-4" />
                 </button>
@@ -765,7 +767,7 @@ function ZarPicker({ projectId, onSelect, onClose }: {
   useEffect(() => {
     listWorkspaces(projectId)
       .then((r) => setWorkspaces(r.workspaces || []))
-      .catch(() => {})
+      .catch((e) => console.error(e))
       .finally(() => setLoading(false));
   }, [projectId]);
 

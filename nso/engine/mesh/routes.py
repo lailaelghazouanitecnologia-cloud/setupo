@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import PlainTextResponse
 
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_admin
 from nso.shared.errors import NsoError
 from nso.engine.mesh import service as mesh
 from nso.engine.mesh.models import (
@@ -22,7 +22,7 @@ router = APIRouter()
 # ── Devices ─────────────────────────────────────────────────────
 
 
-@router.get("/devices")
+@router.get("/devices", summary="List devices")
 async def list_devices(
     project_id: str = Depends(require_project),
     status: str | None = None,
@@ -32,10 +32,10 @@ async def list_devices(
     return {"devices": devices}
 
 
-@router.post("/devices")
+@router.post("/devices", status_code=201, summary="Register device")
 async def register_device(
     req: RegisterDeviceRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         device = await mesh.register_device(
@@ -57,7 +57,7 @@ async def register_device(
     }
 
 
-@router.get("/devices/{device_id}")
+@router.get("/devices/{device_id}", summary="Get device")
 async def get_device(
     device_id: str,
     project_id: str = Depends(require_project),
@@ -69,11 +69,11 @@ async def get_device(
     return {"device": device}
 
 
-@router.patch("/devices/{device_id}")
+@router.patch("/devices/{device_id}", summary="Update device")
 async def update_device(
     device_id: str,
     req: UpdateDeviceRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         device = await mesh.update_device(
@@ -85,10 +85,10 @@ async def update_device(
     return {"device": device}
 
 
-@router.delete("/devices/{device_id}")
+@router.delete("/devices/{device_id}", summary="Delete device")
 async def delete_device(
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         await mesh.delete_device(project_id, device_id)
@@ -100,7 +100,7 @@ async def delete_device(
 # ── Device activation (called by bootstrap script) ─────────────
 
 
-@router.post("/devices/{device_id}/activate")
+@router.post("/devices/{device_id}/activate", summary="Activate device")
 async def activate_device(
     device_id: str,
     req: ActivateDeviceRequest,
@@ -121,11 +121,11 @@ async def activate_device(
 # ── Device operations ───────────────────────────────────────────
 
 
-@router.post("/devices/{device_id}/exec")
+@router.post("/devices/{device_id}/exec", summary="Execute on device")
 async def exec_on_device(
     device_id: str,
     req: DeviceExecRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         result = await mesh.exec_on_device(
@@ -137,7 +137,7 @@ async def exec_on_device(
     return result
 
 
-@router.get("/devices/{device_id}/status")
+@router.get("/devices/{device_id}/status", summary="Get device status")
 async def device_status(
     device_id: str,
     project_id: str = Depends(require_project),
@@ -149,7 +149,7 @@ async def device_status(
     return status
 
 
-@router.get("/devices/{device_id}/files")
+@router.get("/devices/{device_id}/files", summary="List device files")
 async def list_device_files(
     device_id: str,
     project_id: str = Depends(require_project),
@@ -162,7 +162,7 @@ async def list_device_files(
     return result
 
 
-@router.post("/devices/{device_id}/files/read")
+@router.post("/devices/{device_id}/files/read", summary="Read device file")
 async def read_device_file(
     device_id: str,
     project_id: str = Depends(require_project),
@@ -177,10 +177,10 @@ async def read_device_file(
     return result
 
 
-@router.post("/devices/{device_id}/files/write")
+@router.post("/devices/{device_id}/files/write", summary="Write device file")
 async def write_device_file(
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
     path: str = "",
     content: str = "",
 ):
@@ -193,7 +193,7 @@ async def write_device_file(
     return result
 
 
-@router.get("/devices/{device_id}/logs")
+@router.get("/devices/{device_id}/logs", summary="Get device logs")
 async def device_logs(
     device_id: str,
     project_id: str = Depends(require_project),
@@ -209,16 +209,16 @@ async def device_logs(
 # ── Groups ──────────────────────────────────────────────────────
 
 
-@router.get("/groups")
+@router.get("/groups", summary="List groups")
 async def list_groups(project_id: str = Depends(require_project)):
     groups = await mesh.list_groups(project_id)
     return {"groups": groups}
 
 
-@router.post("/groups")
+@router.post("/groups", status_code=201, summary="Create group")
 async def create_group(
     req: CreateGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         group = await mesh.create_group(project_id, req.name, req.description)
@@ -227,11 +227,11 @@ async def create_group(
     return {"group": group}
 
 
-@router.patch("/groups/{group_id}")
+@router.patch("/groups/{group_id}", summary="Update group")
 async def update_group(
     group_id: str,
     req: UpdateGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         group = await mesh.update_group(
@@ -243,10 +243,10 @@ async def update_group(
     return {"group": group}
 
 
-@router.delete("/groups/{group_id}")
+@router.delete("/groups/{group_id}", summary="Delete group")
 async def delete_group(
     group_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         await mesh.delete_group(project_id, group_id)
@@ -255,11 +255,11 @@ async def delete_group(
     return {"deleted": True, "group_id": group_id}
 
 
-@router.post("/groups/{group_id}/devices")
+@router.post("/groups/{group_id}/devices", summary="Add devices to group")
 async def add_devices_to_group(
     group_id: str,
     req: AddDevicesToGroupRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         await mesh.add_devices_to_group(project_id, group_id, req.device_ids)
@@ -268,11 +268,11 @@ async def add_devices_to_group(
     return {"added": len(req.device_ids)}
 
 
-@router.delete("/groups/{group_id}/devices/{device_id}")
+@router.delete("/groups/{group_id}/devices/{device_id}", summary="Remove device from group")
 async def remove_device_from_group(
     group_id: str,
     device_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         await mesh.remove_device_from_group(project_id, group_id, device_id)
@@ -284,11 +284,11 @@ async def remove_device_from_group(
 # ── Group operations ────────────────────────────────────────────
 
 
-@router.post("/groups/{group_id}/exec")
+@router.post("/groups/{group_id}/exec", summary="Execute on group")
 async def exec_on_group(
     group_id: str,
     req: GroupExecRequest,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     try:
         results = await mesh.exec_on_group(
@@ -300,7 +300,7 @@ async def exec_on_group(
     return {"results": results}
 
 
-@router.get("/groups/{group_id}/status")
+@router.get("/groups/{group_id}/status", summary="Get group status")
 async def group_status_endpoint(
     group_id: str,
     project_id: str = Depends(require_project),
@@ -315,7 +315,7 @@ async def group_status_endpoint(
 # ── Bootstrap script (public, token-guarded) ────────────────────
 
 
-@router.get("/install/{install_token}")
+@router.get("/install/{install_token}", summary="Get install script")
 async def get_install_script(install_token: str):
     """Serve device-specific install script. Public endpoint, guarded by one-time token."""
     try:

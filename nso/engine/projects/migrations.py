@@ -3,9 +3,10 @@ TABLES = """
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         api_key_hash TEXT NOT NULL UNIQUE,
-        owner TEXT DEFAULT '',
+        owner TEXT DEFAULT NULL,
         settings TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (owner) REFERENCES users(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS project_secrets (
@@ -46,6 +47,33 @@ TABLES = """
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     );
 """
+
+async def run_alterations(conn, logger):
+    """Fix FK constraints on projects.owner for existing databases."""
+    cursor = await conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'"
+    )
+    row = await cursor.fetchone()
+    if row and "FOREIGN KEY" not in (row[0] or ""):
+        logger.info("Migrating projects: adding FK on owner → users(id)")
+        await conn.executescript("""
+            CREATE TABLE IF NOT EXISTS projects_new (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                api_key_hash TEXT NOT NULL UNIQUE,
+                owner TEXT DEFAULT NULL,
+                settings TEXT DEFAULT '{}',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (owner) REFERENCES users(id) ON DELETE SET NULL
+            );
+            INSERT OR IGNORE INTO projects_new SELECT * FROM projects;
+            DROP TABLE projects;
+            ALTER TABLE projects_new RENAME TO projects;
+        """)
+        # Convert empty string owners to NULL for FK compatibility
+        await conn.execute("UPDATE projects SET owner = NULL WHERE owner = ''")
+        logger.info("projects FK migration complete")
+
 
 INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_project_secrets_project ON project_secrets(project_id);

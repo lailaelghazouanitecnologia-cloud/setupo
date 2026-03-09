@@ -8,7 +8,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query
 
 from nso.engine.services import service as svc
 from nso.shared.errors import NsoError
-from nso.shared.deps import require_project
+from nso.shared.deps import require_project, require_project_admin
 
 router = APIRouter()
 
@@ -16,7 +16,7 @@ router = APIRouter()
 # ── Service Registry ──
 
 
-@router.get("")
+@router.get("", summary="List services")
 async def list_services(
     project_id: str = Depends(require_project),
     status: str = "",
@@ -30,10 +30,10 @@ async def list_services(
     return {"services": services}
 
 
-@router.post("")
+@router.post("", status_code=201, summary="Create service")
 async def create_service(
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Register a new service."""
     name = body.get("name")
@@ -47,7 +47,7 @@ async def create_service(
     return {"service": service}
 
 
-@router.get("/{service_id}")
+@router.get("/{service_id}", summary="Get service")
 async def get_service(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -60,7 +60,7 @@ async def get_service(
     return {"service": service}
 
 
-@router.get("/{service_id}/overview")
+@router.get("/{service_id}/overview", summary="Get service overview")
 async def get_service_overview(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -73,11 +73,11 @@ async def get_service_overview(
     return overview
 
 
-@router.patch("/{service_id}")
+@router.patch("/{service_id}", summary="Update service")
 async def update_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Update service configuration."""
     try:
@@ -87,10 +87,10 @@ async def update_service(
     return {"service": service}
 
 
-@router.delete("/{service_id}")
+@router.delete("/{service_id}", summary="Delete service")
 async def delete_service(
     service_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Delete a service and all its replicas."""
     try:
@@ -103,11 +103,11 @@ async def delete_service(
 # ── Deploy ──
 
 
-@router.post("/{service_id}/deploy")
+@router.post("/{service_id}/deploy", summary="Deploy service")
 async def deploy_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Deploy a service to target(s). Body: {"target_ids": ["node_xxx", "inst_xxx", ...]}"""
     target_ids = body.get("target_ids") or body.get("instance_ids") or body.get("node_ids", [])
@@ -123,11 +123,11 @@ async def deploy_service(
 # ── Start / Stop ──
 
 
-@router.post("/{service_id}/start")
+@router.post("/{service_id}/start", summary="Start service")
 async def start_service(
     service_id: str,
     body: dict = Body(default={}),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Re-deploy a stopped service to its existing replicas' instances."""
     try:
@@ -142,10 +142,10 @@ async def start_service(
     return result
 
 
-@router.post("/{service_id}/stop")
+@router.post("/{service_id}/stop", summary="Stop service")
 async def stop_service(
     service_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Stop all replicas of a service across all nodes/instances."""
     try:
@@ -177,7 +177,7 @@ async def stop_service(
 # ── Health ──
 
 
-@router.get("/{service_id}/health")
+@router.get("/{service_id}/health", summary="Get service health")
 async def get_service_health(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -215,11 +215,11 @@ async def get_service_health(
 # ── Scaling ──
 
 
-@router.post("/{service_id}/scale")
+@router.post("/{service_id}/scale", summary="Scale service")
 async def scale_service(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Set desired replica count. Body: {"replicas": 3}"""
     replicas = body.get("replicas")
@@ -232,7 +232,7 @@ async def scale_service(
     return result
 
 
-@router.get("/{service_id}/scaling")
+@router.get("/{service_id}/scaling", summary="Get scaling policy")
 async def get_scaling(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -247,11 +247,11 @@ async def get_scaling(
     return {"policy": policy, "recommendation": recommendation}
 
 
-@router.put("/{service_id}/scaling")
+@router.put("/{service_id}/scaling", summary="Set scaling policy")
 async def set_scaling(
     service_id: str,
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Set scaling policy. Body: {"min_replicas": 1, "max_replicas": 5, "metric": "cpu", "target_value": 70}"""
     try:
@@ -265,7 +265,7 @@ async def set_scaling(
 # ── Replicas ──
 
 
-@router.get("/{service_id}/replicas")
+@router.get("/{service_id}/replicas", summary="List replicas")
 async def list_replicas(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -282,7 +282,7 @@ async def list_replicas(
 # ── Events ──
 
 
-@router.get("/{service_id}/events")
+@router.get("/{service_id}/events", summary="List service events")
 async def list_events(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -300,7 +300,7 @@ async def list_events(
 # ── Dependencies / Connections ──
 
 
-@router.get("/{service_id}/dependencies")
+@router.get("/{service_id}/dependencies", summary="Get service dependencies")
 async def get_dependencies(
     service_id: str,
     project_id: str = Depends(require_project),
@@ -320,7 +320,7 @@ async def get_dependencies(
 connections_router = APIRouter()
 
 
-@connections_router.get("")
+@connections_router.get("", summary="List connections")
 async def list_connections(
     project_id: str = Depends(require_project),
     resource_type: str = "",
@@ -334,10 +334,10 @@ async def list_connections(
     return {"connections": connections}
 
 
-@connections_router.post("")
+@connections_router.post("", summary="Create connection")
 async def create_connection(
     body: dict = Body(...),
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Create a resource connection. Body: {"source_type": "service", "source_id": "svc_xxx", "target_type": "database", "target_id": "db_xxx", "config": {}}"""
     for field in ("source_type", "source_id", "target_type", "target_id"):
@@ -355,10 +355,10 @@ async def create_connection(
     return {"connection": connection}
 
 
-@connections_router.delete("/{connection_id}")
+@connections_router.delete("/{connection_id}", summary="Delete connection")
 async def delete_connection(
     connection_id: str,
-    project_id: str = Depends(require_project),
+    project_id: str = Depends(require_project_admin),
 ):
     """Delete a resource connection."""
     try:

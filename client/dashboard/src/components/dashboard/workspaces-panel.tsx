@@ -111,7 +111,7 @@ export function WorkspacesPanel() {
     try {
       const res = await listWorkspaces(activeProject.id);
       setWorkspaces(res.workspaces || []);
-    } catch { setWorkspaces([]); }
+    } catch (e) { console.error(e); setWorkspaces([]); }
     setLoading(false);
   }, [activeProject, setWorkspaces]);
 
@@ -129,7 +129,7 @@ export function WorkspacesPanel() {
         return a.name.localeCompare(b.name);
       });
       setFiles(items);
-    } catch { setFiles([]); }
+    } catch (e) { console.error(e); setFiles([]); }
     setFilesLoading(false);
   }, [activeProject, activeWorkspace, browsePath]);
 
@@ -144,7 +144,7 @@ export function WorkspacesPanel() {
       const res = await zarVersions(activeProject.id, activeWorkspace.name);
       setVersions(res.versions || []);
       setBranches(res.branches || {});
-    } catch { setVersions([]); setBranches({}); }
+    } catch (e) { console.error(e); setVersions([]); setBranches({}); }
     setVersionsLoading(false);
   }, [activeProject, activeWorkspace]);
 
@@ -181,7 +181,8 @@ export function WorkspacesPanel() {
       const res = await readWorkspaceFile(activeProject.id, activeWorkspace.name, item.path);
       setFileContent(res.content);
       setViewingFile(item.path);
-    } catch {
+    } catch (e) {
+      console.error(e);
       setFileContent("// Failed to read file");
       setViewingFile(item.path);
     }
@@ -222,9 +223,11 @@ export function WorkspacesPanel() {
             <button className="ws-icon-btn" onClick={fetchWorkspaces} title="Refresh">
               <RefreshCw className="h-3 w-3" />
             </button>
-            <button className="ws-icon-btn" onClick={() => setCreating(!creating)} title="New workspace">
-              <Plus className="h-3 w-3" />
-            </button>
+            {activeProject?.role === "admin" && (
+              <button className="ws-icon-btn" onClick={() => setCreating(!creating)} title="New workspace">
+                <Plus className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -286,13 +289,15 @@ export function WorkspacesPanel() {
                   <div className="ws-sidebar-item-info">
                     <span className="ws-sidebar-item-name">{ws.name}</span>
                   </div>
-                  <button
-                    className="ws-sidebar-item-delete"
-                    onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
-                    title="Delete"
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
+                  {activeProject?.role === "admin" && (
+                    <button
+                      className="ws-sidebar-item-delete"
+                      onClick={(e) => { e.stopPropagation(); handleDelete(ws); }}
+                      title="Delete"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </button>
+                  )}
                 </button>
               );
             })
