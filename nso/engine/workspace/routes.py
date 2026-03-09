@@ -133,7 +133,7 @@ async def _check_workspace_limit(project_id: str) -> None:
         logger.warning("Workspace limit check failed (allowing): %s", e)
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, summary="Create workspace")
 async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depends(require_project_admin)):
     existing = await db.fetch_one("workspaces", project_id=project_id, name=req.name)
     if existing:
@@ -234,7 +234,7 @@ async def _enrich_workspace_deploy(ws: dict, project_id: str, instances_cache: d
         ws["deploy_url"] = f"https://{domain}" if domain else None
 
 
-@router.get("")
+@router.get("", summary="List workspaces")
 async def list_workspaces(project_id: str = Depends(require_project)):
     workspaces = await db.fetch_all("workspaces", project_id=project_id)
 
@@ -253,7 +253,7 @@ async def list_workspaces(project_id: str = Depends(require_project)):
     return {"workspaces": workspaces}
 
 
-@router.get("/{name}")
+@router.get("/{name}", summary="Get workspace")
 async def get_workspace(name: str, project_id: str = Depends(require_project)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -266,7 +266,7 @@ async def get_workspace(name: str, project_id: str = Depends(require_project)):
     return {"workspace": ws}
 
 
-@router.delete("/{name}")
+@router.delete("/{name}", summary="Delete workspace")
 async def delete_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -290,7 +290,7 @@ class UpdateConfigRequest(BaseModel):
     protected_files: list[str] | None = None
 
 
-@router.get("/{name}/config")
+@router.get("/{name}/config", summary="Get workspace config")
 async def get_config(name: str, project_id: str = Depends(require_project)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -302,7 +302,7 @@ async def get_config(name: str, project_id: str = Depends(require_project)):
     return {"config": config.model_dump(), "raw": raw}
 
 
-@router.put("/{name}/config")
+@router.put("/{name}/config", summary="Update workspace config")
 async def update_config(name: str, req: UpdateConfigRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -342,7 +342,7 @@ async def update_config(name: str, req: UpdateConfigRequest, project_id: str = D
     return {"config": config.model_dump(), "raw": generate_config_toml(config)}
 
 
-@router.post("/{name}/pull")
+@router.post("/{name}/pull", summary="Pull workspace from git")
 async def pull_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -360,7 +360,7 @@ async def pull_workspace(name: str, project_id: str = Depends(require_project_ad
     return {"name": name, "output": stdout.decode().strip(), "success": proc.returncode == 0}
 
 
-@router.get("/{name}/files")
+@router.get("/{name}/files", summary="List workspace files")
 async def list_files(name: str, path: str = Query("."), project_id: str = Depends(require_project)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -386,7 +386,7 @@ async def list_files(name: str, path: str = Query("."), project_id: str = Depend
     return {"path": path, "items": items}
 
 
-@router.get("/{name}/files/read")
+@router.get("/{name}/files/read", summary="Read workspace file")
 async def read_file(name: str, path: str = Query(...), project_id: str = Depends(require_project)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -411,7 +411,7 @@ class WriteFileRequest(BaseModel):
     content: str
 
 
-@router.post("/{name}/files/write")
+@router.post("/{name}/files/write", summary="Write workspace file")
 async def write_file(name: str, req: WriteFileRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -445,7 +445,7 @@ class DeleteFileRequest(BaseModel):
     path: str
 
 
-@router.post("/{name}/files/delete")
+@router.post("/{name}/files/delete", summary="Delete workspace file")
 async def delete_file(name: str, req: DeleteFileRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -463,7 +463,7 @@ async def delete_file(name: str, req: DeleteFileRequest, project_id: str = Depen
     return {"path": req.path, "deleted": True}
 
 
-@router.post("/{name}/deploy")
+@router.post("/{name}/deploy", summary="Deploy workspace")
 async def deploy_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -486,7 +486,7 @@ async def deploy_workspace(name: str, project_id: str = Depends(require_project_
     )
 
 
-@router.post("/seed/platform")
+@router.post("/seed/platform", summary="Seed platform workspaces")
 async def seed_platform_workspaces(
     instance_id: str = Query("", description="Machine to link workspaces to"),
     _=Depends(require_admin),

@@ -8,7 +8,7 @@ from nso.shared.deps import require_project_admin
 router = APIRouter()
 
 
-@router.post("/{instance_id}/deploy")
+@router.post("/{instance_id}/deploy", summary="Deploy to instance")
 async def deploy(instance_id: str, req: DeployRequest, project_id: str = Depends(require_project_admin)):
     await im.get_instance(project_id, instance_id)
     result = await deploy_to_instance(

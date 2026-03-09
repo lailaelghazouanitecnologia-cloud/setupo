@@ -625,7 +625,7 @@ export function InstancesTab() {
         await deleteInstance(projectId, item.raw_instance.id);
       }
       if (item.raw_node) {
-        await deleteComputeNode(projectId, item.raw_node.id).catch(() => {});
+        await deleteComputeNode(projectId, item.raw_node.id).catch((e) => console.error(e));
       } else if (item.type === "node") {
         await deleteComputeNode(projectId, item.id);
       }
@@ -1542,7 +1542,7 @@ export function ServicesTab() {
     SYSTEM_SERVICES.forEach((svc) => handleService("status", svc.name));
     fetchSysInfo();
     if (activeProject && workspaces.length === 0) {
-      listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch(() => {});
+      listWorkspaces(activeProject.id).then((res) => setWorkspaces(res.workspaces || [])).catch((e) => console.error(e));
     }
   }, [activeProject]);
 

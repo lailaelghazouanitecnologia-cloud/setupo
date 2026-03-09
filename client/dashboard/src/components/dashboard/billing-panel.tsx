@@ -1164,7 +1164,7 @@ function TopUpForm({ onClose, onSuccess }: { onClose: () => void; onSuccess: () 
   const [currentUserId, setCurrentUserId] = useState("");
 
   useEffect(() => {
-    getMe().then((me) => setCurrentUserId(me.id)).catch(() => {});
+    getMe().then((me) => setCurrentUserId(me.id)).catch((e) => console.error(e));
   }, []);
 
   const presets = [10, 25, 50, 100];

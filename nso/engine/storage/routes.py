@@ -215,7 +215,7 @@ class SelfUpdateRequest(BaseModel):
     r2_key: str = ""
 
 
-@router.post("/{name}/pack")
+@router.post("/{name}/pack", summary="Pack workspace into .zar")
 async def pack_workspace(name: str, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -239,7 +239,7 @@ async def pack_workspace(name: str, project_id: str = Depends(require_project_ad
     return {"ok": True, "manifest": manifest.model_dump(), "size": len(zar_bytes)}
 
 
-@router.post("/{name}/push")
+@router.post("/{name}/push", summary="Push .zar to R2")
 async def push_workspace(name: str, branch: str = "main", project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -274,7 +274,7 @@ async def push_workspace(name: str, branch: str = "main", project_id: str = Depe
     ).model_dump()
 
 
-@router.post("/{name}/deploy")
+@router.post("/{name}/deploy", summary="Deploy .zar to instance")
 async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends(require_project_admin)):
     instance_id = await _resolve_instance(name, project_id, req.instance_id)
 
@@ -324,7 +324,7 @@ async def deploy_zar(name: str, req: DeployZarRequest, project_id: str = Depends
     }
 
 
-@router.post("/{name}/ship")
+@router.post("/{name}/ship", summary="Ship workspace")
 async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(require_project_admin)):
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
@@ -496,7 +496,7 @@ async def ship_workspace(name: str, req: ShipRequest, project_id: str = Depends(
     }
 
 
-@router.post("/{name}/rollback")
+@router.post("/{name}/rollback", summary="Rollback deployment")
 async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = Depends(require_project_admin)):
     agent_url = await _get_agent_url(req.instance_id, project_id)
     token = await _get_agent_token(agent_url)
@@ -526,7 +526,7 @@ async def rollback_workspace(name: str, req: RollbackRequest, project_id: str = 
         raise HTTPException(502, "Agent returned invalid response")
 
 
-@router.post("/{name}/branch")
+@router.post("/{name}/branch", summary="Create branch")
 async def create_branch(name: str, req: BranchRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
@@ -538,7 +538,7 @@ async def create_branch(name: str, req: BranchRequest, project_id: str = Depends
     return {"ok": True, "branch": req.name, "from": req.from_branch, "r2_key": key}
 
 
-@router.post("/{name}/merge")
+@router.post("/{name}/merge", summary="Merge branches")
 async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(require_project_admin)):
     r2 = _get_r2()
     try:
@@ -553,7 +553,7 @@ async def merge_branch(name: str, req: MergeRequest, project_id: str = Depends(r
     return {"ok": True, "merged": f"{req.from_branch} → {req.to_branch}", "version": version, "r2_key": key}
 
 
-@router.get("/{name}/versions")
+@router.get("/{name}/versions", summary="List versions and branches")
 async def list_versions(name: str, branch: str = "main", project_id: str = Depends(require_project)):
     r2 = _get_r2()
     try:
@@ -605,7 +605,7 @@ class PlatformUpdateProxyRequest(BaseModel):
     server_side_build: bool = True  # Build frontends on main server (recommended)
 
 
-@router.post("/build-frontends")
+@router.post("/build-frontends", summary="Build frontend assets")
 async def build_frontends(req: BuildFrontendsRequest, auth: AuthContext = Depends(require_admin)):
     """Build dashboard and admin frontends on the main server.
 
@@ -713,7 +713,7 @@ async def build_frontends(req: BuildFrontendsRequest, auth: AuthContext = Depend
     return results
 
 
-@router.post("/platform-update")
+@router.post("/platform-update", summary="Update platform on instance")
 async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthContext = Depends(require_admin)):
     """Full platform update: build frontends on main server, then update instance.
 
@@ -793,7 +793,7 @@ async def platform_update_proxy(req: PlatformUpdateProxyRequest, auth: AuthConte
         raise HTTPException(502, "Agent returned invalid response")
 
 
-@router.post("/self-update")
+@router.post("/self-update", summary="Self-update agent on instance")
 async def self_update_instance(req: SelfUpdateRequest, project_id: str = Depends(require_project_admin)):
     r2_cfg = settings.r2_config()
     if not req.r2_key:

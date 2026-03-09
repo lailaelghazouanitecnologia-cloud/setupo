@@ -28,7 +28,7 @@ async def _get_user_role(auth: AuthContext, project_id: str) -> str:
     raise HTTPException(403, "Access denied")
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, summary="Create project")
 async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(require_user)):
     if not req.owner and auth.user_id:
         req.owner = auth.user_id
@@ -48,7 +48,7 @@ async def create_project(req: CreateProjectRequest, auth: AuthContext = Depends(
     }
 
 
-@router.get("")
+@router.get("", summary="List projects")
 async def list_projects(auth: AuthContext = Depends(require_user)):
     if auth.is_admin:
         projects = await pm.list_projects()
@@ -89,7 +89,7 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
     return {"projects": result}
 
 
-@router.get("/{project_id}")
+@router.get("/{project_id}", summary="Get project")
 async def get_project(project_id: str, auth: AuthContext = Depends(require_user)):
     role = await _get_user_role(auth, project_id)
     try:
@@ -100,7 +100,7 @@ async def get_project(project_id: str, auth: AuthContext = Depends(require_user)
     return {"project": project}
 
 
-@router.delete("/{project_id}")
+@router.delete("/{project_id}", summary="Delete project")
 async def delete_project(project_id: str = Depends(require_project_admin)):
     try:
         await pm.delete_project(project_id)
@@ -109,7 +109,7 @@ async def delete_project(project_id: str = Depends(require_project_admin)):
     return {"deleted": True}
 
 
-@router.post("/{project_id}/rotate-key")
+@router.post("/{project_id}/rotate-key", summary="Rotate API key")
 async def rotate_key(project_id: str = Depends(require_project_admin)):
     try:
         new_key = await pm.rotate_api_key(project_id)
@@ -121,7 +121,7 @@ async def rotate_key(project_id: str = Depends(require_project_admin)):
     }
 
 
-@router.put("/{project_id}/settings")
+@router.put("/{project_id}/settings", summary="Update project settings")
 async def update_settings(new_settings: dict, project_id: str = Depends(require_project_admin)):
     try:
         await pm.update_project_settings(project_id, new_settings)

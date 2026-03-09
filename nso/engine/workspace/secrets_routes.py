@@ -32,7 +32,7 @@ class ScopeCreateRequest(BaseModel):
 
 # ── List secrets ──
 
-@router.get("")
+@router.get("", summary="List project secrets")
 async def list_secrets(
     scope: str = Query("general"),
     project_id: str = Depends(require_project),
@@ -62,7 +62,7 @@ async def list_secrets(
 
 # ── Add secret ──
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, summary="Add secret")
 async def add_secret(
     req: SecretAddRequest,
     project_id: str = Depends(require_project_admin),
@@ -97,7 +97,7 @@ async def add_secret(
 
 # ── Update secret ──
 
-@router.put("/{key}")
+@router.put("/{key}", summary="Update secret")
 async def update_secret(
     key: str,
     req: SecretUpdateRequest,
@@ -122,7 +122,7 @@ async def update_secret(
 
 # ── Delete secret ──
 
-@router.delete("/{key}")
+@router.delete("/{key}", summary="Delete secret")
 async def delete_secret(
     key: str,
     scope: str = Query("general"),
@@ -140,7 +140,7 @@ async def delete_secret(
 
 # ── Scopes ──
 
-@router.get("/scopes")
+@router.get("/scopes", summary="List secret scopes")
 async def list_scopes(
     project_id: str = Depends(require_project),
 ):
@@ -184,7 +184,7 @@ async def list_scopes(
     return {"scopes": scopes, "count": len(scopes)}
 
 
-@router.post("/scopes")
+@router.post("/scopes", summary="Add secret scope")
 async def create_scope(
     req: ScopeCreateRequest,
     project_id: str = Depends(require_project_admin),
@@ -207,7 +207,7 @@ async def create_scope(
     return {"ok": True, "scope": scope_id, "domain": name}
 
 
-@router.delete("/scopes/{domain}")
+@router.delete("/scopes/{domain}", summary="Delete secret scope")
 async def delete_scope(
     domain: str,
     project_id: str = Depends(require_project_admin),
@@ -229,7 +229,7 @@ async def delete_scope(
 
 # ── Buckets ──
 
-@router.get("/buckets")
+@router.get("/buckets", summary="List secret buckets")
 async def list_buckets(
     project_id: str = Depends(require_project),
 ):

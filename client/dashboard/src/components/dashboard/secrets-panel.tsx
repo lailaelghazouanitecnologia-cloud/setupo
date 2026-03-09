@@ -33,6 +33,7 @@ const BUCKET_ORDER = ["auth", "providers", "storage", "connectors", "system", "c
 export function SecretsPanel() {
   const activeProject = useDashboardStore((s) => s.activeProject);
   const projectId = activeProject?.id || "";
+  const isAdmin = activeProject?.role === "admin";
 
   const [secrets, setSecrets] = useState<AgentSecret[]>([]);
   const [scopes, setScopes] = useState<SecretScope[]>([]);
@@ -238,18 +239,20 @@ export function SecretsPanel() {
                 <span style={{ fontSize: "var(--font-xxs)", opacity: 0.6 }}>{scope.count}</span>
               )}
             </button>
-            <button
-              className="scope-chip-delete"
-              title={`Delete scope ${scope.domain}`}
-              onClick={(e) => { e.stopPropagation(); handleDeleteScope(scope.domain!); }}
-            >
-              <X className="h-2.5 w-2.5" />
-            </button>
+            {isAdmin && (
+              <button
+                className="scope-chip-delete"
+                title={`Delete scope ${scope.domain}`}
+                onClick={(e) => { e.stopPropagation(); handleDeleteScope(scope.domain!); }}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            )}
           </div>
         ))}
 
         {/* Add domain scope */}
-        {addingScope ? (
+        {isAdmin && (addingScope ? (
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             <input
               className="scope-input"
@@ -275,7 +278,7 @@ export function SecretsPanel() {
             <Plus className="h-3 w-3" />
             <span>Scope</span>
           </button>
-        )}
+        ))}
       </div>
 
       {/* ── Header row ── */}
@@ -289,10 +292,12 @@ export function SecretsPanel() {
           <button className="panel-btn-sm" onClick={() => fetchSecrets()} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button className="panel-btn-sm" onClick={() => setAdding(true)}>
-            <Plus className="h-3 w-3" />
-            <span>Add</span>
-          </button>
+          {isAdmin && (
+            <button className="panel-btn-sm" onClick={() => setAdding(true)}>
+              <Plus className="h-3 w-3" />
+              <span>Add</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -302,7 +307,7 @@ export function SecretsPanel() {
         </div>
       )}
 
-      {adding && (
+      {adding && isAdmin && (
         <div className="secret-add">
           <div className="secret-add-row">
             <input
@@ -343,10 +348,12 @@ export function SecretsPanel() {
               ? "Add environment variables and secrets for this project"
               : `No secrets for ${activeScopeLabel}`}
           </div>
-          <button className="panel-btn" onClick={() => setAdding(true)}>
-            <Plus className="h-3.5 w-3.5" />
-            <span>Add secret</span>
-          </button>
+          {isAdmin && (
+            <button className="panel-btn" onClick={() => setAdding(true)}>
+              <Plus className="h-3.5 w-3.5" />
+              <span>Add secret</span>
+            </button>
+          )}
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -396,9 +403,11 @@ export function SecretsPanel() {
                           <button className="svc-btn" title="Copy" onClick={() => copyValue(v.key, v.value)}>
                             {copied === v.key ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
                           </button>
-                          <button className="svc-btn red" title="Remove" onClick={() => handleDelete(v.key)}>
-                            <Trash2 className="h-3 w-3" />
-                          </button>
+                          {isAdmin && (
+                            <button className="svc-btn red" title="Remove" onClick={() => handleDelete(v.key)}>
+                              <Trash2 className="h-3 w-3" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

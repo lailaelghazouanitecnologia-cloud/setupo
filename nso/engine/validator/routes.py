@@ -58,7 +58,7 @@ class SaveCheckRequest(BaseModel):
 
 # ── Run from validate.toml ──
 
-@router.post("/{workspace}")
+@router.post("/{workspace}", summary="Validate workspace")
 async def validate_workspace(
     workspace: str,
     project_id: str = Depends(require_project),
@@ -109,7 +109,7 @@ async def validate_workspace(
 
 # ── Run inline checks ──
 
-@router.post("/run")
+@router.post("/run", summary="Run inline checks")
 async def validate_inline(
     req: RunInlineRequest,
     project_id: str = Depends(require_project),
@@ -144,14 +144,14 @@ async def validate_inline(
 
 # ── CRUD for saved check definitions ──
 
-@router.get("/checks")
+@router.get("/checks", summary="List saved checks")
 async def list_checks(project_id: str = Depends(require_project)):
     """List all saved validation check definitions."""
     checks = await service.list_validations(project_id)
     return {"checks": checks}
 
 
-@router.post("/checks")
+@router.post("/checks", summary="Save check definition")
 async def create_check(
     req: SaveCheckRequest,
     project_id: str = Depends(require_project_admin),
@@ -174,7 +174,7 @@ async def create_check(
     return {"ok": True, "check": row}
 
 
-@router.get("/checks/{name}")
+@router.get("/checks/{name}", summary="Get check by name")
 async def get_check(
     name: str,
     project_id: str = Depends(require_project),
@@ -186,7 +186,7 @@ async def get_check(
     return check
 
 
-@router.delete("/checks/{name}")
+@router.delete("/checks/{name}", summary="Delete check")
 async def delete_check(
     name: str,
     project_id: str = Depends(require_project_admin),
@@ -198,7 +198,7 @@ async def delete_check(
     return {"ok": True, "deleted": name}
 
 
-@router.post("/checks/{name}/run")
+@router.post("/checks/{name}/run", summary="Run saved check")
 async def run_saved_check(
     name: str,
     project_id: str = Depends(require_project),
@@ -219,7 +219,7 @@ async def run_saved_check(
 
 # ── Run history ──
 
-@router.get("/runs")
+@router.get("/runs", summary="List validation runs")
 async def list_runs(
     project_id: str = Depends(require_project),
     limit: int = 20,
@@ -229,7 +229,7 @@ async def list_runs(
     return {"runs": runs}
 
 
-@router.get("/runs/{run_id}")
+@router.get("/runs/{run_id}", summary="Get validation run")
 async def get_run(
     run_id: str,
     project_id: str = Depends(require_project),

@@ -12,7 +12,7 @@ logger = logging.getLogger("nso.domains")
 router = APIRouter()
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, summary="Add domain")
 async def create_domain(req: CreateDomainRequest, project_id: str = Depends(require_project_admin)):
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:
@@ -90,13 +90,13 @@ async def create_domain(req: CreateDomainRequest, project_id: str = Depends(requ
     return result
 
 
-@router.get("")
+@router.get("", summary="List domains")
 async def list_domains(project_id: str = Depends(require_project)):
     domains = await db.fetch_all("domains", project_id=project_id)
     return {"domains": domains}
 
 
-@router.delete("/{domain_id}")
+@router.delete("/{domain_id}", summary="Remove domain")
 async def delete_domain(domain_id: str, project_id: str = Depends(require_project_admin)):
     dom = await db.fetch_one("domains", id=domain_id)
     if not dom or dom["project_id"] != project_id:
