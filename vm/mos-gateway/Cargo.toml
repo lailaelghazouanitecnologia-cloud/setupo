@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1"
 axum = { version = "0.7", features = ["ws"] }
 base64 = "0.22"
+interceptor = "0.17.1"
 mos-core = { path = "../vendor/mos-core" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -14,3 +15,4 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["serde", "v4"] }
+webrtc = "0.17.1"

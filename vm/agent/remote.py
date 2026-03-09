@@ -196,6 +196,18 @@ async def send_clipboard(session_id: str, req: Request, admin: AdminUser = Depen
     return await _proxy("POST", f"/sessions/{session_id}/clipboard", json=body)
 
 
+@router.post("/sessions/{session_id}/webrtc/offer")
+async def webrtc_offer(session_id: str, req: Request, admin: AdminUser = Depends(require_admin)):
+    body = await req.json()
+    return await _proxy("POST", f"/sessions/{session_id}/webrtc/offer", json=body)
+
+
+@router.post("/sessions/{session_id}/webrtc/ice")
+async def webrtc_ice(session_id: str, req: Request, admin: AdminUser = Depends(require_admin)):
+    body = await req.json()
+    return await _proxy("POST", f"/sessions/{session_id}/webrtc/ice", json=body)
+
+
 @router.websocket("/sessions/{session_id}/stream")
 async def stream_session(websocket: WebSocket, session_id: str):
     token = websocket.query_params.get("token", "")
@@ -217,7 +229,12 @@ async def stream_session(websocket: WebSocket, session_id: str):
         target_url = f"{target_url}?{query}"
 
     try:
-        async with websockets.connect(target_url) as upstream:
+        async with websockets.connect(
+            target_url,
+            max_size=None,
+            ping_interval=None,
+            ping_timeout=None,
+        ) as upstream:
             async def client_to_upstream():
                 while True:
                     msg = await websocket.receive()

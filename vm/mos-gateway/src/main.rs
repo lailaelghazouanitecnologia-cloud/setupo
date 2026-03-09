@@ -20,8 +20,30 @@ use mos_core::{
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::time::{timeout, Duration};
 use tracing::{error, info, warn};
 use uuid::Uuid;
+use interceptor::registry::Registry;
+use webrtc::{
+    api::{
+        interceptor_registry::register_default_interceptors,
+        media_engine::{MediaEngine, MIME_TYPE_H264},
+        APIBuilder,
+    },
+    data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
+    ice_transport::ice_candidate::RTCIceCandidateInit,
+    peer_connection::{
+        configuration::RTCConfiguration,
+        peer_connection_state::RTCPeerConnectionState,
+        sdp::session_description::RTCSessionDescription,
+        RTCPeerConnection,
+    },
+    rtp_transceiver::rtp_codec::RTCRtpCodecCapability,
+    track::track_local::{
+        track_local_static_rtp::TrackLocalStaticRTP, TrackLocal, TrackLocalWriter,
+    },
+    util::Unmarshal,
+};
 
 #[derive(Clone)]
 struct AppState {
@@ -31,6 +53,8 @@ struct AppState {
 struct SessionHandle {
     meta: RwLock<SessionRecord>,
     client: Mutex<Option<RfbClient>>,
+    peer_connection: Mutex<Option<Arc<RTCPeerConnection>>>,
+    video_process: Mutex<Option<tokio::process::Child>>,
     framebuffer: RwLock<FramebufferState>,
     stream_tx: broadcast::Sender<FrameEvent>,
 }
@@ -65,17 +89,14 @@ struct FramebufferState {
     updated_at_ms: u64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone)]
 struct FrameEvent {
-    #[serde(rename = "type")]
-    event_type: &'static str,
     session_id: Uuid,
     sequence: u64,
     width: u16,
     height: u16,
-    encoding: &'static str,
-    data: String,
     updated_at_ms: u64,
+    data: Vec<u8>,
 }
 
 #[derive(Deserialize)]
@@ -126,6 +147,49 @@ struct ClipboardRequest {
     text: String,
 }
 
+#[derive(Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum WebRtcInputMessage {
+    Input {
+        kind: String,
+        x: Option<u16>,
+        y: Option<u16>,
+        buttons: Option<u8>,
+        key: Option<u32>,
+        down: Option<bool>,
+    },
+    Clipboard {
+        text: String,
+    },
+    Ping,
+}
+
+#[derive(Deserialize)]
+struct WebRtcOfferRequest {
+    sdp: String,
+    #[serde(default)]
+    codec: Option<String>,
+}
+
+#[derive(Serialize)]
+struct WebRtcOfferResponse {
+    ok: bool,
+    mode: &'static str,
+    session_id: Uuid,
+    answer_sdp: String,
+    codec: String,
+    note: &'static str,
+}
+
+#[derive(Deserialize)]
+struct WebRtcIceRequest {
+    candidate: String,
+    #[serde(default)]
+    sdp_mid: Option<String>,
+    #[serde(default)]
+    sdp_mline_index: Option<u16>,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
@@ -147,6 +211,8 @@ async fn main() -> Result<()> {
         .route("/sessions/:id", get(get_session).delete(delete_session))
         .route("/sessions/:id/framebuffer", get(get_framebuffer))
         .route("/sessions/:id/stream", get(stream_session))
+        .route("/sessions/:id/webrtc/offer", post(webrtc_offer))
+        .route("/sessions/:id/webrtc/ice", post(webrtc_ice))
         .route("/sessions/:id/input", post(send_input))
         .route("/sessions/:id/clipboard", post(send_clipboard))
         .with_state(state);
@@ -189,6 +255,8 @@ async fn create_session(
     let handle = Arc::new(SessionHandle {
         meta: RwLock::new(session.clone()),
         client: Mutex::new(None),
+        peer_connection: Mutex::new(None),
+        video_process: Mutex::new(None),
         framebuffer: RwLock::new(FramebufferState::default()),
         stream_tx,
     });
@@ -247,6 +315,10 @@ async fn delete_session(
     if let Some(mut client) = handle.client.lock().await.take() {
         let _ = client.disconnect().await;
     }
+    if let Some(pc) = handle.peer_connection.lock().await.take() {
+        let _ = pc.close().await;
+    }
+    stop_video_process(&handle).await;
 
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
@@ -292,23 +364,21 @@ async fn stream_session(
 
         if !initial_fb.data.is_empty() {
             let event = FrameEvent {
-                event_type: "framebuffer",
                 session_id: id,
                 sequence: initial_fb.sequence,
                 width: initial_fb.width,
                 height: initial_fb.height,
-                encoding: "raw",
-                data: BASE64.encode(initial_fb.data),
                 updated_at_ms: initial_fb.updated_at_ms,
+                data: initial_fb.data,
             };
-            let _ = socket.send(Message::Text(serde_json::to_string(&event).unwrap())).await;
+            let _ = socket.send(Message::Binary(encode_frame_packet(&event))).await;
         }
 
         loop {
             match rx.recv().await {
                 Ok(event) => {
                     if socket
-                        .send(Message::Text(serde_json::to_string(&event).unwrap()))
+                        .send(Message::Binary(encode_frame_packet(&event)))
                         .await
                         .is_err()
                     {
@@ -330,33 +400,7 @@ async fn send_input(
     Json(req): Json<InputEventRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
-    let mut client_guard = handle.client.lock().await;
-    let client = client_guard
-        .as_mut()
-        .ok_or((StatusCode::CONFLICT, "session is not connected".to_string()))?;
-
-    match req.kind.as_str() {
-        "pointer" | "mouse" => {
-            let x = req.x.ok_or((StatusCode::BAD_REQUEST, "x is required".to_string()))?;
-            let y = req.y.ok_or((StatusCode::BAD_REQUEST, "y is required".to_string()))?;
-            let buttons = req.buttons.unwrap_or(0);
-            client
-                .send_pointer_event(buttons, x, y)
-                .await
-                .map_err(internal_error)?;
-        }
-        "key" | "keyboard" => {
-            let key = req.key.ok_or((StatusCode::BAD_REQUEST, "key is required".to_string()))?;
-            let down = req.down.unwrap_or(true);
-            client
-                .send_key_event(down, key)
-                .await
-                .map_err(internal_error)?;
-        }
-        other => {
-            return Err((StatusCode::BAD_REQUEST, format!("unsupported input kind: {other}")));
-        }
-    }
+    apply_input_event(&handle, &req).await?;
 
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
@@ -367,20 +411,89 @@ async fn send_clipboard(
     Json(req): Json<ClipboardRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
-    let mut client_guard = handle.client.lock().await;
-    let client = client_guard
-        .as_mut()
-        .ok_or((StatusCode::CONFLICT, "session is not connected".to_string()))?;
-
-    client
-        .send_clipboard_text(&req.text)
-        .await
-        .map_err(internal_error)?;
+    apply_clipboard(&handle, &req.text).await?;
 
     Ok(Json(serde_json::json!({
         "ok": true,
         "session_id": id,
         "bytes": req.text.len()
+    })))
+}
+
+async fn webrtc_offer(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<WebRtcOfferRequest>,
+) -> Result<Json<WebRtcOfferResponse>, (StatusCode, String)> {
+    let handle = get_session_handle(&state, id).await?;
+    let codec = req.codec.unwrap_or_else(|| "h264".to_string());
+    if req.sdp.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "offer SDP is required".to_string()));
+    }
+
+    let pc = create_peer_connection(id).await.map_err(internal_error)?;
+    attach_input_channel(&pc, handle.clone(), id);
+    attach_video_track(&pc, handle.clone(), id)
+        .await
+        .map_err(internal_error)?;
+    pc.set_remote_description(RTCSessionDescription::offer(req.sdp).map_err(internal_error)?)
+        .await
+        .map_err(internal_error)?;
+
+    let answer = pc.create_answer(None).await.map_err(internal_error)?;
+    pc.set_local_description(answer).await.map_err(internal_error)?;
+
+    let mut gather_complete = pc.gathering_complete_promise().await;
+    let _ = gather_complete.recv().await;
+    let local = pc.local_description().await.ok_or((
+        StatusCode::BAD_GATEWAY,
+        "webrtc local description missing".to_string(),
+    ))?;
+
+    let note = "Peer connection created. Media track is not attached yet.";
+    let mut slot = handle.peer_connection.lock().await;
+    if let Some(old) = slot.replace(pc) {
+        let _ = old.close().await;
+    }
+
+    Ok(Json(WebRtcOfferResponse {
+        ok: true,
+        mode: "webrtc",
+        session_id: id,
+        answer_sdp: local.sdp,
+        codec,
+        note,
+    }))
+}
+
+async fn webrtc_ice(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Json(req): Json<WebRtcIceRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let handle = get_session_handle(&state, id).await?;
+    let pc = handle
+        .peer_connection
+        .lock()
+        .await
+        .clone()
+        .ok_or((StatusCode::CONFLICT, "webrtc peer connection not initialized".to_string()))?;
+
+    let candidate = req.candidate;
+    pc.add_ice_candidate(RTCIceCandidateInit {
+        candidate: candidate.clone(),
+        sdp_mid: req.sdp_mid,
+        sdp_mline_index: req.sdp_mline_index,
+        username_fragment: None,
+    })
+    .await
+    .map_err(internal_error)?;
+
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "mode": "webrtc",
+        "session_id": id,
+        "candidate_len": candidate.len()
     })))
 }
 
@@ -432,7 +545,9 @@ async fn run_session(handle: Arc<SessionHandle>, config: ConnectionConfig) {
                 break;
             };
 
-            match client.process_message().await {
+            match timeout(Duration::from_millis(100), client.process_message()).await {
+                Err(_) => Ok(None),
+                Ok(result) => match result {
                 Ok(true) => {
                     let (w, h) = client.framebuffer_size();
                     let pixel_format = client
@@ -448,6 +563,7 @@ async fn run_session(handle: Arc<SessionHandle>, config: ConnectionConfig) {
                 }
                 Ok(false) => Ok(None),
                 Err(err) => Err(err.to_string()),
+                },
             }
         };
 
@@ -480,14 +596,12 @@ async fn publish_frame(handle: &Arc<SessionHandle>, width: u16, height: u16, dat
 
     let session_id = handle.meta.read().await.id;
     let _ = handle.stream_tx.send(FrameEvent {
-        event_type: "framebuffer",
         session_id,
         sequence,
         width,
         height,
-        encoding: "raw",
-        data: BASE64.encode(data),
         updated_at_ms,
+        data,
     });
 }
 
@@ -571,4 +685,305 @@ fn scale_component(value: u32, max: u16) -> u8 {
         return 0;
     }
     ((value * 255) / max as u32) as u8
+}
+
+fn encode_frame_packet(event: &FrameEvent) -> Vec<u8> {
+    let mut packet = Vec::with_capacity(24 + event.data.len());
+    packet.extend_from_slice(&event.sequence.to_le_bytes());
+    packet.extend_from_slice(&event.updated_at_ms.to_le_bytes());
+    packet.extend_from_slice(&event.width.to_le_bytes());
+    packet.extend_from_slice(&event.height.to_le_bytes());
+    packet.extend_from_slice(&event.data);
+    packet
+}
+
+async fn apply_input_event(
+    handle: &Arc<SessionHandle>,
+    req: &InputEventRequest,
+) -> Result<(), (StatusCode, String)> {
+    let mut client_guard = handle.client.lock().await;
+    let client = client_guard
+        .as_mut()
+        .ok_or((StatusCode::CONFLICT, "session is not connected".to_string()))?;
+
+    match req.kind.as_str() {
+        "pointer" | "mouse" => {
+            let x = req.x.ok_or((StatusCode::BAD_REQUEST, "x is required".to_string()))?;
+            let y = req.y.ok_or((StatusCode::BAD_REQUEST, "y is required".to_string()))?;
+            let buttons = req.buttons.unwrap_or(0);
+            client
+                .send_pointer_event(buttons, x, y)
+                .await
+                .map_err(internal_error)?;
+        }
+        "key" | "keyboard" => {
+            let key = req.key.ok_or((StatusCode::BAD_REQUEST, "key is required".to_string()))?;
+            let down = req.down.unwrap_or(true);
+            client
+                .send_key_event(down, key)
+                .await
+                .map_err(internal_error)?;
+        }
+        other => {
+            return Err((StatusCode::BAD_REQUEST, format!("unsupported input kind: {other}")));
+        }
+    }
+
+    Ok(())
+}
+
+async fn apply_clipboard(
+    handle: &Arc<SessionHandle>,
+    text: &str,
+) -> Result<(), (StatusCode, String)> {
+    let mut client_guard = handle.client.lock().await;
+    let client = client_guard
+        .as_mut()
+        .ok_or((StatusCode::CONFLICT, "session is not connected".to_string()))?;
+
+    client
+        .send_clipboard_text(text)
+        .await
+        .map_err(internal_error)?;
+
+    Ok(())
+}
+
+fn attach_input_channel(pc: &Arc<RTCPeerConnection>, handle: Arc<SessionHandle>, session_id: Uuid) {
+    pc.on_data_channel(Box::new(move |dc: Arc<RTCDataChannel>| {
+        let handle = handle.clone();
+        Box::pin(async move {
+            let label = dc.label().to_string();
+            info!("session {session_id} data channel opened: {label}");
+            if label != "input" {
+                return;
+            }
+
+            dc.on_open(Box::new(move || {
+                Box::pin(async move {
+                    info!("session {session_id} input data channel ready");
+                })
+            }));
+
+            dc.on_message(Box::new(move |msg: DataChannelMessage| {
+                let handle = handle.clone();
+                Box::pin(async move {
+                    match parse_webrtc_input_message(&msg) {
+                        Ok(WebRtcInputMessage::Input {
+                            kind,
+                            x,
+                            y,
+                            buttons,
+                            key,
+                            down,
+                        }) => {
+                            let req = InputEventRequest {
+                                kind,
+                                x,
+                                y,
+                                buttons,
+                                key,
+                                down,
+                            };
+                            if let Err(err) = apply_input_event(&handle, &req).await {
+                                warn!("session {session_id} data channel input failed: {}", err.1);
+                            }
+                        }
+                        Ok(WebRtcInputMessage::Clipboard { text }) => {
+                            if let Err(err) = apply_clipboard(&handle, &text).await {
+                                warn!("session {session_id} data channel clipboard failed: {}", err.1);
+                            }
+                        }
+                        Ok(WebRtcInputMessage::Ping) => {}
+                        Err(err) => {
+                            warn!("session {session_id} data channel message ignored: {err}");
+                        }
+                    }
+                })
+            }));
+        })
+    }));
+}
+
+fn parse_webrtc_input_message(msg: &DataChannelMessage) -> Result<WebRtcInputMessage> {
+    if msg.data.is_empty() {
+        return Ok(WebRtcInputMessage::Ping);
+    }
+
+    if msg.is_string {
+        return Ok(serde_json::from_slice::<WebRtcInputMessage>(&msg.data)?);
+    }
+
+    Err(anyhow::anyhow!("binary data channel messages are not supported yet"))
+}
+
+async fn attach_video_track(
+    pc: &Arc<RTCPeerConnection>,
+    handle: Arc<SessionHandle>,
+    session_id: Uuid,
+) -> Result<()> {
+    let track = Arc::new(TrackLocalStaticRTP::new(
+        RTCRtpCodecCapability {
+            mime_type: MIME_TYPE_H264.to_owned(),
+            clock_rate: 90_000,
+            channels: 0,
+            sdp_fmtp_line: "level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f"
+                .to_owned(),
+            rtcp_feedback: vec![],
+        },
+        format!("video-{session_id}"),
+        "desktop".to_owned(),
+    ));
+
+    let sender = pc
+        .add_track(track.clone() as Arc<dyn TrackLocal + Send + Sync>)
+        .await?;
+
+    tokio::spawn(async move {
+        let mut rtcp = vec![0u8; 1500];
+        while sender.read(&mut rtcp).await.is_ok() {}
+    });
+
+    restart_video_process(&handle, track, session_id).await?;
+    Ok(())
+}
+
+async fn restart_video_process(
+    handle: &Arc<SessionHandle>,
+    track: Arc<TrackLocalStaticRTP>,
+    session_id: Uuid,
+) -> Result<()> {
+    stop_video_process(handle).await;
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0").await?;
+    let port = socket.local_addr()?.port();
+    let size = capture_size(handle).await;
+    let ffmpeg = spawn_ffmpeg_capture(port, &size)?;
+
+    {
+        let mut slot = handle.video_process.lock().await;
+        *slot = Some(ffmpeg);
+    }
+
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 2048];
+        loop {
+            let n = match socket.recv(&mut buf).await {
+                Ok(n) => n,
+                Err(err) => {
+                    warn!("session {session_id} video recv failed: {err}");
+                    break;
+                }
+            };
+
+            let mut packet_buf = &buf[..n];
+            let packet = match webrtc::rtp::packet::Packet::unmarshal(&mut packet_buf) {
+                Ok(packet) => packet,
+                Err(err) => {
+                    warn!("session {session_id} video RTP parse failed: {err}");
+                    continue;
+                }
+            };
+
+            if let Err(err) = track.write_rtp(&packet).await {
+                warn!("session {session_id} video RTP write failed: {err}");
+                break;
+            }
+        }
+    });
+
+    info!("session {session_id} video relay started on udp {port} with size {size}");
+    Ok(())
+}
+
+async fn stop_video_process(handle: &Arc<SessionHandle>) {
+    let mut slot = handle.video_process.lock().await;
+    if let Some(mut child) = slot.take() {
+        let _ = child.kill().await;
+        let _ = child.wait().await;
+    }
+}
+
+async fn capture_size(handle: &Arc<SessionHandle>) -> String {
+    if let Ok(size) = std::env::var("MOS_WEBRTC_VIDEO_SIZE") {
+        let trimmed = size.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    let fb = handle.framebuffer.read().await;
+    if fb.width > 0 && fb.height > 0 {
+        return format!("{}x{}", fb.width, fb.height);
+    }
+
+    "1024x640".to_string()
+}
+
+fn spawn_ffmpeg_capture(port: u16, size: &str) -> Result<tokio::process::Child> {
+    let bin = std::env::var("MOS_WEBRTC_FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".to_string());
+    let display = std::env::var("MOS_WEBRTC_DISPLAY").unwrap_or_else(|_| ":1".to_string());
+    let framerate = std::env::var("MOS_WEBRTC_FRAMERATE").unwrap_or_else(|_| "12".to_string());
+
+    let mut command = tokio::process::Command::new(bin);
+    command
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-nostdin")
+        .arg("-f")
+        .arg("x11grab")
+        .arg("-video_size")
+        .arg(size)
+        .arg("-framerate")
+        .arg(framerate)
+        .arg("-i")
+        .arg(display)
+        .arg("-an")
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg("ultrafast")
+        .arg("-tune")
+        .arg("zerolatency")
+        .arg("-profile:v")
+        .arg("baseline")
+        .arg("-pix_fmt")
+        .arg("yuv420p")
+        .arg("-g")
+        .arg("24")
+        .arg("-keyint_min")
+        .arg("24")
+        .arg("-bf")
+        .arg("0")
+        .arg("-f")
+        .arg("rtp")
+        .arg("-payload_type")
+        .arg("125")
+        .arg(format!("rtp://127.0.0.1:{port}?pkt_size=1200"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+
+    Ok(command.spawn()?)
+}
+
+async fn create_peer_connection(session_id: Uuid) -> Result<Arc<RTCPeerConnection>> {
+    let mut media_engine = MediaEngine::default();
+    media_engine.register_default_codecs()?;
+
+    let mut registry = Registry::new();
+    registry = register_default_interceptors(registry, &mut media_engine)?;
+
+    let api = APIBuilder::new()
+        .with_media_engine(media_engine)
+        .with_interceptor_registry(registry)
+        .build();
+
+    let pc = Arc::new(api.new_peer_connection(RTCConfiguration::default()).await?);
+    pc.on_peer_connection_state_change(Box::new(move |state: RTCPeerConnectionState| {
+        Box::pin(async move {
+            info!("session {session_id} webrtc state: {state}");
+        })
+    }));
+
+    Ok(pc)
 }

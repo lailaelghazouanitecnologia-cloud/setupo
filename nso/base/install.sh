@@ -96,7 +96,7 @@ info "Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq nginx certbot python3-certbot-nginx python3-pip python3-venv \
-    git curl ufw jq unzip fail2ban > /dev/null 2>&1
+    git curl ufw jq unzip fail2ban ffmpeg > /dev/null 2>&1
 ok "System packages installed"
 
 # ── Step 2: Node.js 20 ──
@@ -188,6 +188,9 @@ server {
 
     location /agent/ {
         proxy_pass http://127.0.0.1:${NSO_AGENT_PORT}/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -197,6 +200,9 @@ server {
 
     location / {
         root /opt/nso/workspaces/default/static;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
         try_files \$uri \$uri/ /index.html;
     }
 }

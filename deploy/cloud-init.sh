@@ -20,9 +20,9 @@ R2_BUCKET="${R2_BUCKET:-nso}"
 NSO_DOMAIN="${NSO_DOMAIN:-nso.dev}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 DEPLOY_AGENT_API_KEY="${DEPLOY_AGENT_API_KEY:-__DEPLOY_AGENT_API_KEY__}"
-DEPLOY_AGENT_API_URL="${DEPLOY_AGENT_API_URL:-https://api.groq.com/openai/v1}"
-DEPLOY_AGENT_MODEL="${DEPLOY_AGENT_MODEL:-openai/gpt-oss-20b}"
-DEPLOY_AGENT_PROVIDER="${DEPLOY_AGENT_PROVIDER:-groq}"
+DEPLOY_AGENT_API_URL="${DEPLOY_AGENT_API_URL:-https://api.moonshot.ai/v1}"
+DEPLOY_AGENT_MODEL="${DEPLOY_AGENT_MODEL:-kimi-k2-thinking}"
+DEPLOY_AGENT_PROVIDER="${DEPLOY_AGENT_PROVIDER:-moonshot}"
 
 # ── 1. System packages ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
@@ -32,7 +32,8 @@ apt-get install -y \
   nginx certbot python3-certbot-nginx \
   fail2ban ufw \
   python3 python3-venv python3-pip \
-  git curl jq unzip tar
+  git curl jq unzip tar \
+  ffmpeg
 
 # Node.js 20 LTS
 curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
@@ -236,6 +237,9 @@ server {
     location /agent/ {
         rewrite ^/agent/(.*) /\$1 break;
         proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -245,6 +249,9 @@ server {
 
     location / {
         root /opt/nso/client/dashboard;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
         try_files \$uri \$uri/ /index.html;
     }
 }
@@ -264,12 +271,21 @@ server {
     location /agent/ {
         rewrite ^/agent/(.*) /\$1 break;
         proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
     }
 
     location / {
         root /opt/nso/client/admin;
+        add_header Cache-Control "no-store, no-cache, must-revalidate" always;
+        add_header Pragma "no-cache" always;
+        add_header Expires "0" always;
         try_files \$uri \$uri/ /index.html;
     }
 }

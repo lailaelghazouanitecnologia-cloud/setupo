@@ -28,14 +28,22 @@ export async function apiCall<T>(
 
   if (!resp.ok) {
     const text = await resp.text();
-    // Auto-logout on 401 from authenticated API calls only
-    // Skip login/register (they're public) and agent endpoints
+    // Auto-logout on 401 from authenticated API calls only.
+    // Keep public auth endpoints excluded.
     if (
       resp.status === 401 &&
       typeof window !== "undefined" &&
-      path.startsWith("/api/") &&
-      !path.startsWith("/api/auth/login") &&
-      !path.startsWith("/api/auth/register")
+      (
+        (
+          path.startsWith("/api/") &&
+          !path.startsWith("/api/auth/login") &&
+          !path.startsWith("/api/auth/register")
+        ) ||
+        (
+          path.startsWith("/agent/") &&
+          !path.startsWith("/agent/auth/login")
+        )
+      )
     ) {
       localStorage.removeItem("nso_token");
       localStorage.removeItem("nso_api_token");
@@ -213,6 +221,15 @@ export interface RemoteFramebuffer {
   data: string;
 }
 
+export interface RemoteWebRtcOfferResponse {
+  ok: boolean;
+  mode: string;
+  session_id: string;
+  answer_sdp: string;
+  codec: string;
+  note: string;
+}
+
 export async function getRemoteHealth() {
   return apiCall<any>("/agent/remote/health");
 }
@@ -247,7 +264,11 @@ export async function deleteRemoteSession(sessionId: string) {
 }
 
 export async function getRemoteFramebuffer(sessionId: string) {
-  return apiCall<RemoteFramebuffer>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}/framebuffer`);
+  const ts = Date.now();
+  return apiCall<RemoteFramebuffer>(
+    `/agent/remote/sessions/${encodeURIComponent(sessionId)}/framebuffer?ts=${ts}`,
+    { cache: "no-store" },
+  );
 }
 
 export async function sendRemoteInput(sessionId: string, payload: {
@@ -269,6 +290,32 @@ export async function sendRemoteClipboard(sessionId: string, text: string) {
     method: "POST",
     body: JSON.stringify({ text }),
   });
+}
+
+export async function createRemoteWebRtcOffer(sessionId: string, sdp: string, codec = "h264") {
+  return apiCall<RemoteWebRtcOfferResponse>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}/webrtc/offer`, {
+    method: "POST",
+    body: JSON.stringify({ sdp, codec }),
+  });
+}
+
+export async function sendRemoteWebRtcIce(
+  sessionId: string,
+  candidate: string,
+  sdpMid?: string | null,
+  sdpMLineIndex?: number | null,
+) {
+  return apiCall<{ ok: boolean; mode: string; session_id: string; candidate_len: number }>(
+    `/agent/remote/sessions/${encodeURIComponent(sessionId)}/webrtc/ice`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        candidate,
+        sdp_mid: sdpMid ?? null,
+        sdp_mline_index: sdpMLineIndex ?? null,
+      }),
+    },
+  );
 }
 
 export interface AgentSecret {

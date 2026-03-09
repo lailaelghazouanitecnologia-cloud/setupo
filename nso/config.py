@@ -61,10 +61,10 @@ class Settings:
     BUILD_SERVER_URL = os.environ.get("NSO_BUILD_SERVER_URL", "")
     BUILD_SERVER_TOKEN = os.environ.get("NSO_BUILD_SERVER_TOKEN", "")
 
-    # Deploy agent LLM (any OpenAI-compatible API: Groq, OpenRouter, etc.)
+    # Deploy agent LLM (any OpenAI-compatible API: Moonshot, Groq, OpenRouter, etc.)
     DEPLOY_AGENT_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-    DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
-    DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "openai/gpt-oss-20b")
+    DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.moonshot.ai/v1")
+    DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "kimi-k2-thinking")
 
     # Mesh
     MESH_KEYS_DIR = DATA_DIR / "mesh"

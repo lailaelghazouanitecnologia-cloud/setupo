@@ -6,7 +6,7 @@ import {
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader,
   Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
-  MapPin, Maximize2, Minimize2,
+  MapPin, Maximize2, Minimize2, ZoomIn, ZoomOut,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -20,9 +20,11 @@ import {
   drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
   listAddons, type AddonInfo,
   getRemoteGatewayStatus, startRemoteGateway, stopRemoteGateway,
-  createRemoteSession, getRemoteFramebuffer, deleteRemoteSession,
-  sendRemoteInput, type RemoteFramebuffer, type RemoteSession,
+  createRemoteSession, getRemoteFramebuffer, getRemoteSession, deleteRemoteSession,
+  createRemoteWebRtcOffer, sendRemoteWebRtcIce,
+  sendRemoteClipboard, sendRemoteInput, type RemoteFramebuffer, type RemoteSession,
 } from "@/lib/api/client";
+import { getRemoteKeysym } from "@/lib/remote-keyboard";
 // UI select not needed — using native <select> for simplicity
 
 type Tab = "instances" | "services";
@@ -1677,16 +1679,46 @@ function RemoteDesktopPanel() {
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [session, setSession] = useState<RemoteSession | null>(null);
   const [framebuffer, setFramebuffer] = useState<RemoteFramebuffer | null>(null);
-  const [framebufferUrl, setFramebufferUrl] = useState<string>("");
+  const [framebufferError, setFramebufferError] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [host, setHost] = useState("127.0.0.1");
   const [port, setPort] = useState("5901");
   const [password, setPassword] = useState("");
   const [statusText, setStatusText] = useState("");
   const [connecting, setConnecting] = useState(false);
-  const displayRef = useRef<HTMLImageElement | null>(null);
+  const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [fitToView, setFitToView] = useState(true);
+  const [textBuffer, setTextBuffer] = useState("");
+  const [textSending, setTextSending] = useState(false);
+  const displayRef = useRef<HTMLCanvasElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const displayShellRef = useRef<HTMLDivElement | null>(null);
+  const imageDataRef = useRef<ImageData | null>(null);
   const pressedButtons = useRef(0);
+  const streamRef = useRef<WebSocket | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const inputChannelRef = useRef<RTCDataChannel | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const isLocalTestVnc = host.trim() === "127.0.0.1" && (Number.parseInt(port, 10) || 5901) === 5901;
+  const effectivePassword = password.trim() || (isLocalTestVnc ? "nso-test-vnc" : "");
+
+  const paintFrame = (rgba: Uint8ClampedArray, width: number, height: number) => {
+    const canvas = displayRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setFramebufferError("Canvas context unavailable");
+      return;
+    }
+    if (!imageDataRef.current || imageDataRef.current.width !== width || imageDataRef.current.height !== height) {
+      imageDataRef.current = new ImageData(width, height);
+      canvas.width = width;
+      canvas.height = height;
+    }
+    imageDataRef.current.data.set(rgba);
+    ctx.putImageData(imageDataRef.current, 0, 0);
+  };
 
   const refreshGateway = async () => {
     setGatewayLoading(true);
@@ -1703,23 +1735,213 @@ function RemoteDesktopPanel() {
   }, []);
 
   useEffect(() => {
+    setZoom(1);
+    setFitToView(true);
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!hasWebRtcVideo || !videoRef.current || !mediaStreamRef.current) return;
+    videoRef.current.srcObject = mediaStreamRef.current;
+    void videoRef.current.play().catch(() => {});
+  }, [hasWebRtcVideo]);
+
+  useEffect(() => {
     if (!session) return;
     let cancelled = false;
     const tick = async () => {
       try {
-        const next = await getRemoteFramebuffer(session.id);
+        const meta = await getRemoteSession(session.id);
         if (!cancelled) {
-          setFramebuffer((prev) => (prev?.sequence === next.sequence ? prev : next));
+          setSession(meta);
+          if (meta.state === "error") {
+            const message = meta.last_error || "Remote session failed";
+            setFramebufferError(message);
+            setStatusText(message);
+            setFramebuffer(null);
+            return;
+          }
+          if (meta.state === "closed") {
+            setFramebufferError("Session closed");
+            setStatusText("Session closed");
+            setFramebuffer(null);
+            return;
+          }
         }
       } catch (err: any) {
-        if (!cancelled) setStatusText(err.message || "Failed to read framebuffer");
+        if (!cancelled) {
+          const message = err.message || "Failed to read framebuffer";
+          setFramebufferError(message);
+          setStatusText(message);
+        }
       }
     };
     tick();
-    const id = window.setInterval(tick, 1000);
+    const id = window.setInterval(tick, 5000);
     return () => {
       cancelled = true;
       window.clearInterval(id);
+    };
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!session || typeof window === "undefined") return;
+
+    let cancelled = false;
+    const token = window.localStorage.getItem("nso_token");
+    if (!token) {
+      setFramebufferError("Missing agent token");
+      return;
+    }
+
+    const loadInitialFramebuffer = async () => {
+      try {
+        const next = await getRemoteFramebuffer(session.id);
+        if (cancelled || !next.width || !next.height || !next.data) return;
+        const binary = atob(next.data);
+        const rgba = new Uint8ClampedArray(binary.length);
+        for (let i = 0; i < binary.length; i += 1) rgba[i] = binary.charCodeAt(i);
+        paintFrame(rgba, next.width, next.height);
+        setFramebuffer(next);
+        setFramebufferError("");
+      } catch {}
+    };
+    loadInitialFramebuffer();
+
+    const origin = new URL(window.location.origin);
+    const protocol = origin.protocol === "https:" ? "wss:" : "ws:";
+    const streamUrl = `${protocol}//${origin.host}/agent/remote/sessions/${encodeURIComponent(session.id)}/stream?token=${encodeURIComponent(token)}`;
+    const socket = new WebSocket(streamUrl);
+    socket.binaryType = "arraybuffer";
+    streamRef.current = socket;
+
+    socket.onopen = () => {
+      setFramebufferError("");
+      setStatusText(`Streaming ${session.name}`);
+    };
+
+    socket.onmessage = (event) => {
+      try {
+        if (event.data instanceof ArrayBuffer) {
+          const view = new DataView(event.data);
+          if (event.data.byteLength < 20) {
+            throw new Error("Frame packet too small");
+          }
+          const sequence = Number(view.getBigUint64(0, true));
+          const updatedAtMs = Number(view.getBigUint64(8, true));
+          const width = view.getUint16(16, true);
+          const height = view.getUint16(18, true);
+          const rgba = new Uint8ClampedArray(event.data, 20);
+          paintFrame(rgba, width, height);
+          setFramebuffer({
+            session_id: session.id,
+            sequence,
+            width,
+            height,
+            encoding: "raw",
+            updated_at_ms: updatedAtMs,
+            data: "",
+          });
+          setFramebufferError("");
+          return;
+        }
+
+        const payload = JSON.parse(typeof event.data === "string" ? event.data : "");
+        if (payload.type === "session" && payload.session) {
+          setSession(payload.session as RemoteSession);
+        }
+      } catch (err: any) {
+        setFramebufferError(err?.message || "Could not parse stream frame");
+      }
+    };
+
+    socket.onerror = () => {
+      setFramebufferError("Remote stream error");
+    };
+
+    socket.onclose = () => {
+      if (streamRef.current === socket) {
+        streamRef.current = null;
+      }
+    };
+
+    return () => {
+      cancelled = true;
+      if (streamRef.current === socket) {
+        streamRef.current = null;
+      }
+      socket.close();
+    };
+  }, [session?.id]);
+
+  useEffect(() => {
+    if (!session || typeof window === "undefined" || typeof RTCPeerConnection === "undefined") {
+      return;
+    }
+
+    let closed = false;
+    const pc = new RTCPeerConnection();
+    peerRef.current = pc;
+
+    const start = async () => {
+      try {
+        const inputChannel = pc.createDataChannel("input", { ordered: true });
+        inputChannelRef.current = inputChannel;
+        inputChannel.onopen = () => {
+          setStatusText(`Streaming ${session.name} (webrtc input)`);
+        };
+        inputChannel.onclose = () => {
+          if (inputChannelRef.current === inputChannel) {
+            inputChannelRef.current = null;
+          }
+        };
+        pc.onicecandidate = (event) => {
+          if (!event.candidate || closed) return;
+          void sendRemoteWebRtcIce(
+            session.id,
+            event.candidate.candidate,
+            event.candidate.sdpMid,
+            event.candidate.sdpMLineIndex,
+          );
+        };
+        pc.ontrack = (event) => {
+          const stream = event.streams[0] || new MediaStream([event.track]);
+          mediaStreamRef.current = stream;
+          setHasWebRtcVideo(true);
+          if (videoRef.current) {
+            videoRef.current.srcObject = stream;
+            void videoRef.current.play().catch(() => {});
+          }
+          setStatusText(`Streaming ${session.name} (webrtc video)`);
+        };
+
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        const res = await createRemoteWebRtcOffer(session.id, offer.sdp || "", "h264");
+        if (closed || !res.answer_sdp) return;
+        await pc.setRemoteDescription({ type: "answer", sdp: res.answer_sdp });
+        setStatusText(`Streaming ${session.name} (${res.mode} signal)`);
+      } catch (err: any) {
+        setStatusText(`Streaming ${session.name}`);
+      }
+    };
+
+    void start();
+
+    return () => {
+      closed = true;
+      if (inputChannelRef.current) {
+        inputChannelRef.current.close();
+        inputChannelRef.current = null;
+      }
+      mediaStreamRef.current = null;
+      setHasWebRtcVideo(false);
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      if (peerRef.current === pc) {
+        peerRef.current = null;
+      }
+      pc.close();
     };
   }, [session?.id]);
 
@@ -1730,28 +1952,6 @@ function RemoteDesktopPanel() {
     document.addEventListener("fullscreenchange", onFullscreenChange);
     return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
   }, []);
-
-  useEffect(() => {
-    if (!framebuffer || !framebuffer.width || !framebuffer.height || !framebuffer.data) {
-      setFramebufferUrl("");
-      return;
-    }
-
-    const binary = atob(framebuffer.data);
-    const rgba = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i += 1) rgba[i] = binary.charCodeAt(i);
-
-    const bmp = rgbaToBmp(framebuffer.width, framebuffer.height, rgba);
-    const url = URL.createObjectURL(new Blob([bmp], { type: "image/bmp" }));
-    setFramebufferUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return url;
-    });
-
-    return () => {
-      URL.revokeObjectURL(url);
-    };
-  }, [framebuffer]);
 
   const handleStartGateway = async () => {
     setGatewayLoading(true);
@@ -1781,8 +1981,14 @@ function RemoteDesktopPanel() {
   const handleConnect = async () => {
     setConnecting(true);
     setStatusText("");
+    setFramebuffer(null);
+    setFramebufferError("");
     try {
-      const res = await createRemoteSession(host.trim(), Number.parseInt(port, 10) || 5901, password || undefined);
+      const res = await createRemoteSession(
+        host.trim(),
+        Number.parseInt(port, 10) || 5901,
+        effectivePassword || undefined,
+      );
       setSession(res.session);
       setStatusText(`Connected to ${res.session.name}`);
       await refreshGateway();
@@ -1798,10 +2004,21 @@ function RemoteDesktopPanel() {
       await deleteRemoteSession(session.id);
       setSession(null);
       setFramebuffer(null);
-      setFramebufferUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return "";
-      });
+      imageDataRef.current = null;
+      if (inputChannelRef.current) {
+        inputChannelRef.current.close();
+        inputChannelRef.current = null;
+      }
+      mediaStreamRef.current = null;
+      setHasWebRtcVideo(false);
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+      if (peerRef.current) {
+        peerRef.current.close();
+        peerRef.current = null;
+      }
+      setFramebufferError("");
       setStatusText("Session closed");
       await refreshGateway();
     } catch (err: any) {
@@ -1826,47 +2043,188 @@ function RemoteDesktopPanel() {
 
   const sendPointer = async (x: number, y: number, buttons: number) => {
     if (!session) return;
+    const inputChannel = inputChannelRef.current;
+    if (inputChannel?.readyState === "open") {
+      try {
+        inputChannel.send(JSON.stringify({
+          type: "input",
+          kind: "pointer",
+          x,
+          y,
+          buttons,
+        }));
+        return;
+      } catch {}
+    }
     try {
       await sendRemoteInput(session.id, { kind: "pointer", x, y, buttons });
     } catch {}
   };
 
-  const pointerCoords = (event: React.MouseEvent<HTMLImageElement>) => {
-    const display = displayRef.current;
-    if (!display || !framebuffer?.width || !framebuffer?.height) return null;
-    const rect = display.getBoundingClientRect();
+  const pointerCoords = (event: React.MouseEvent<HTMLElement>) => {
+    if (!framebuffer?.width || !framebuffer?.height) return null;
+    const rect = event.currentTarget.getBoundingClientRect();
     const x = Math.max(0, Math.min(framebuffer.width - 1, Math.round(((event.clientX - rect.left) / rect.width) * framebuffer.width)));
     const y = Math.max(0, Math.min(framebuffer.height - 1, Math.round(((event.clientY - rect.top) / rect.height) * framebuffer.height)));
     return { x, y };
   };
 
-  const onCanvasMouseDown = async (event: React.MouseEvent<HTMLImageElement>) => {
+  const handleZoomIn = () => {
+    setFitToView(false);
+    setZoom((current) => Math.min(3, Math.round((current + 0.1) * 10) / 10));
+  };
+  const handleZoomOut = () => {
+    setFitToView(false);
+    setZoom((current) => Math.max(0.5, Math.round((current - 0.1) * 10) / 10));
+  };
+  const handleZoomReset = () => {
+    setZoom(1);
+    setFitToView(true);
+  };
+
+  const sendRemoteKey = async (key: number, down: boolean) => {
+    if (!session) return;
+    const inputChannel = inputChannelRef.current;
+    if (inputChannel?.readyState === "open") {
+      inputChannel.send(JSON.stringify({
+        type: "input",
+        kind: "key",
+        key,
+        down,
+      }));
+      return;
+    }
+    await sendRemoteInput(session.id, { kind: "key", key, down });
+  };
+
+  const handleSendText = async () => {
+    if (!session || !textBuffer.trim()) return;
+    setTextSending(true);
+    try {
+      await sendRemoteClipboard(session.id, textBuffer);
+      await sendKeyCombo(0xffe1, 0xff63);
+      setStatusText(`Pasted ${textBuffer.length} characters`);
+      setTextBuffer("");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not paste text");
+    }
+    setTextSending(false);
+  };
+
+  const handleSendClipboard = async () => {
+    if (!session || !textBuffer.trim()) return;
+    setTextSending(true);
+    try {
+      await sendRemoteClipboard(session.id, textBuffer);
+      setStatusText("Clipboard sent");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not send clipboard");
+    }
+    setTextSending(false);
+  };
+
+  const sendKeyTap = async (key: number) => {
+    await sendRemoteKey(key, true);
+    await sendRemoteKey(key, false);
+  };
+
+  const sendKeyCombo = async (modifier: number, key: number) => {
+    await sendRemoteKey(modifier, true);
+    await sendRemoteKey(key, true);
+    await sendRemoteKey(key, false);
+    await sendRemoteKey(modifier, false);
+  };
+
+  const handleRemoteSelectAll = async () => {
+    if (!session || textSending) return;
+    setTextSending(true);
+    try {
+      await sendKeyCombo(0xffe3, 0x0061);
+      setStatusText("Selected remote text");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not select remote text");
+    }
+    setTextSending(false);
+  };
+
+  const handleRemoteBackspace = async () => {
+    if (!session || textSending) return;
+    setTextSending(true);
+    try {
+      await sendKeyTap(0xff08);
+      setStatusText("Backspace sent");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not send backspace");
+    }
+    setTextSending(false);
+  };
+
+  const handleRemoteDelete = async () => {
+    if (!session || textSending) return;
+    setTextSending(true);
+    try {
+      await sendKeyTap(0xffff);
+      setStatusText("Delete sent");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not send delete");
+    }
+    setTextSending(false);
+  };
+
+  const handleRemoteEnter = async () => {
+    if (!session || textSending) return;
+    setTextSending(true);
+    try {
+      await sendKeyTap(0xff0d);
+      setStatusText("Enter sent");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not send enter");
+    }
+    setTextSending(false);
+  };
+
+  const handleReplaceRemoteText = async () => {
+    if (!session || textSending || !textBuffer.trim()) return;
+    setTextSending(true);
+    try {
+      await sendKeyCombo(0xffe3, 0x0061);
+      await sendKeyTap(0xffff);
+      await sendRemoteClipboard(session.id, textBuffer);
+      await sendKeyCombo(0xffe1, 0xff63);
+      setStatusText("Remote text replaced");
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not replace remote text");
+    }
+    setTextSending(false);
+  };
+
+  const onCanvasMouseDown = async (event: React.MouseEvent<HTMLElement>) => {
     const pos = pointerCoords(event);
     if (!pos) return;
     pressedButtons.current = event.button === 2 ? 4 : event.button === 1 ? 2 : 1;
     await sendPointer(pos.x, pos.y, pressedButtons.current);
   };
 
-  const onCanvasMouseUp = async (event: React.MouseEvent<HTMLImageElement>) => {
+  const onCanvasMouseUp = async (event: React.MouseEvent<HTMLElement>) => {
     const pos = pointerCoords(event);
     if (!pos) return;
     pressedButtons.current = 0;
     await sendPointer(pos.x, pos.y, 0);
   };
 
-  const onCanvasMouseMove = async (event: React.MouseEvent<HTMLImageElement>) => {
+  const onCanvasMouseMove = async (event: React.MouseEvent<HTMLElement>) => {
     const pos = pointerCoords(event);
     if (!pos) return;
     await sendPointer(pos.x, pos.y, pressedButtons.current);
   };
 
-  const onCanvasKey = async (event: React.KeyboardEvent<HTMLImageElement>, down: boolean) => {
+  const onCanvasKey = async (event: React.KeyboardEvent<HTMLElement>, down: boolean) => {
     if (!session) return;
-    const keysym = toKeysym(event.key);
+    const keysym = getRemoteKeysym(event.nativeEvent);
     if (!keysym) return;
     event.preventDefault();
     try {
-      await sendRemoteInput(session.id, { kind: "key", key: keysym, down });
+      await sendRemoteKey(keysym, down);
     } catch {}
   };
 
@@ -1913,6 +2271,11 @@ function RemoteDesktopPanel() {
           <div style={{ marginTop: 10 }}>
             <label style={labelStyle}>Password</label>
             <input className="proj-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+            {isLocalTestVnc ? (
+              <div className="remote-note" style={{ marginTop: 6 }}>
+                Empty uses the local test password automatically.
+              </div>
+            ) : null}
           </div>
           <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
             <button className="deploy-action-btn teal" onClick={handleConnect} disabled={connecting}>
@@ -1927,6 +2290,44 @@ function RemoteDesktopPanel() {
           <div className="remote-note">
             {statusText || (session ? `Session ${session.state}` : "Use a local or remote VNC endpoint for this node.")}
           </div>
+          <div className="remote-compose">
+            <label style={labelStyle}>Type text</label>
+            <textarea
+              className="remote-compose-input"
+              rows={3}
+              value={textBuffer}
+              onChange={(e) => setTextBuffer(e.target.value)}
+              placeholder="Write here, then send exact text to the remote machine"
+            />
+            <div className="remote-compose-actions">
+              <button className="panel-btn-sm" onClick={handleSendText} disabled={!session || textSending || !textBuffer.trim()}>
+                <Send className="h-3 w-3" />
+                <span>{textSending ? "Sending..." : "Paste text"}</span>
+              </button>
+              <button className="panel-btn-sm" onClick={handleReplaceRemoteText} disabled={!session || textSending || !textBuffer.trim()}>
+                <RotateCcw className="h-3 w-3" />
+                <span>Replace</span>
+              </button>
+              <button className="panel-btn-sm" onClick={handleSendClipboard} disabled={!session || textSending || !textBuffer.trim()}>
+                <FileText className="h-3 w-3" />
+                <span>Clipboard</span>
+              </button>
+            </div>
+            <div className="remote-compose-actions remote-compose-actions-secondary">
+              <button className="panel-btn-sm" onClick={handleRemoteSelectAll} disabled={!session || textSending}>
+                <span>Select all</span>
+              </button>
+              <button className="panel-btn-sm" onClick={handleRemoteBackspace} disabled={!session || textSending}>
+                <span>Backspace</span>
+              </button>
+              <button className="panel-btn-sm" onClick={handleRemoteDelete} disabled={!session || textSending}>
+                <span>Delete</span>
+              </button>
+              <button className="panel-btn-sm" onClick={handleRemoteEnter} disabled={!session || textSending}>
+                <span>Enter</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
@@ -1936,6 +2337,32 @@ function RemoteDesktopPanel() {
           {session ? (
             <div className="remote-display-stage">
               <div className="remote-display-actions">
+                <div className="remote-zoom-group">
+                  <button
+                    className="remote-display-icon-btn"
+                    onClick={handleZoomOut}
+                    title="Zoom out"
+                    aria-label="Zoom out"
+                  >
+                    <ZoomOut className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    className="remote-zoom-readout"
+                    onClick={handleZoomReset}
+                    title="Reset view"
+                    aria-label="Reset view"
+                  >
+                    {fitToView ? "Fit" : `${Math.round(zoom * 100)}%`}
+                  </button>
+                  <button
+                    className="remote-display-icon-btn"
+                    onClick={handleZoomIn}
+                    title="Zoom in"
+                    aria-label="Zoom in"
+                  >
+                    <ZoomIn className="h-3.5 w-3.5" />
+                  </button>
+                </div>
                 <button
                   className="remote-display-icon-btn"
                   onClick={handleToggleFullscreen}
@@ -1945,21 +2372,47 @@ function RemoteDesktopPanel() {
                   {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
                 </button>
               </div>
-              {framebufferUrl ? (
-                <img
-                  ref={displayRef}
-                  src={framebufferUrl}
-                  alt={`Remote session ${session.name}`}
-                  className="remote-display-image"
-                  tabIndex={0}
-                  draggable={false}
-                  onContextMenu={(e) => e.preventDefault()}
-                  onMouseDown={onCanvasMouseDown}
-                  onMouseUp={onCanvasMouseUp}
-                  onMouseMove={onCanvasMouseMove}
-                  onKeyDown={(e) => onCanvasKey(e, true)}
-                  onKeyUp={(e) => onCanvasKey(e, false)}
-                />
+              {hasWebRtcVideo || framebuffer ? (
+                <div className="remote-display-viewport">
+                  {hasWebRtcVideo ? (
+                    <video
+                      ref={videoRef}
+                      className="remote-display-video"
+                      style={
+                        fitToView
+                          ? undefined
+                          : { width: `${Math.max(320, Math.round((framebuffer?.width || 1024) * zoom))}px` }
+                      }
+                      autoPlay
+                      playsInline
+                      muted
+                      tabIndex={0}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onMouseDown={onCanvasMouseDown}
+                      onMouseUp={onCanvasMouseUp}
+                      onMouseMove={onCanvasMouseMove}
+                      onKeyDown={(e) => onCanvasKey(e, true)}
+                      onKeyUp={(e) => onCanvasKey(e, false)}
+                    />
+                  ) : (
+                    <canvas
+                      ref={displayRef}
+                      className="remote-display-canvas"
+                      style={
+                        fitToView
+                          ? undefined
+                          : { width: `${Math.max(320, Math.round((framebuffer?.width || 1024) * zoom))}px` }
+                      }
+                      tabIndex={0}
+                      onContextMenu={(e) => e.preventDefault()}
+                      onMouseDown={onCanvasMouseDown}
+                      onMouseUp={onCanvasMouseUp}
+                      onMouseMove={onCanvasMouseMove}
+                      onKeyDown={(e) => onCanvasKey(e, true)}
+                      onKeyUp={(e) => onCanvasKey(e, false)}
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="remote-placeholder remote-display-loading">
                   <Loader className="h-5 w-5 animate-spin" />
@@ -1968,8 +2421,10 @@ function RemoteDesktopPanel() {
               )}
               <div className="remote-session-hud">
                 <span>{session.name}</span>
+                <span>{fitToView ? "fit" : `${Math.round(zoom * 100)}%`}</span>
                 <span>{framebuffer ? `${framebuffer.width}x${framebuffer.height}` : "connecting"}</span>
-                <span>{framebuffer ? `frame ${framebuffer.sequence}` : "no frame"}</span>
+                <span>{session.state}</span>
+                {framebufferError ? <span>{framebufferError}</span> : null}
               </div>
             </div>
           ) : (
@@ -1984,42 +2439,13 @@ function RemoteDesktopPanel() {
   );
 }
 
-function rgbaToBmp(width: number, height: number, rgba: Uint8Array) {
-  const headerSize = 14 + 40;
-  const pixelBytes = width * height * 4;
-  const fileSize = headerSize + pixelBytes;
-  const bmp = new Uint8Array(fileSize);
-  const view = new DataView(bmp.buffer);
-
-  bmp[0] = 0x42;
-  bmp[1] = 0x4d;
-  view.setUint32(2, fileSize, true);
-  view.setUint32(10, headerSize, true);
-  view.setUint32(14, 40, true);
-  view.setInt32(18, width, true);
-  view.setInt32(22, -height, true);
-  view.setUint16(26, 1, true);
-  view.setUint16(28, 32, true);
-  view.setUint32(34, pixelBytes, true);
-  view.setInt32(38, 2835, true);
-  view.setInt32(42, 2835, true);
-
-  let src = 0;
-  let dst = headerSize;
-  while (src < rgba.length) {
-    bmp[dst] = rgba[src + 2];
-    bmp[dst + 1] = rgba[src + 1];
-    bmp[dst + 2] = rgba[src];
-    bmp[dst + 3] = rgba[src + 3];
-    src += 4;
-    dst += 4;
+function toKeysym(key: string, code = ""): number | null {
+  if (key.length === 1) {
+    if (key === "£") return 0x00a3;
+    if (key === "¬") return 0x00ac;
+    return key.charCodeAt(0);
   }
 
-  return bmp;
-}
-
-function toKeysym(key: string): number | null {
-  if (key.length === 1) return key.charCodeAt(0);
   const map: Record<string, number> = {
     Enter: 0xff0d,
     Backspace: 0xff08,
@@ -2035,5 +2461,33 @@ function toKeysym(key: string): number | null {
     Meta: 0xffe7,
     " ": 0x20,
   };
-  return map[key] ?? null;
+
+  if (map[key]) return map[key];
+
+  const codeMap: Record<string, number> = {
+    Backquote: 0x0060,
+    Minus: 0x002d,
+    Equal: 0x003d,
+    BracketLeft: 0x005b,
+    BracketRight: 0x005d,
+    Backslash: 0x005c,
+    IntlBackslash: 0x005c,
+    Semicolon: 0x003b,
+    Quote: 0x0027,
+    Comma: 0x002c,
+    Period: 0x002e,
+    Slash: 0x002f,
+  };
+
+  return codeMap[code] ?? null;
+}
+
+function charToKeysym(char: string): number | null {
+  if (char === "\n") return 0xff0d;
+  if (char === "\t") return 0xff09;
+  if (char === "\b") return 0xff08;
+  if (char === "£") return 0x00a3;
+  if (char === "¬") return 0x00ac;
+  if (char.length === 1) return char.codePointAt(0) ?? null;
+  return null;
 }

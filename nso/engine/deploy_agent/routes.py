@@ -38,15 +38,15 @@ router = APIRouter()
 
 # Supervisor (tool-capable)
 SUPERVISOR_API_KEY = os.environ.get("DEPLOY_AGENT_API_KEY", "")
-SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
-SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "openai/gpt-oss-20b")
-SUPERVISOR_PROVIDER = os.environ.get("DEPLOY_AGENT_PROVIDER", "groq")
+SUPERVISOR_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.moonshot.ai/v1")
+SUPERVISOR_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "kimi-k2-thinking")
+SUPERVISOR_PROVIDER = os.environ.get("DEPLOY_AGENT_PROVIDER", "moonshot")
 
 # Worker (response generation — optional, enables dual-model mode)
 WORKER_API_KEY = os.environ.get("DEPLOY_AGENT_WORKER_API_KEY", "")
-WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://api.groq.com/openai/v1")
+WORKER_API_URL = os.environ.get("DEPLOY_AGENT_WORKER_API_URL", "https://api.moonshot.ai/v1")
 WORKER_MODEL = os.environ.get("DEPLOY_AGENT_WORKER_MODEL", "")
-WORKER_PROVIDER = os.environ.get("DEPLOY_AGENT_WORKER_PROVIDER", "groq")
+WORKER_PROVIDER = os.environ.get("DEPLOY_AGENT_WORKER_PROVIDER", "moonshot")
 
 DEPLOY_AGENT_MAX_STEPS = int(os.environ.get("DEPLOY_AGENT_MAX_STEPS", "8"))
 
