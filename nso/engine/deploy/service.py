@@ -147,13 +147,13 @@ async def deploy_to_instance(
 
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
-        raise NotFoundError("Instance", instance_id)
+        raise NotFoundError("Machine", instance_id)
     if inst["state"] not in (InstanceState.READY.value, InstanceState.RUNNING.value):
-        raise ProviderError("deploy", f"Instance is in state '{inst['state']}', must be 'ready' or 'running'")
+        raise ProviderError("deploy", f"Machine is in state '{inst['state']}', must be 'ready' or 'running'")
 
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("deploy", "Instance has no IP")
+        raise ProviderError("deploy", "Machine has no IP")
 
     ws = await db.fetch_one("workspaces", project_id=project_id, name=workspace_name)
     if not ws:

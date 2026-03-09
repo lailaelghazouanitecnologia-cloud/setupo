@@ -155,7 +155,7 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
                 break
 
         if not ip:
-            raise ProviderError("vultr", "Instance did not become active within timeout")
+            raise ProviderError("vultr", "Machine did not become active within timeout")
 
         await db.update("instances", instance_id, {"ip": ip})
 
@@ -183,7 +183,7 @@ async def _provision_instance(project_id: str, instance_id: str, req: CreateInst
 async def get_instance(project_id: str, instance_id: str) -> dict:
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
-        raise NotFoundError("Instance", instance_id)
+        raise NotFoundError("Machine", instance_id)
     return inst
 
 
@@ -194,7 +194,7 @@ async def list_instances(project_id: str) -> list[dict]:
 async def delete_instance(project_id: str, instance_id: str):
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
-        raise NotFoundError("Instance", instance_id)
+        raise NotFoundError("Machine", instance_id)
 
     await db.update("instances", instance_id, {"state": InstanceState.DESTROYING.value})
 
@@ -277,7 +277,7 @@ async def exec_on_instance(project_id: str, instance_id: str, command: str, time
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("vultr", "Instance has no IP address")
+        raise ProviderError("vultr", "Machine has no IP address")
 
     try:
         token = await _agent_login(ip)

@@ -453,7 +453,7 @@ async def scale_service(project_id: str, service_id: str, replicas: int) -> dict
                     actions.append({"instance_id": inst["id"], "action": "failed", "error": str(e)})
 
             if len(to_deploy) < needed:
-                actions.append({"warning": f"Only {len(to_deploy)} instances available, needed {needed}"})
+                actions.append({"warning": f"Only {len(to_deploy)} machines available, needed {needed}"})
 
     elif replicas < current:
         # Scale down — stop excess replicas (newest first)

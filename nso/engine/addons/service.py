@@ -63,7 +63,7 @@ DEFAULT_CONNECTORS = [
     {
         "addon_id": "runpod",
         "name": "RunPod",
-        "description": "GPU instances, volumes, and serverless endpoints for ML workloads.",
+        "description": "GPU machines, volumes, and serverless endpoints for ML workloads.",
         "category": "compute",
         "icon": "gpu",
         "addon_type": "connector",
@@ -86,7 +86,7 @@ DEFAULT_PLUGINS = [
     {
         "addon_id": "monitoring",
         "name": "Monitoring",
-        "description": "System metrics, alerts, and uptime tracking for your instances.",
+        "description": "System metrics, alerts, and uptime tracking for your machines.",
         "category": "observability",
         "icon": "activity",
         "addon_type": "plugin",
@@ -94,7 +94,7 @@ DEFAULT_PLUGINS = [
     {
         "addon_id": "logs",
         "name": "Log Viewer",
-        "description": "Centralized log aggregation and real-time search across instances.",
+        "description": "Centralized log aggregation and real-time search across machines.",
         "category": "observability",
         "icon": "file-text",
         "addon_type": "plugin",
@@ -110,7 +110,7 @@ DEFAULT_PLUGINS = [
     {
         "addon_id": "cron",
         "name": "Cron Jobs",
-        "description": "Schedule and manage recurring tasks on your instances.",
+        "description": "Schedule and manage recurring tasks on your machines.",
         "category": "automation",
         "icon": "clock",
         "addon_type": "plugin",

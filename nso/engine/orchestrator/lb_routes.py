@@ -182,7 +182,7 @@ async def drain_instance(instance_id: str, _admin=Depends(require_admin)):
     """Set an instance to draining (no new traffic, finish existing)."""
     from nso.engine.orchestrator.lb_sync import drain_node_in_lb
     await drain_node_in_lb(instance_id)
-    return {"ok": True, "message": f"Instance {instance_id} set to draining"}
+    return {"ok": True, "message": f"Machine {instance_id} set to draining"}
 
 
 # ── Stats ─────────────────────────────────────────────────

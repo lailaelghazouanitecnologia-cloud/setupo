@@ -9,7 +9,9 @@ node_modules/
 dist/
 .next/
 out/
+deploy/out/
 dashboard/static/
+vm/mos-gateway/target/
 package-lock.json
 yarn.lock
 bun.lockb

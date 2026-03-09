@@ -19,6 +19,10 @@ R2_SECRET_ACCESS_KEY="${R2_SECRET_ACCESS_KEY:-__R2_SECRET_ACCESS_KEY__}"
 R2_BUCKET="${R2_BUCKET:-nso}"
 NSO_DOMAIN="${NSO_DOMAIN:-nso.dev}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
+DEPLOY_AGENT_API_KEY="${DEPLOY_AGENT_API_KEY:-__DEPLOY_AGENT_API_KEY__}"
+DEPLOY_AGENT_API_URL="${DEPLOY_AGENT_API_URL:-https://api.groq.com/openai/v1}"
+DEPLOY_AGENT_MODEL="${DEPLOY_AGENT_MODEL:-openai/gpt-oss-20b}"
+DEPLOY_AGENT_PROVIDER="${DEPLOY_AGENT_PROVIDER:-groq}"
 
 # ── 1. System packages ──────────────────────────────────────────
 export DEBIAN_FRONTEND=noninteractive
@@ -118,6 +122,12 @@ AGENT_ADMIN_PASSWORD=${AGENT_ADMIN_PASSWORD}
 
 # JWT — MUST be set so all uvicorn workers share the same secret
 NSO_JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+
+# Deploy agent LLM
+DEPLOY_AGENT_API_KEY=${DEPLOY_AGENT_API_KEY}
+DEPLOY_AGENT_API_URL=${DEPLOY_AGENT_API_URL}
+DEPLOY_AGENT_MODEL=${DEPLOY_AGENT_MODEL}
+DEPLOY_AGENT_PROVIDER=${DEPLOY_AGENT_PROVIDER}
 ENVEOF
 chmod 600 /opt/nso/config/.env
 

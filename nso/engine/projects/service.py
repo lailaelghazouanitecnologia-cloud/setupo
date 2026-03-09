@@ -56,6 +56,14 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
         except Exception as e:
             logger.warning("Quota sync on project create failed (non-blocking): %s", e)
 
+    # Auto-add creator as owner member
+    if req.owner:
+        try:
+            from nso.engine.projects.members import add_owner
+            await add_owner(project_id, req.owner)
+        except Exception as e:
+            logger.warning("Failed to add owner member (non-blocking): %s", e)
+
     logger.info("Created project %s (%s)", project.name, project.id)
 
     return project, api_key

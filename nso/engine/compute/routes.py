@@ -24,7 +24,7 @@ async def create_instance(req: CreateInstanceRequest, project_id: str = Depends(
             "plan": instance.plan,
             "domain": instance.domain,
         },
-        "message": "Instance is being provisioned. Poll the instance endpoint until state is 'ready'.",
+        "message": "Machine is being provisioned. Poll the endpoint until state is 'ready'.",
         "poll_url": f"/api/projects/{project_id}/instances/{instance.id}",
     }
 
@@ -89,7 +89,7 @@ async def get_instance_metrics(instance_id: str, project_id: str = Depends(requi
     from nso.engine.compute.metrics import get_instance_metrics as _get
     result = await _get(project_id, instance_id)
     if not result:
-        raise HTTPException(404, "Instance not found")
+        raise HTTPException(404, "Machine not found")
     return result
 
 
@@ -109,7 +109,7 @@ async def get_instance_logs(instance_id: str, project_id: str = Depends(require_
 
 @router.get("/{instance_id}/services")
 async def list_services(instance_id: str, project_id: str = Depends(require_project)):
-    """List all services running on an instance."""
+    """List all services running on a machine."""
     try:
         services = await svc_mgr.list_services(project_id, instance_id)
     except NsoError as e:
@@ -139,7 +139,7 @@ async def get_service(instance_id: str, service_name: str, project_id: str = Dep
 
 @router.post("/{instance_id}/services/{service_name}/restart")
 async def restart_service(instance_id: str, service_name: str, project_id: str = Depends(require_project)):
-    """Restart a service on an instance."""
+    """Restart a service on a machine."""
     try:
         result = await svc_mgr.restart_service(project_id, instance_id, service_name)
     except NsoError as e:
@@ -149,7 +149,7 @@ async def restart_service(instance_id: str, service_name: str, project_id: str =
 
 @router.post("/{instance_id}/services/{service_name}/stop")
 async def stop_service(instance_id: str, service_name: str, project_id: str = Depends(require_project)):
-    """Stop a service on an instance."""
+    """Stop a service on a machine."""
     try:
         result = await svc_mgr.stop_service(project_id, instance_id, service_name)
     except NsoError as e:
@@ -163,7 +163,7 @@ async def apply_services(
     specs: list[dict] = Body(..., embed=True),
     project_id: str = Depends(require_project),
 ):
-    """Apply a set of service specs to the instance's supervisor."""
+    """Apply a set of service specs to the machine's supervisor."""
     try:
         result = await svc_mgr.apply_services(project_id, instance_id, specs)
     except NsoError as e:

@@ -676,7 +676,7 @@ async def instance_action(
     cursor = await d.execute("SELECT * FROM instances WHERE id = ?", (instance_id,))
     row = await cursor.fetchone()
     if not row:
-        raise HTTPException(404, "Instance not found")
+        raise HTTPException(404, "Machine not found")
 
     inst = db.row_to_dict(row)
     project_id = inst["project_id"]

@@ -25,7 +25,7 @@ _DEFAULT_CATALOG = [
     {
         "plugin_id": "monitoring",
         "name": "Monitoring",
-        "description": "System metrics, alerts, and uptime tracking for your instances.",
+        "description": "System metrics, alerts, and uptime tracking for your machines.",
         "version": "1.0.0",
         "category": "observability",
     },
@@ -39,7 +39,7 @@ _DEFAULT_CATALOG = [
     {
         "plugin_id": "logs",
         "name": "Log Viewer",
-        "description": "Centralized log aggregation and real-time search across instances.",
+        "description": "Centralized log aggregation and real-time search across machines.",
         "version": "1.0.0",
         "category": "observability",
     },
@@ -53,7 +53,7 @@ _DEFAULT_CATALOG = [
     {
         "plugin_id": "cron",
         "name": "Cron Jobs",
-        "description": "Schedule and manage recurring tasks on your instances.",
+        "description": "Schedule and manage recurring tasks on your machines.",
         "version": "1.0.0",
         "category": "automation",
     },

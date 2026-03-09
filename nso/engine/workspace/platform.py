@@ -19,7 +19,7 @@ PLATFORM_WORKSPACES = [
     {
         "name": "agent",
         "stack": "python",
-        "description": "NSO Agent — per-VPS instance service (:8081)",
+        "description": "NSO Agent — per-VPS machine service (:8081)",
         "source_dir": "instance",
         "deploy": {
             "command": "venv/bin/uvicorn main:app --host 0.0.0.0 --port 8081",

@@ -22,7 +22,7 @@ export function InfrastructurePanel() {
   const [tab, setTab] = useState<InfraTab>("instances");
 
   const tabs: { id: InfraTab; label: string; icon: React.ElementType }[] = [
-    { id: "instances", label: "Instances", icon: Server },
+    { id: "instances", label: "Machines", icon: Server },
     { id: "services", label: "Services", icon: Activity },
     { id: "database", label: "Database", icon: Database },
     { id: "storage", label: "Storage", icon: HardDrive },

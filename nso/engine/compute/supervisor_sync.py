@@ -63,7 +63,7 @@ async def get_live_status(project_id: str, instance_id: str) -> dict:
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("agent", "Instance has no IP address")
+        raise ProviderError("agent", "Machine has no IP address")
 
     port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
@@ -85,7 +85,7 @@ async def restart_service(project_id: str, instance_id: str, service_name: str) 
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("agent", "Instance has no IP address")
+        raise ProviderError("agent", "Machine has no IP address")
 
     port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
@@ -132,7 +132,7 @@ async def stop_service(project_id: str, instance_id: str, service_name: str) -> 
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("agent", "Instance has no IP address")
+        raise ProviderError("agent", "Machine has no IP address")
 
     port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)
@@ -155,7 +155,7 @@ async def apply_services(project_id: str, instance_id: str, specs: list[dict]) -
     inst = await get_instance(project_id, instance_id)
     ip = inst.get("ip")
     if not ip:
-        raise ProviderError("agent", "Instance has no IP address")
+        raise ProviderError("agent", "Machine has no IP address")
 
     port = await _resolve_agent_port(instance_id)
     token = await _agent_login(ip)

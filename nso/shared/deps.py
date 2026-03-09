@@ -20,13 +20,17 @@ async def require_project(request: Request, auth: AuthContext = Depends(get_auth
         raise NsoError("Request must include project_id in URL", 400)
     if auth.is_admin:
         return project_id
-    # Regular user — verify ownership
+    # Regular user — verify ownership or membership
     if auth.user_id:
         from nso.shared import db
         project = await db.fetch_one("projects", id=project_id)
         if project and project.get("owner") == auth.user_id:
             return project_id
-        raise NsoError("You don't own this project", 403)
+        # Check project membership
+        member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
+        if member:
+            return project_id
+        raise NsoError("You don't have access to this project", 403)
     raise AuthError("This endpoint requires authentication")
 
 

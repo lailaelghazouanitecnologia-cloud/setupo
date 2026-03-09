@@ -5,6 +5,7 @@ import secrets
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Depends, Query
 from pydantic import BaseModel
@@ -90,6 +91,22 @@ def _validate_path(ws_path: str, relative: str) -> str:
     return full_path
 
 
+def _normalize_git_source(git_url: str, branch: str) -> tuple[str, str]:
+    """Convert GitHub tree URLs into cloneable repo URLs plus branch."""
+    parsed = urlparse(git_url)
+    if parsed.scheme in ("http", "https") and parsed.netloc.lower() == "github.com":
+        path = parsed.path.rstrip("/")
+        if "/tree/" in path:
+            repo_path, branch_part = path.split("/tree/", 1)
+            git_url = f"https://github.com{repo_path}.git"
+            branch = branch_part or branch
+        elif not path.endswith(".git"):
+            git_url = f"https://github.com{path}.git"
+    elif not git_url.startswith("http"):
+        git_url = f"https://github.com/{git_url}.git"
+    return git_url, branch
+
+
 async def _check_workspace_limit(project_id: str) -> None:
     """Enforce workspace limit from billing plan. Free plan = hard limit; paid = soft (overage billed)."""
     try:
@@ -148,12 +165,13 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
     if req.git_url and ws_type == WorkspaceType.CUSTOM:
         ws_type = WorkspaceType.GIT
 
+    git_url = req.git_url
+    git_branch = req.branch
+
     if req.git_url:
-        git_url = req.git_url
-        if not git_url.startswith("http"):
-            git_url = f"https://github.com/{req.git_url}.git"
+        git_url, git_branch = _normalize_git_source(req.git_url, req.branch)
         proc = await asyncio.create_subprocess_exec(
-            "git", "clone", "--depth", "1", "-b", req.branch, git_url, ws_path,
+            "git", "clone", "--depth", "1", "-b", git_branch, git_url, ws_path,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
         )
         stdout, _ = await proc.communicate()
@@ -175,7 +193,7 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
         name=req.name,
         type=stack or "custom",
         description=req.description,
-        git=WorkspaceGitConfig(url=req.git_url, branch=req.branch),
+        git=WorkspaceGitConfig(url=git_url, branch=git_branch),
         deploy=WorkspaceDeployConfig(instance_id=req.instance_id),
         services={"nginx": WorkspaceServiceConfig()} if stack != "custom" else {},
     )
@@ -191,8 +209,8 @@ async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depend
         "stack": stack,
         "description": req.description,
         "instance_id": req.instance_id,
-        "git_url": req.git_url,
-        "branch": req.branch,
+        "git_url": git_url,
+        "branch": git_branch,
         "created_at": now,
         "updated_at": now,
     })
@@ -488,7 +506,7 @@ async def deploy_workspace(name: str, project_id: str = Depends(require_project)
 
 @router.post("/seed/platform")
 async def seed_platform_workspaces(
-    instance_id: str = Query("", description="Instance to link workspaces to"),
+    instance_id: str = Query("", description="Machine to link workspaces to"),
     _=Depends(require_admin),
     project_id: str = Depends(require_project),
 ):

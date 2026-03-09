@@ -4,9 +4,9 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Server, RefreshCw, Play, Square, Trash2, Plus,
   Activity, Monitor, Terminal, FolderOpen,
-  Send, RotateCcw, Power, FileText, Loader, Globe,
+  Send, RotateCcw, Power, FileText, Loader,
   Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
-  MapPin,
+  MapPin, Maximize2, Minimize2,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -19,10 +19,11 @@ import {
   listComputeNodes, registerComputeNode, deleteComputeNode,
   drainNode, cordonNode, uncordonNode, syncInstancesToNodes,
   listAddons, type AddonInfo,
+  getRemoteGatewayStatus, startRemoteGateway, stopRemoteGateway,
+  createRemoteSession, getRemoteFramebuffer, deleteRemoteSession,
+  sendRemoteInput, type RemoteFramebuffer, type RemoteSession,
 } from "@/lib/api/client";
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@/components/ui/select";
+// UI select not needed — using native <select> for simplicity
 
 type Tab = "instances" | "services";
 
@@ -133,7 +134,7 @@ export function InstancesPanel() {
       <div className="tab-bar">
         <button className={`tab-item ${tab === "instances" ? "active" : ""}`} onClick={() => setTab("instances")}>
           <Server className="h-3.5 w-3.5" />
-          <span>Instances</span>
+          <span>Machines</span>
         </button>
         <button className={`tab-item ${tab === "services" ? "active" : ""}`} onClick={() => setTab("services")}>
           <Activity className="h-3.5 w-3.5" />
@@ -238,41 +239,85 @@ function TopologyGraph({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+
   if (items.length === 0) return null;
 
   const svgW = 480;
-  const svgH = 180;
-  const hubX = svgW / 2;
-  const hubY = svgH / 2;
+  const svgH = 200;
+  const globeCX = svgW / 2;
+  const globeCY = svgH / 2 + 10;
+  const globeR = 160;
 
-  // Position items: if they have a region with coords, use that; otherwise arrange in a circle
+  const projectToGlobe = (flatX: number, flatY: number) => {
+    const nx = (flatX - globeCX) / globeR;
+    const ny = (flatY - globeCY) / globeR;
+    const dist = Math.sqrt(nx * nx + ny * ny);
+    const scale = dist > 0 ? Math.sin(dist * 0.9) / (dist * 0.9) : 1;
+    return {
+      x: globeCX + nx * scale * globeR,
+      y: globeCY + ny * scale * globeR * 0.85,
+    };
+  };
+
+  const hubPos = projectToGlobe(globeCX, globeCY - 5);
+
   const positioned = useMemo(() => {
     const result: { item: UnifiedInstance; x: number; y: number }[] = [];
-    const usedPositions = new Map<string, number>(); // region -> count for offset
+    const usedPositions = new Map<string, number>();
 
     for (const item of items) {
       const coords = REGION_COORDS[item.region];
       if (coords) {
         const count = usedPositions.get(item.region) || 0;
         usedPositions.set(item.region, count + 1);
-        // Offset slightly if multiple in same region
-        result.push({
-          item,
-          x: coords.x + count * 14,
-          y: coords.y + (count % 2 === 0 ? 0 : 12),
-        });
+        const { x, y } = projectToGlobe(
+          coords.x + count * 14,
+          coords.y + (count % 2 === 0 ? 0 : 12),
+        );
+        result.push({ item, x, y });
       } else {
-        // Fallback: arrange around center
         const angle = (result.length / items.length) * Math.PI * 2 - Math.PI / 2;
-        result.push({
-          item,
-          x: hubX + Math.cos(angle) * 70,
-          y: hubY + Math.sin(angle) * 50,
-        });
+        const { x, y } = projectToGlobe(
+          globeCX + Math.cos(angle) * 70,
+          globeCY + Math.sin(angle) * 50,
+        );
+        result.push({ item, x, y });
       }
     }
     return result;
   }, [items]);
+
+  const curvedPath = (x1: number, y1: number, x2: number, y2: number) => {
+    const mx = (x1 + x2) / 2;
+    const my = (y1 + y2) / 2;
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len = Math.sqrt(dx * dx + dy * dy);
+    const offset = Math.min(len * 0.25, 30);
+    const cx = mx - (dy / len) * offset;
+    const cy = my + (dx / len) * offset;
+    return `M${x1},${y1} Q${cx},${cy} ${x2},${y2}`;
+  };
+
+  // Pin shape: solid Google Maps-style marker — circle top, pointed bottom, no hole
+  // Tip at (0, 0), circle center at (0, -h), where h = s * 1.6
+  const pinPath = (s: number) => {
+    const r = s * 0.55; // circle radius (top)
+    const h = s * 1.5;  // height from tip to circle center
+    // Angle where the tangent from tip meets the circle
+    const a = Math.asin(r / h);
+    // Tangent touch points on the circle
+    const tx = r * Math.cos(a);
+    const ty = r * Math.sin(a);
+    // Build path: tip → right tangent → arc over top → left tangent → back to tip
+    return [
+      `M0,0`,
+      `L${tx},${-(h - ty)}`,
+      `A${r},${r} 0 1 0 ${-tx},${-(h - ty)}`,
+      `Z`,
+    ].join(" ");
+  };
 
   return (
     <div style={{
@@ -301,82 +346,149 @@ function TopologyGraph({
         height={svgH}
         style={{ display: "block" }}
       >
-        {/* Subtle grid dots */}
         <defs>
-          <pattern id="dots" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
-            <circle cx="10" cy="10" r="0.5" fill="var(--border)" opacity="0.4" />
-          </pattern>
+          <radialGradient id="globe-bg" cx="50%" cy="40%" r="55%">
+            <stop offset="0%" stopColor="var(--border)" stopOpacity="0.08" />
+            <stop offset="70%" stopColor="var(--border)" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="var(--border)" stopOpacity="0" />
+          </radialGradient>
+          <clipPath id="globe-clip">
+            <ellipse cx={globeCX} cy={globeCY} rx={globeR} ry={globeR * 0.7} />
+          </clipPath>
+          {/* Pin gradients per status color */}
+          {positioned.map(({ item }) => {
+            const color = statusColor(item.state);
+            return (
+              <linearGradient key={`pin-grad-${item.id}`} id={`pin-grad-${item.id}`} x1="0" y1="1" x2="0.3" y2="0">
+                <stop offset="0%" stopColor={color} stopOpacity="1" />
+                <stop offset="100%" stopColor={color} stopOpacity="0.45" />
+              </linearGradient>
+            );
+          })}
         </defs>
-        <rect width={svgW} height={svgH} fill="url(#dots)" />
 
-        {/* Connection lines from hub to each node */}
+        {/* Globe surface */}
+        <ellipse
+          cx={globeCX} cy={globeCY}
+          rx={globeR} ry={globeR * 0.7}
+          fill="url(#globe-bg)"
+          stroke="var(--border)" strokeWidth="0.5" opacity="0.3"
+        />
+
+        {/* Latitude/longitude lines */}
+        <g clipPath="url(#globe-clip)" opacity="0.12">
+          {[-50, -25, 0, 25, 50].map((off) => (
+            <ellipse
+              key={`lat-${off}`}
+              cx={globeCX} cy={globeCY + off}
+              rx={globeR * Math.cos((off / globeR) * 1.2)}
+              ry={8}
+              fill="none" stroke="var(--border)" strokeWidth="0.5"
+            />
+          ))}
+          {[-60, -30, 0, 30, 60].map((off) => (
+            <ellipse
+              key={`lon-${off}`}
+              cx={globeCX + off} cy={globeCY}
+              rx={6}
+              ry={globeR * 0.7 * Math.cos((off / globeR) * 1.2)}
+              fill="none" stroke="var(--border)" strokeWidth="0.5"
+            />
+          ))}
+        </g>
+
+        {/* Curved connection lines */}
         {positioned.map(({ item, x, y }) => (
-          <line
+          <path
             key={`line-${item.id}`}
-            x1={hubX} y1={hubY}
-            x2={x} y2={y}
-            stroke={selectedId === item.id ? statusColor(item.state) : "var(--border)"}
-            strokeWidth={selectedId === item.id ? 1.5 : 0.8}
+            d={curvedPath(hubPos.x, hubPos.y, x, y)}
+            fill="none"
+            stroke={selectedId === item.id || hoveredId === item.id ? statusColor(item.state) : "var(--border)"}
+            strokeWidth={selectedId === item.id || hoveredId === item.id ? 1.5 : 0.8}
             strokeDasharray={item.state === "creating" || item.state === "installing" ? "3,3" : undefined}
-            opacity={selectedId === item.id ? 0.8 : 0.4}
+            opacity={selectedId === item.id || hoveredId === item.id ? 0.8 : 0.35}
           />
         ))}
 
         {/* Hub (NSO Central) */}
-        <circle cx={hubX} cy={hubY} r={8} fill="var(--color-teal)" opacity={0.15} />
-        <circle cx={hubX} cy={hubY} r={4} fill="var(--color-teal)" />
+        <circle cx={hubPos.x} cy={hubPos.y} r={10} fill="var(--color-teal)" opacity={0.1} />
+        <circle cx={hubPos.x} cy={hubPos.y} r={5} fill="var(--color-teal)" />
         <text
-          x={hubX} y={hubY + 16}
+          x={hubPos.x} y={hubPos.y + 18}
           textAnchor="middle" fontSize="7" fill="var(--muted-foreground)"
           fontFamily="inherit" fontWeight="500"
         >
           NSO
         </text>
 
-        {/* Instance nodes */}
+        {/* Machine pin markers */}
         {positioned.map(({ item, x, y }) => {
           const isSelected = selectedId === item.id;
+          const isHovered = hoveredId === item.id;
+          const active = isSelected || isHovered;
+          const pinSize = active ? 12 : 8;
           const color = statusColor(item.state);
           return (
             <g
               key={item.id}
-              style={{ cursor: "pointer" }}
+              style={{ cursor: "pointer", transition: "transform 0.15s ease" }}
               onClick={() => onSelect(item.id)}
+              onMouseEnter={() => setHoveredId(item.id)}
+              onMouseLeave={() => setHoveredId(null)}
             >
-              {/* Selection ring */}
-              {isSelected && (
-                <circle cx={x} cy={y} r={10} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
-              )}
-              {/* Outer glow for online */}
-              {(item.state === "ready" || item.state === "active" || item.state === "online") && (
-                <circle cx={x} cy={y} r={7} fill={color} opacity={0.1} />
-              )}
-              {/* Node dot */}
-              <circle
-                cx={x} cy={y} r={isSelected ? 5 : 4}
-                fill={color}
-                stroke={isSelected ? color : "none"}
-                strokeWidth={1}
+              {/* Drop shadow for pin */}
+              <ellipse
+                cx={x} cy={y + 1}
+                rx={active ? 5 : 3} ry={active ? 2 : 1.2}
+                fill="black" opacity="0.15"
               />
-              {/* Label */}
+              {/* Pin shape — solid, no hole */}
+              <path
+                d={pinPath(pinSize)}
+                transform={`translate(${x},${y})`}
+                fill={`url(#pin-grad-${item.id})`}
+                stroke={active ? color : "none"}
+                strokeWidth={active ? 0.8 : 0}
+                style={{ transition: "all 0.15s ease" }}
+              />
+              {/* Region label (always visible) */}
               <text
-                x={x} y={y - 8}
-                textAnchor="middle" fontSize="7"
-                fill={isSelected ? "var(--foreground)" : "var(--muted-foreground)"}
-                fontFamily="inherit"
-                fontWeight={isSelected ? "600" : "400"}
-              >
-                {(item.label || item.ip || item.id).slice(0, 16)}
-              </text>
-              {/* Region tag */}
-              <text
-                x={x} y={y + 12}
-                textAnchor="middle" fontSize="6"
-                fill="var(--muted-foreground)" opacity="0.5"
+                x={x} y={y + (active ? 10 : 8)}
+                textAnchor="middle" fontSize={active ? "7" : "6"}
+                fill="var(--muted-foreground)" opacity={active ? 0.9 : 0.5}
                 fontFamily="monospace"
               >
                 {item.region || item.provider}
               </text>
+              {/* Hover tooltip: label + IP */}
+              {active && (
+                <g>
+                  <rect
+                    x={x - 45} y={y - pinSize * 1.4 - 24}
+                    width={90} height={22}
+                    rx={4} ry={4}
+                    fill="var(--sidebar-background)"
+                    stroke="var(--border)" strokeWidth="0.5"
+                    opacity="0.95"
+                  />
+                  <text
+                    x={x} y={y - pinSize * 1.4 - 15}
+                    textAnchor="middle" fontSize="7"
+                    fill="var(--foreground)"
+                    fontFamily="inherit" fontWeight="600"
+                  >
+                    {(item.label || item.id).slice(0, 18)}
+                  </text>
+                  <text
+                    x={x} y={y - pinSize * 1.4 - 6}
+                    textAnchor="middle" fontSize="6"
+                    fill="var(--muted-foreground)"
+                    fontFamily="monospace"
+                  >
+                    {item.ip || "no ip"}
+                  </text>
+                </g>
+              )}
             </g>
           );
         })}
@@ -417,7 +529,6 @@ export function InstancesTab() {
   // Unified list
   const unified = useMemo<UnifiedInstance[]>(() => {
     const list: UnifiedInstance[] = [];
-    const nodeInstanceIds = new Set(nodes.filter(n => n.instance_id).map(n => n.instance_id!));
 
     for (const inst of instances) {
       // Check if this instance also has a node entry
@@ -559,7 +670,7 @@ export function InstancesTab() {
     return (
       <div className="panel-empty">
         <RefreshCw className="h-8 w-8 animate-spin" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-sub">Loading instances...</div>
+        <div className="panel-empty-sub">Loading machines...</div>
       </div>
     );
   }
@@ -571,7 +682,7 @@ export function InstancesTab() {
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">{isNoProjects ? "No project yet" : "Error"}</div>
-        <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage instances." : error}</div>
+        <div className="panel-empty-sub">{isNoProjects ? "Create a project first to manage machines." : error}</div>
         {isNoProjects ? (
           <button className="panel-btn" onClick={async () => {
             try { await apiCreateProject("main"); setError(""); fetchData(); } catch (e: any) { setError(e.message || "Failed"); }
@@ -590,11 +701,11 @@ export function InstancesTab() {
     return (
       <div className="panel-empty">
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
-        <div className="panel-empty-title">No instances</div>
+        <div className="panel-empty-title">No machines</div>
         <div className="panel-empty-sub">Add a server from NSO Cloud, connect via Vultr/Hetzner, or use SSH.</div>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn" onClick={() => setShowCreate(true)}>
-            <Plus className="h-3.5 w-3.5" /><span>Add Instance</span>
+            <Plus className="h-3.5 w-3.5" /><span>Add Machine</span>
           </button>
           <button className="panel-btn" onClick={handleSync} disabled={syncing}>
             <Download className="h-3.5 w-3.5" /><span>{syncing ? "Syncing..." : "Sync"}</span>
@@ -610,13 +721,13 @@ export function InstancesTab() {
       {/* Header */}
       <div className="panel-header-row" style={{ padding: "0 0 12px" }}>
         <span className="panel-count">
-          {unified.length} instance{unified.length !== 1 ? "s" : ""}
+          {unified.length} machine{unified.length !== 1 ? "s" : ""}
         </span>
         <div style={{ display: "flex", gap: 6 }}>
           <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync instances to nodes">
+          <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync machines to nodes">
             <Download className="h-3 w-3" />
           </button>
           <button className="panel-btn-sm" onClick={() => setShowCreate(true)}>
@@ -1005,251 +1116,327 @@ const labelStyle: React.CSSProperties = {
 };
 
 /* ═══════════════════════════════════════════
-   PROVIDER CARD + REGISTER NODE FORM
+   ADD INSTANCE FORM
    ═══════════════════════════════════════════ */
-
-function providerColor(id: string): string {
-  switch (id) {
-    case "nso": return "var(--color-teal)";
-    case "vultr": return "#007CFF";
-    case "hetzner": return "#D50029";
-    case "runpod": return "#6C3AED";
-    default: return "var(--color-teal)";
-  }
-}
-
-function providerBg(id: string): string {
-  switch (id) {
-    case "nso": return "rgba(100, 200, 180, 0.12)";
-    case "vultr": return "rgba(0, 124, 255, 0.1)";
-    case "hetzner": return "rgba(213, 0, 41, 0.1)";
-    case "runpod": return "rgba(108, 58, 237, 0.1)";
-    default: return "rgba(100, 200, 180, 0.1)";
-  }
-}
-
-type NodeProvider = "nso" | "vultr" | "hetzner" | "runpod" | "ssh" | null;
-
-const PROVIDER_OPTIONS: { id: NodeProvider & string; name: string; desc: string; icon: string; primary?: boolean }[] = [
-  { id: "nso", name: "NSO Cloud", desc: "Get a server from us — ready in minutes", icon: "N", primary: true },
-  { id: "vultr", name: "Vultr", desc: "Use your own Vultr account (GPU available)", icon: "V" },
-  { id: "hetzner", name: "Hetzner", desc: "Use your own Hetzner Cloud account", icon: "H" },
-  { id: "runpod", name: "RunPod", desc: "GPU instances, volumes, and serverless", icon: "R" },
-  { id: "ssh", name: "SSH / Manual", desc: "Connect any machine with SSH access", icon: ">" },
-];
-
-function ProviderCard({ p, connected, needsSetup, onClick, highlight }: {
-  p: typeof PROVIDER_OPTIONS[0];
-  connected: boolean;
-  needsSetup?: boolean;
-  onClick: () => void;
-  highlight?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        display: "flex", alignItems: "center", gap: 12,
-        padding: highlight ? "14px 14px" : "10px 14px", borderRadius: 8,
-        border: `1px solid ${highlight ? providerColor(p.id) + "40" : "var(--border)"}`,
-        background: highlight ? providerBg(p.id) : "var(--background)",
-        cursor: "pointer", textAlign: "left",
-        transition: "all 0.15s ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = providerColor(p.id);
-        if (!highlight) e.currentTarget.style.background = "var(--accent)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = highlight ? providerColor(p.id) + "40" : "var(--border)";
-        if (!highlight) e.currentTarget.style.background = "var(--background)";
-      }}
-    >
-      <div style={{
-        width: highlight ? 40 : 32, height: highlight ? 40 : 32, borderRadius: 8,
-        background: highlight ? providerColor(p.id) + "20" : providerBg(p.id),
-        display: "flex", alignItems: "center", justifyContent: "center",
-        fontWeight: 700, fontSize: highlight ? 18 : 14, flexShrink: 0,
-        color: providerColor(p.id),
-      }}>
-        {p.icon}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{p.name}</span>
-          {highlight && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "rgba(16, 185, 129, 0.15)", color: "var(--color-green)",
-              fontWeight: 600,
-            }}>recommended</span>
-          )}
-          {!highlight && needsSetup && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "var(--accent)", color: "var(--muted-foreground)",
-              fontWeight: 500, opacity: 0.7,
-            }}>setup required</span>
-          )}
-          {!highlight && connected && !needsSetup && (p.id === "vultr" || p.id === "hetzner" || p.id === "runpod") && (
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 4,
-              background: "rgba(16, 185, 129, 0.1)", color: "var(--color-green)",
-              fontWeight: 600,
-            }}>connected</span>
-          )}
-        </div>
-        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
-          {needsSetup ? `Install the ${p.name} connector in Apps first` : p.desc}
-        </div>
-      </div>
-      <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
-    </button>
-  );
-}
 
 function RegisterNodeForm({ projectId, onCreated, onCancel }: {
   projectId: string;
   onCreated: () => void;
   onCancel: () => void;
 }) {
-  const setActiveView = useDashboardStore((s) => s.setActiveView);
-  const [step, setStep] = useState<"pick" | "configure">("pick");
-  const [selectedProvider, setSelectedProvider] = useState<NodeProvider>(null);
+  const userEmail = useDashboardStore((s) => s.userEmail);
+  const [method, setMethod] = useState<"pick" | "nso" | "ssh" | "install">("pick");
   const [label, setLabel] = useState("");
   const [ip, setIp] = useState("");
-  const [sshUser, setSshUser] = useState("root");
-  const [sshPort, setSshPort] = useState("22");
-  const [agentPort, setAgentPort] = useState("8081");
-  const [region, setRegion] = useState("ewr");
+  const [region, setRegion] = useState("mad");
   const [plan, setPlan] = useState("vc2-1c-1gb");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
-  const [connectorStatus, setConnectorStatus] = useState<Record<string, boolean>>({});
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    listAddons(projectId, "connector").then((res) => {
-      const status: Record<string, boolean> = {};
-      for (const addon of (res.addons || [])) {
-        if (addon.addon_id === "vultr" || addon.addon_id === "hetzner" || addon.addon_id === "runpod") {
-          status[addon.addon_id] = !!(addon.installed && addon.enabled);
-        }
-      }
-      setConnectorStatus(status);
-    }).catch(() => {});
-  }, [projectId]);
+  const installCmd = `curl -fsSL https://nso.dev/install | bash -s -- \\
+  --host https://nso.dev \\
+  --email ${userEmail || "you@example.com"} \\
+  --password <your-agent-password>`;
 
-  const pickProvider = (p: NodeProvider) => {
-    if ((p === "vultr" || p === "hetzner" || p === "runpod") && !connectorStatus[p]) {
-      setActiveView("addons");
-      return;
-    }
-    setSelectedProvider(p);
-    setStep("configure");
-    setError("");
-    if (p === "nso") setLabel("");
-    else if (p === "vultr") setLabel("vultr-node");
-    else if (p === "hetzner") setLabel("hetzner-node");
-    else setLabel("");
+  const copyInstallCmd = () => {
+    navigator.clipboard.writeText(installCmd);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  const submit = async () => {
-    if (selectedProvider === "ssh" && !ip.trim()) { setError("IP address is required"); return; }
+  const submitSSH = async () => {
+    if (!ip.trim()) { setError("IP address or hostname is required"); return; }
     setCreating(true);
     setError("");
     try {
-      if (selectedProvider === "nso") {
-        await createInstance(projectId, {
-          label: label.trim() || undefined,
-          region,
-          plan,
-        });
-      } else {
-        const selectedPlan = PLANS.find((p) => p.id === plan);
-        const providerName = selectedProvider === "ssh" ? "manual" : (selectedProvider || "manual");
-        await registerComputeNode(projectId, {
-          label: label.trim() || providerName + "-node",
-          provider: providerName,
-          ip: ip.trim() || undefined,
-          agent_port: parseInt(agentPort) || 8081,
-          cpu_cores: selectedPlan?.cpu || 1,
-          mem_total_mb: selectedProvider === "ssh" ? 1024 : (selectedPlan ? parseInt(selectedPlan.ram) * 1024 : 1024),
-        });
-      }
+      await registerComputeNode(projectId, {
+        label: label.trim() || ip.trim(),
+        provider: "manual",
+        ip: ip.trim(),
+        agent_port: 8081,
+        cpu_cores: 1,
+        mem_total_mb: 1024,
+      });
       onCreated();
     } catch (e: any) {
-      setError(e.message || "Failed to create instance");
+      setError(e.message || "Failed to connect");
     }
     setCreating(false);
   };
 
-  if (step === "pick") {
-    return (
+  const submitNSO = async () => {
+    setCreating(true);
+    setError("");
+    try {
+      await createInstance(projectId, {
+        label: label.trim() || undefined,
+        region,
+        plan,
+      });
+      onCreated();
+    } catch (e: any) {
+      setError(e.message || "Failed to create server");
+    }
+    setCreating(false);
+  };
+
+  const formBox: React.CSSProperties = {
+    border: "1px solid var(--border)", borderRadius: 8, padding: 16,
+    marginBottom: 16, background: "var(--sidebar-background)",
+  };
+
+  const optionBtn = (
+    onClick: () => void,
+    icon: React.ReactNode,
+    iconBg: string,
+    iconColor: string,
+    title: string,
+    desc: string,
+    hoverColor: string,
+  ) => (
+    <button
+      onClick={onClick}
+      style={{
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "10px 14px", borderRadius: 8,
+        border: "1px solid var(--border)",
+        background: "var(--background)",
+        cursor: "pointer", textAlign: "left",
+        transition: "all 0.15s ease",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = hoverColor; e.currentTarget.style.background = "var(--accent)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.background = "var(--background)"; }}
+    >
       <div style={{
-        border: "1px solid var(--border)", borderRadius: 8, padding: 16,
-        marginBottom: 16, background: "var(--sidebar-background)",
+        width: 32, height: 32, borderRadius: 8, background: iconBg,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        fontWeight: 700, fontSize: 14, flexShrink: 0, color: iconColor,
       }}>
+        {icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>{title}</div>
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>{desc}</div>
+      </div>
+      <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+    </button>
+  );
+
+  // ── Step 1: Pick method ──
+  if (method === "pick") {
+    return (
+      <div style={formBox}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Instance</div>
+          <div style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Add Machine</div>
           <button className="panel-btn-sm" onClick={onCancel} style={{ fontSize: "var(--font-xxs)" }}>Cancel</button>
         </div>
-        <ProviderCard
-          p={PROVIDER_OPTIONS[0]}
-          connected={true}
-          onClick={() => pickProvider("nso")}
-          highlight
-        />
+
+        {/* NSO Cloud — primary */}
+        <button
+          onClick={() => setMethod("nso")}
+          style={{
+            display: "flex", alignItems: "center", gap: 12,
+            padding: "14px 14px", borderRadius: 8,
+            border: "1px solid rgba(100, 200, 180, 0.3)",
+            background: "rgba(100, 200, 180, 0.06)",
+            cursor: "pointer", textAlign: "left",
+            transition: "all 0.15s ease",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--color-teal)"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(100, 200, 180, 0.3)"; }}
+        >
+          <div style={{
+            width: 40, height: 40, borderRadius: 8,
+            background: "rgba(100, 200, 180, 0.15)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 700, fontSize: 18, flexShrink: 0,
+            color: "var(--color-teal)",
+          }}>
+            N
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontWeight: 600, fontSize: "var(--font-sm)", color: "var(--foreground)" }}>NSO Cloud</span>
+              <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 4, background: "rgba(16, 185, 129, 0.15)", color: "var(--color-green)", fontWeight: 600 }}>
+                recommended
+              </span>
+            </div>
+            <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginTop: 1 }}>
+              Get a server from us — ready in minutes
+            </div>
+          </div>
+          <ChevronRight className="h-3.5 w-3.5" style={{ color: "var(--muted-foreground)", opacity: 0.4, flexShrink: 0 }} />
+        </button>
+
         <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "10px 0 6px" }}>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
           <span style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", opacity: 0.6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-            or bring your own
+            or connect your own
           </span>
           <div style={{ flex: 1, height: 1, background: "var(--border)", opacity: 0.5 }} />
         </div>
+
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {PROVIDER_OPTIONS.slice(1).map((p) => {
-            const isBYOCloud = p.id === "vultr" || p.id === "hetzner" || p.id === "runpod";
-            const connected = isBYOCloud ? connectorStatus[p.id] : true;
-            return (
-              <ProviderCard
-                key={p.id}
-                p={p}
-                connected={connected}
-                needsSetup={isBYOCloud && !connected}
-                onClick={() => pickProvider(p.id as NodeProvider)}
-              />
-            );
-          })}
+          {optionBtn(
+            () => setMethod("ssh"),
+            <span style={{ fontFamily: "monospace" }}>{">_"}</span>,
+            "rgba(100, 200, 180, 0.1)", "var(--color-teal)",
+            "Server or computer",
+            "Hetzner, OVH, a VPS, or your own machine",
+            "var(--color-teal)",
+          )}
+          {optionBtn(
+            () => setMethod("install"),
+            <Download className="h-4 w-4" />,
+            "rgba(108, 58, 237, 0.1)", "#6C3AED",
+            "Install command",
+            "Run a one-liner on any machine to connect it",
+            "#6C3AED",
+          )}
         </div>
       </div>
     );
   }
 
+  // ── SSH Connect — just IP, that's it ──
+  if (method === "ssh") {
+    return (
+      <div style={formBox}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
+            ← Back
+          </button>
+          <div style={{
+            width: 24, height: 24, borderRadius: 6,
+            background: "rgba(100, 200, 180, 0.12)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontWeight: 700, fontSize: 11, flexShrink: 0,
+            color: "var(--color-teal)", fontFamily: "monospace",
+          }}>
+            {">_"}
+          </div>
+          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Connect a server</span>
+        </div>
+
+        {error && (
+          <div style={{ padding: "8px 12px", fontSize: "var(--font-xs)", color: "var(--color-red)", background: "rgba(239,68,68,0.08)", borderRadius: 6, marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Host or IP</label>
+          <input
+            className="proj-input"
+            type="text"
+            placeholder="192.168.1.100 or server.example.com"
+            value={ip}
+            onChange={(e) => setIp(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") submitSSH(); if (e.key === "Escape") onCancel(); }}
+            style={{ width: "100%" }}
+            autoFocus
+          />
+        </div>
+
+        <div style={{ marginBottom: 10 }}>
+          <label style={labelStyle}>Name (optional)</label>
+          <input
+            className="proj-input"
+            type="text"
+            placeholder={ip.trim() || "my-server"}
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            style={{ width: "100%" }}
+          />
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+          NSO will connect via SSH, install the agent, and register this machine. Make sure SSH (port 22) is accessible and root login is allowed.
+        </div>
+
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="deploy-action-btn teal" onClick={submitSSH} disabled={creating} style={{ padding: "5px 14px" }}>
+            {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+            <span>{creating ? "Connecting..." : "Connect"}</span>
+          </button>
+          <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Install command — copy and run ──
+  if (method === "install") {
+    return (
+      <div style={formBox}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
+            ← Back
+          </button>
+          <Download className="h-4 w-4" style={{ color: "#6C3AED" }} />
+          <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>Install command</span>
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 10, lineHeight: 1.5 }}>
+          Run this on the machine you want to connect. The installer will set up the NSO agent and register it automatically.
+        </div>
+
+        <div style={{
+          position: "relative",
+          background: "var(--background)",
+          border: "1px solid var(--border)",
+          borderRadius: 6,
+          padding: "10px 12px",
+          fontFamily: "monospace",
+          fontSize: 11,
+          lineHeight: 1.6,
+          color: "var(--foreground)",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+          marginBottom: 12,
+        }}>
+          <button
+            onClick={copyInstallCmd}
+            style={{
+              position: "absolute", top: 6, right: 6,
+              padding: "3px 8px", borderRadius: 4,
+              border: "1px solid var(--border)",
+              background: copied ? "rgba(16, 185, 129, 0.1)" : "var(--sidebar-background)",
+              color: copied ? "var(--color-green)" : "var(--muted-foreground)",
+              fontSize: 10, cursor: "pointer",
+              transition: "all 0.15s ease",
+            }}
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+          {installCmd}
+        </div>
+
+        <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", lineHeight: 1.5, opacity: 0.7 }}>
+          After running the command, the machine will appear in your instances list automatically.
+        </div>
+      </div>
+    );
+  }
+
+  // ── NSO Cloud — region + plan, that's all ──
   return (
-    <div style={{
-      border: "1px solid var(--border)", borderRadius: 8, padding: 16,
-      marginBottom: 16, background: "var(--sidebar-background)",
-    }}>
+    <div style={formBox}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-        <button
-          className="panel-btn-sm"
-          onClick={() => { setStep("pick"); setError(""); }}
-          style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}
-        >
+        <button className="panel-btn-sm" onClick={() => { setMethod("pick"); setError(""); }} style={{ fontSize: "var(--font-xxs)", padding: "3px 8px" }}>
           ← Back
         </button>
         <div style={{
           width: 24, height: 24, borderRadius: 6,
-          background: providerBg(selectedProvider || "nso"),
+          background: "rgba(100, 200, 180, 0.12)",
           display: "flex", alignItems: "center", justifyContent: "center",
           fontWeight: 700, fontSize: 12, flexShrink: 0,
-          color: providerColor(selectedProvider || "nso"),
+          color: "var(--color-teal)",
         }}>
-          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.icon}
+          N
         </div>
-        <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>
-          {PROVIDER_OPTIONS.find((p) => p.id === selectedProvider)?.name}
-        </span>
+        <span style={{ fontWeight: 600, fontSize: "var(--font-sm)" }}>NSO Cloud</span>
       </div>
 
       {error && (
@@ -1258,101 +1445,38 @@ function RegisterNodeForm({ projectId, onCreated, onCancel }: {
         </div>
       )}
 
-      {selectedProvider === "nso" && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Region</label>
-              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
-                {REGIONS.map((r) => (
-                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Plan</label>
-              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div style={{ marginBottom: 10 }}>
-            <label style={labelStyle}>Label (optional)</label>
-            <input className="proj-input" type="text" placeholder="my-server" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            We provision and manage everything. Your server will be ready in a few minutes with the agent pre-installed.
-          </div>
-        </>
-      )}
-
-      {selectedProvider !== "nso" && (
-        <div style={{ marginBottom: 10 }}>
-          <label style={labelStyle}>Label</label>
-          <input className="proj-input" type="text" placeholder="my-node" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Region</label>
+          <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
+            {REGIONS.map((r) => (
+              <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
+            ))}
+          </select>
         </div>
-      )}
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Plan</label>
+          <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
+            {PLANS.map((p) => (
+              <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
+            ))}
+          </select>
+        </div>
+      </div>
 
-      {selectedProvider === "ssh" && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 2 }}>
-              <label style={labelStyle}>IP Address</label>
-              <input className="proj-input" type="text" placeholder="192.168.1.100" value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: "100%" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>SSH User</label>
-              <input className="proj-input" type="text" placeholder="root" value={sshUser} onChange={(e) => setSshUser(e.target.value)} style={{ width: "100%" }} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>SSH Port</label>
-              <input className="proj-input" type="number" placeholder="22" value={sshPort} onChange={(e) => setSshPort(e.target.value)} style={{ width: "100%" }} />
-            </div>
-          </div>
-          <div style={{ marginBottom: 10 }}>
-            <label style={labelStyle}>Agent Port</label>
-            <input className="proj-input" type="number" value={agentPort} onChange={(e) => setAgentPort(e.target.value)} style={{ width: "100%" }} />
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            The agent will be installed automatically on the target machine via SSH. Make sure port {sshPort} is open and the user has sudo access.
-          </div>
-        </>
-      )}
+      <div style={{ marginBottom: 10 }}>
+        <label style={labelStyle}>Name (optional)</label>
+        <input className="proj-input" type="text" placeholder="my-server" value={label} onChange={(e) => setLabel(e.target.value)} style={{ width: "100%" }} autoFocus />
+      </div>
 
-      {(selectedProvider === "vultr" || selectedProvider === "hetzner" || selectedProvider === "runpod") && (
-        <>
-          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Region</label>
-              <select className="proj-input" value={region} onChange={(e) => setRegion(e.target.value)} style={{ width: "100%" }}>
-                {REGIONS.map((r) => (
-                  <option key={r.id} value={r.id}>{r.city}, {r.country}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={labelStyle}>Plan</label>
-              <select className="proj-input" value={plan} onChange={(e) => setPlan(e.target.value)} style={{ width: "100%" }}>
-                {PLANS.map((p) => (
-                  <option key={p.id} value={p.id}>{p.cpu} CPU · {p.ram} · {p.price}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
-            {selectedProvider === "runpod"
-              ? "A RunPod GPU instance will be provisioned using your API key. Volumes and templates managed via your RunPod account."
-              : `A new ${selectedProvider === "vultr" ? "Vultr" : "Hetzner"} server will be provisioned and the NSO agent installed automatically.`}
-          </div>
-        </>
-      )}
+      <div style={{ fontSize: "var(--font-xxs)", color: "var(--muted-foreground)", marginBottom: 12, lineHeight: 1.5 }}>
+        Ready in minutes. Agent pre-installed.
+      </div>
 
       <div style={{ display: "flex", gap: 6 }}>
-        <button className="deploy-action-btn teal" onClick={submit} disabled={creating} style={{ padding: "5px 14px" }}>
-          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />}
-          <span>{creating ? "Provisioning..." : selectedProvider === "nso" ? "Create Server" : "Connect Node"}</span>
+        <button className="deploy-action-btn teal" onClick={submitNSO} disabled={creating} style={{ padding: "5px 14px" }}>
+          {creating ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Server className="h-3.5 w-3.5" />}
+          <span>{creating ? "Creating..." : "Create Server"}</span>
         </button>
         <button className="panel-btn-sm" onClick={onCancel} disabled={creating}>Cancel</button>
       </div>
@@ -1504,6 +1628,8 @@ export function ServicesTab() {
         </div>
       </div>
 
+      <RemoteDesktopPanel />
+
       <div className="settings-section">
         <div className="settings-section-header">
           <span className="settings-section-title">System</span>
@@ -1536,4 +1662,370 @@ export function ServicesTab() {
       </div>
     </div>
   );
+}
+
+function RemoteDesktopPanel() {
+  const [gateway, setGateway] = useState<any>(null);
+  const [gatewayLoading, setGatewayLoading] = useState(false);
+  const [session, setSession] = useState<RemoteSession | null>(null);
+  const [framebuffer, setFramebuffer] = useState<RemoteFramebuffer | null>(null);
+  const [framebufferUrl, setFramebufferUrl] = useState<string>("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [host, setHost] = useState("127.0.0.1");
+  const [port, setPort] = useState("5901");
+  const [password, setPassword] = useState("");
+  const [statusText, setStatusText] = useState("");
+  const [connecting, setConnecting] = useState(false);
+  const displayRef = useRef<HTMLImageElement | null>(null);
+  const displayShellRef = useRef<HTMLDivElement | null>(null);
+  const pressedButtons = useRef(0);
+
+  const refreshGateway = async () => {
+    setGatewayLoading(true);
+    try {
+      setGateway(await getRemoteGatewayStatus());
+    } catch (err: any) {
+      setStatusText(err.message || "Could not read gateway status");
+    }
+    setGatewayLoading(false);
+  };
+
+  useEffect(() => {
+    refreshGateway();
+  }, []);
+
+  useEffect(() => {
+    if (!session) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const next = await getRemoteFramebuffer(session.id);
+        if (!cancelled) {
+          setFramebuffer((prev) => (prev?.sequence === next.sequence ? prev : next));
+        }
+      } catch (err: any) {
+        if (!cancelled) setStatusText(err.message || "Failed to read framebuffer");
+      }
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [session?.id]);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement === displayShellRef.current);
+    };
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () => document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    if (!framebuffer || !framebuffer.width || !framebuffer.height || !framebuffer.data) {
+      setFramebufferUrl("");
+      return;
+    }
+
+    const binary = atob(framebuffer.data);
+    const rgba = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) rgba[i] = binary.charCodeAt(i);
+
+    const bmp = rgbaToBmp(framebuffer.width, framebuffer.height, rgba);
+    const url = URL.createObjectURL(new Blob([bmp], { type: "image/bmp" }));
+    setFramebufferUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return url;
+    });
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [framebuffer]);
+
+  const handleStartGateway = async () => {
+    setGatewayLoading(true);
+    setStatusText("");
+    try {
+      const res = await startRemoteGateway();
+      setGateway({ ok: true, running: true, bind: res.bind, gateway: res.gateway });
+      setStatusText("Gateway ready");
+    } catch (err: any) {
+      setStatusText(err.message || "Could not start gateway");
+    }
+    setGatewayLoading(false);
+  };
+
+  const handleStopGateway = async () => {
+    setGatewayLoading(true);
+    try {
+      await stopRemoteGateway();
+      setGateway((prev: any) => ({ ...(prev || {}), running: false, gateway: null }));
+      setStatusText("Gateway stopped");
+    } catch (err: any) {
+      setStatusText(err.message || "Could not stop gateway");
+    }
+    setGatewayLoading(false);
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    setStatusText("");
+    try {
+      const res = await createRemoteSession(host.trim(), Number.parseInt(port, 10) || 5901, password || undefined);
+      setSession(res.session);
+      setStatusText(`Connected to ${res.session.name}`);
+      await refreshGateway();
+    } catch (err: any) {
+      setStatusText(err.message || "Could not create remote session");
+    }
+    setConnecting(false);
+  };
+
+  const handleDisconnect = async () => {
+    if (!session) return;
+    try {
+      await deleteRemoteSession(session.id);
+      setSession(null);
+      setFramebuffer(null);
+      setFramebufferUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return "";
+      });
+      setStatusText("Session closed");
+      await refreshGateway();
+    } catch (err: any) {
+      setStatusText(err.message || "Could not close session");
+    }
+  };
+
+  const handleToggleFullscreen = async () => {
+    const shell = displayShellRef.current;
+    if (!shell) return;
+    try {
+      if (document.fullscreenElement === shell) {
+        await document.exitFullscreen();
+      } else {
+        await shell.requestFullscreen();
+        displayRef.current?.focus();
+      }
+    } catch (err: any) {
+      setStatusText(err?.message || "Could not change fullscreen mode");
+    }
+  };
+
+  const sendPointer = async (x: number, y: number, buttons: number) => {
+    if (!session) return;
+    try {
+      await sendRemoteInput(session.id, { kind: "pointer", x, y, buttons });
+    } catch {}
+  };
+
+  const pointerCoords = (event: React.MouseEvent<HTMLImageElement>) => {
+    const display = displayRef.current;
+    if (!display || !framebuffer?.width || !framebuffer?.height) return null;
+    const rect = display.getBoundingClientRect();
+    const x = Math.max(0, Math.min(framebuffer.width - 1, Math.round(((event.clientX - rect.left) / rect.width) * framebuffer.width)));
+    const y = Math.max(0, Math.min(framebuffer.height - 1, Math.round(((event.clientY - rect.top) / rect.height) * framebuffer.height)));
+    return { x, y };
+  };
+
+  const onCanvasMouseDown = async (event: React.MouseEvent<HTMLImageElement>) => {
+    const pos = pointerCoords(event);
+    if (!pos) return;
+    pressedButtons.current = event.button === 2 ? 4 : event.button === 1 ? 2 : 1;
+    await sendPointer(pos.x, pos.y, pressedButtons.current);
+  };
+
+  const onCanvasMouseUp = async (event: React.MouseEvent<HTMLImageElement>) => {
+    const pos = pointerCoords(event);
+    if (!pos) return;
+    pressedButtons.current = 0;
+    await sendPointer(pos.x, pos.y, 0);
+  };
+
+  const onCanvasMouseMove = async (event: React.MouseEvent<HTMLImageElement>) => {
+    const pos = pointerCoords(event);
+    if (!pos) return;
+    await sendPointer(pos.x, pos.y, pressedButtons.current);
+  };
+
+  const onCanvasKey = async (event: React.KeyboardEvent<HTMLImageElement>, down: boolean) => {
+    if (!session) return;
+    const keysym = toKeysym(event.key);
+    if (!keysym) return;
+    event.preventDefault();
+    try {
+      await sendRemoteInput(session.id, { kind: "key", key: keysym, down });
+    } catch {}
+  };
+
+  return (
+    <div className="settings-section">
+      <div className="settings-section-header">
+        <span className="settings-section-title">Remote Desktop</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn-sm" onClick={refreshGateway} disabled={gatewayLoading}>
+            <RefreshCw className={`h-3 w-3 ${gatewayLoading ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+          <button className="panel-btn-sm" onClick={handleStartGateway} disabled={gatewayLoading}>
+            <Play className="h-3 w-3" />
+            <span>Start gateway</span>
+          </button>
+          <button className="panel-btn-sm" onClick={handleStopGateway} disabled={gatewayLoading}>
+            <Square className="h-3 w-3" />
+            <span>Stop</span>
+          </button>
+        </div>
+      </div>
+
+      <div className="remote-panel-grid">
+        <div className="remote-panel-side">
+          <div className="remote-status-row">
+            <span className="remote-status-label">Gateway</span>
+            <span className="remote-status-value">{gateway?.running ? "Running" : "Stopped"}</span>
+          </div>
+          <div className="remote-status-row">
+            <span className="remote-status-label">Sessions</span>
+            <span className="remote-status-value">{gateway?.gateway?.sessions ?? 0}</span>
+          </div>
+          <div className="remote-form-grid">
+            <div>
+              <label style={labelStyle}>Host</label>
+              <input className="proj-input" value={host} onChange={(e) => setHost(e.target.value)} />
+            </div>
+            <div>
+              <label style={labelStyle}>Port</label>
+              <input className="proj-input" value={port} onChange={(e) => setPort(e.target.value)} />
+            </div>
+          </div>
+          <div style={{ marginTop: 10 }}>
+            <label style={labelStyle}>Password</label>
+            <input className="proj-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 12 }}>
+            <button className="deploy-action-btn teal" onClick={handleConnect} disabled={connecting}>
+              {connecting ? <Loader className="h-3.5 w-3.5 animate-spin" /> : <Monitor className="h-3.5 w-3.5" />}
+              <span>{connecting ? "Opening..." : "Open session"}</span>
+            </button>
+            <button className="panel-btn-sm" onClick={handleDisconnect} disabled={!session}>
+              <Power className="h-3 w-3" />
+              <span>Close</span>
+            </button>
+          </div>
+          <div className="remote-note">
+            {statusText || (session ? `Session ${session.state}` : "Use a local or remote VNC endpoint for this node.")}
+          </div>
+        </div>
+
+        <div
+          ref={displayShellRef}
+          className={`remote-display-shell ${isFullscreen ? "is-fullscreen" : ""}`}
+        >
+          {session ? (
+            <div className="remote-display-stage">
+              <div className="remote-display-actions">
+                <button
+                  className="remote-display-icon-btn"
+                  onClick={handleToggleFullscreen}
+                  title={isFullscreen ? "Exit full screen" : "Full screen"}
+                  aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+                >
+                  {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+              {framebufferUrl ? (
+                <img
+                  ref={displayRef}
+                  src={framebufferUrl}
+                  alt={`Remote session ${session.name}`}
+                  className="remote-display-image"
+                  tabIndex={0}
+                  draggable={false}
+                  onContextMenu={(e) => e.preventDefault()}
+                  onMouseDown={onCanvasMouseDown}
+                  onMouseUp={onCanvasMouseUp}
+                  onMouseMove={onCanvasMouseMove}
+                  onKeyDown={(e) => onCanvasKey(e, true)}
+                  onKeyUp={(e) => onCanvasKey(e, false)}
+                />
+              ) : (
+                <div className="remote-placeholder remote-display-loading">
+                  <Loader className="h-5 w-5 animate-spin" />
+                  <span>Waiting for first frame...</span>
+                </div>
+              )}
+              <div className="remote-session-hud">
+                <span>{session.name}</span>
+                <span>{framebuffer ? `${framebuffer.width}x${framebuffer.height}` : "connecting"}</span>
+                <span>{framebuffer ? `frame ${framebuffer.sequence}` : "no frame"}</span>
+              </div>
+            </div>
+          ) : (
+            <div className="settings-placeholder remote-placeholder">
+              <Monitor className="h-6 w-6" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+              <span>No session open</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function rgbaToBmp(width: number, height: number, rgba: Uint8Array) {
+  const headerSize = 14 + 40;
+  const pixelBytes = width * height * 4;
+  const fileSize = headerSize + pixelBytes;
+  const bmp = new Uint8Array(fileSize);
+  const view = new DataView(bmp.buffer);
+
+  bmp[0] = 0x42;
+  bmp[1] = 0x4d;
+  view.setUint32(2, fileSize, true);
+  view.setUint32(10, headerSize, true);
+  view.setUint32(14, 40, true);
+  view.setInt32(18, width, true);
+  view.setInt32(22, -height, true);
+  view.setUint16(26, 1, true);
+  view.setUint16(28, 32, true);
+  view.setUint32(34, pixelBytes, true);
+  view.setInt32(38, 2835, true);
+  view.setInt32(42, 2835, true);
+
+  let src = 0;
+  let dst = headerSize;
+  while (src < rgba.length) {
+    bmp[dst] = rgba[src + 2];
+    bmp[dst + 1] = rgba[src + 1];
+    bmp[dst + 2] = rgba[src];
+    bmp[dst + 3] = rgba[src + 3];
+    src += 4;
+    dst += 4;
+  }
+
+  return bmp;
+}
+
+function toKeysym(key: string): number | null {
+  if (key.length === 1) return key.charCodeAt(0);
+  const map: Record<string, number> = {
+    Enter: 0xff0d,
+    Backspace: 0xff08,
+    Tab: 0xff09,
+    Escape: 0xff1b,
+    ArrowLeft: 0xff51,
+    ArrowUp: 0xff52,
+    ArrowRight: 0xff53,
+    ArrowDown: 0xff54,
+    Shift: 0xffe1,
+    Control: 0xffe3,
+    Alt: 0xffe9,
+    Meta: 0xffe7,
+    " ": 0x20,
+  };
+  return map[key] ?? null;
 }

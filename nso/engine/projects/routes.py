@@ -17,10 +17,13 @@ async def _check_project_access(auth: AuthContext, project_id: str):
         return
     if auth.project_id == project_id:
         return
-    # User JWT — check ownership
+    # User JWT — check ownership or membership
     if auth.user_id:
         project = await db.fetch_one("projects", id=project_id)
         if project and project.get("owner") == auth.user_id:
+            return
+        member = await db.fetch_one("project_members", project_id=project_id, user_id=auth.user_id)
+        if member:
             return
     raise HTTPException(403, "Access denied")
 
@@ -60,7 +63,16 @@ async def list_projects(auth: AuthContext = Depends(require_user)):
         # Auto-claim orphans for this user
         for p in orphans:
             await db.update("projects", p["id"], {"owner": auth.user_id})
-        projects = owned + orphans
+        # Projects where user is a member (but not owner)
+        memberships = await db.fetch_all("project_members", user_id=auth.user_id)
+        owned_ids = {p["id"] for p in owned + orphans}
+        member_projects = []
+        for m in memberships:
+            if m["project_id"] not in owned_ids:
+                proj = await db.fetch_one("projects", id=m["project_id"])
+                if proj:
+                    member_projects.append(proj)
+        projects = owned + orphans + member_projects
     return {"projects": [pm._safe_project(p) for p in projects]}
 
 

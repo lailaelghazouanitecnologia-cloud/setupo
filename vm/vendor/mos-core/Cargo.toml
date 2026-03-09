@@ -1,0 +1,69 @@
+[package]
+name = "mos-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["Mos Team"]
+license = "MIT"
+repository = "https://github.com/your-org/mos"
+description = "Core VNC/RFB protocol implementation - headless and platform-independent"
+
+[features]
+default = []
+render-skia = ["skia-safe", "raw-window-handle", "winit"]
+
+[dependencies]
+# Core utilities
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }
+once_cell = "1.20"
+parking_lot = "0.12"
+async-trait = "0.1"
+
+# Async runtime
+tokio = { version = "1.40", features = ["full", "tracing"] }
+tokio-util = { version = "0.7", features = ["codec", "time"] }
+futures = "0.3"
+
+# Data structures
+bytes = "1.7"
+dashmap = "6.0"
+crossbeam = "0.8"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Crypto (VNC authentication)
+des = "0.8"
+ring = "0.17"
+
+# Networking
+tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring", "std"] }
+rustls-native-certs = "0.7"
+
+# Compression/Encoding
+zstd = "0.13"
+flate2 = "1.0"
+jpeg-decoder = "0.3"
+
+# Protobuf (for IPC types)
+prost = "0.13"
+
+# Rendering (optional feature)
+skia-safe = { version = "0.91", features = ["gl", "textlayout", "svg"], optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+winit = { version = "0.30", optional = true }
+
+[dev-dependencies]
+proptest = "1.5"
+criterion = { version = "0.5", features = ["html_reports"] }
+mockall = "0.13"
+tokio = { version = "1.40", features = ["test-util"] }
+
+# Benchmarks (to be implemented later)
+# [[bench]]
+# name = "encoding_bench"
+# harness = false

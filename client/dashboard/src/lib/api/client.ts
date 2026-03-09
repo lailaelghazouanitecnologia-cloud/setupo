@@ -184,6 +184,93 @@ export async function manageService(action: string, name: string) {
   return apiCall<any>(`/agent/exec/service?action=${action}&name=${name}`, { method: "POST" });
 }
 
+export interface RemoteGatewayStatus {
+  ok: boolean;
+  running: boolean;
+  bind: string;
+  command: string;
+  gateway?: { ok: boolean; service: string; sessions: number } | null;
+}
+
+export interface RemoteSession {
+  id: string;
+  host: string;
+  port: number;
+  name: string;
+  state: "connecting" | "connected" | "closed" | "error";
+  created_at_ms: number;
+  updated_at_ms: number;
+  last_error?: string | null;
+}
+
+export interface RemoteFramebuffer {
+  session_id: string;
+  sequence: number;
+  width: number;
+  height: number;
+  encoding: string;
+  updated_at_ms: number;
+  data: string;
+}
+
+export async function getRemoteHealth() {
+  return apiCall<any>("/agent/remote/health");
+}
+
+export async function getRemoteGatewayStatus() {
+  return apiCall<RemoteGatewayStatus>("/agent/remote/gateway/status");
+}
+
+export async function startRemoteGateway() {
+  return apiCall<any>("/agent/remote/gateway/start", { method: "POST" });
+}
+
+export async function stopRemoteGateway() {
+  return apiCall<any>("/agent/remote/gateway/stop", { method: "POST" });
+}
+
+export async function createRemoteSession(host: string, port: number, password?: string, name?: string) {
+  return apiCall<{ session: RemoteSession; stream_path: string; framebuffer_path: string }>("/agent/remote/sessions", {
+    method: "POST",
+    body: JSON.stringify({ host, port, password, name }),
+  });
+}
+
+export async function getRemoteSession(sessionId: string) {
+  return apiCall<RemoteSession>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}`);
+}
+
+export async function deleteRemoteSession(sessionId: string) {
+  return apiCall<{ ok: boolean; session_id: string }>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function getRemoteFramebuffer(sessionId: string) {
+  return apiCall<RemoteFramebuffer>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}/framebuffer`);
+}
+
+export async function sendRemoteInput(sessionId: string, payload: {
+  kind: "pointer" | "mouse" | "key" | "keyboard";
+  x?: number;
+  y?: number;
+  buttons?: number;
+  key?: number;
+  down?: boolean;
+}) {
+  return apiCall<{ ok: boolean; session_id: string }>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}/input`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function sendRemoteClipboard(sessionId: string, text: string) {
+  return apiCall<{ ok: boolean; session_id: string; bytes: number }>(`/agent/remote/sessions/${encodeURIComponent(sessionId)}/clipboard`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
+  });
+}
+
 export interface AgentSecret {
   key: string;
   value: string;
@@ -1809,5 +1896,68 @@ export function streamDeployAgent(projectId: string, threadId: string, message: 
     signal: controller.signal,
   });
   return { eventSource: controller, response };
+}
+
+/* ═══════════════════════════════════════════
+   PROJECT MEMBERS
+   ═══════════════════════════════════════════ */
+
+export interface ProjectMember {
+  id: string;
+  user_id: string;
+  role: string;
+  joined_at: string;
+  email: string;
+  name: string;
+}
+
+export interface ProjectInvite {
+  id: string;
+  project_id: string;
+  join_code: string;
+  role: string;
+  max_uses: number;
+  uses: number;
+  created_by: string;
+  expires_at: string;
+  created_at: string;
+}
+
+export async function listProjectMembers(projectId: string) {
+  return centralApi<{ members: ProjectMember[] }>(`/api/projects/${projectId}/members`);
+}
+
+export async function createProjectInvite(projectId: string, opts: { role?: string; max_uses?: number; expires_hours?: number } = {}) {
+  return centralApi<{ ok: boolean; invite: ProjectInvite }>(`/api/projects/${projectId}/members/invite`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function listProjectInvites(projectId: string) {
+  return centralApi<{ invites: ProjectInvite[] }>(`/api/projects/${projectId}/members/invites`);
+}
+
+export async function revokeProjectInvite(projectId: string, inviteId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/invites/${inviteId}`, { method: "DELETE" });
+}
+
+export async function updateMemberRole(projectId: string, userId: string, role: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export async function removeProjectMember(projectId: string, userId: string) {
+  return centralApi<{ ok: boolean }>(`/api/projects/${projectId}/members/${userId}`, { method: "DELETE" });
+}
+
+export async function previewProjectInvite(code: string) {
+  return centralApi<{ project_name: string; role: string; expired: boolean; uses_remaining: number | null }>(`/api/join/project/${code}`);
+}
+
+export async function redeemProjectInvite(code: string) {
+  return centralApi<{ ok: boolean; member: ProjectMember }>(`/api/join/project/${code}`, { method: "POST" });
 }
 

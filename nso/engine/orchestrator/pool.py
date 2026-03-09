@@ -24,12 +24,12 @@ async def register_node(req: RegisterNodeRequest) -> PoolNode:
     # Check instance exists
     instance = await db.fetch_one("instances", id=req.instance_id)
     if not instance:
-        raise NotFoundError("Instance", req.instance_id)
+        raise NotFoundError("Machine", req.instance_id)
 
     # Check not already registered
     existing = await db.fetch_one("instance_pool", instance_id=req.instance_id)
     if existing:
-        raise ConflictError(f"Instance {req.instance_id} is already in the pool")
+        raise ConflictError(f"Machine {req.instance_id} is already in the pool")
 
     node_id = _gen_id()
     node = PoolNode(

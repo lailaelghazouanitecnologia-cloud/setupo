@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from pathlib import Path
 
 from nso.engine.compute.provisioner import scp_upload, run_ssh_command
 
@@ -16,6 +17,9 @@ async def sync_workspace(
     remote_dir: str = "/opt/app",
     user: str = "root",
 ) -> tuple[bool, str]:
+    if not Path(key_path).exists():
+        return False, f"SSH key not found: {key_path}"
+
     await run_ssh_command(ip, f"mkdir -p {remote_dir}", key_path, user=user)
 
     ssh_opts = (

@@ -20,6 +20,7 @@ from deploy import router as deploy_router
 from envvars import router as secrets_router
 from ai import router as ai_router
 from metrics import router as metrics_router
+from remote import router as remote_router
 from supervisor import supervisor
 from pool_handler import router as pool_router, _restore_vms
 
@@ -73,6 +74,7 @@ app.include_router(deploy_router)
 app.include_router(secrets_router)
 app.include_router(ai_router)
 app.include_router(metrics_router)
+app.include_router(remote_router)
 app.include_router(pool_router)
 
 

@@ -20,7 +20,7 @@ INSTANCE_CONFIGS = {
         "features": ["nginx", "node", "python", "git", "ufw"],
     },
     "gpu": {
-        "description": "GPU-powered instance for ML/AI workloads (Runpod)",
+        "description": "GPU-powered machine for ML/AI workloads (Runpod)",
         "default_plan": "gpu-a40",
         "cloud_init": None,
         "features": ["cuda", "python", "pytorch", "jupyter"],
