@@ -99,14 +99,15 @@ class _ConnWrapper:
             return _Cursor(rows, rowcount=len(rows))
 
         elif upper.startswith("INSERT"):
-            # Try to get lastrowid for SERIAL columns via RETURNING
+            # Try to get lastrowid for SERIAL/IDENTITY columns via RETURNING
             if "RETURNING" not in upper:
                 try:
                     row = await self._conn.fetchrow(pg_sql + " RETURNING id", *args)
-                    lastrowid = row["id"] if row else None
-                    return _Cursor(rowcount=1, lastrowid=lastrowid)
-                except Exception:
-                    # Table might not have 'id' column, fall through
+                    if row:
+                        return _Cursor(rowcount=1, lastrowid=row["id"])
+                    return _Cursor(rowcount=0, lastrowid=None)
+                except asyncpg.UndefinedColumnError:
+                    # Table doesn't have 'id' column, execute without RETURNING
                     pass
             result = await self._conn.execute(pg_sql, *args)
             count = _parse_rowcount(result)
