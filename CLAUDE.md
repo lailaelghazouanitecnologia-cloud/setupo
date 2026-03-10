@@ -560,6 +560,62 @@ SQLite at `/opt/nso/data/metrics.db`. Tracks VPS instance boot/setup progress.
 
 tar.gz archive containing `.zar-manifest.json` + `config.toml` + `files/`. R2 layout: `{project_id}/{workspace}/{branch}/v{version}.zar`. Deploy flow: pack → push R2 → agent pulls → snapshot → extract → install deps → pipeline (if deploy.toml) → supervisor → health check → READY. See DEPLOY.md for full details.
 
+## Storage (Cloudflare R2)
+
+Single R2 bucket (`nso` by default). All operations use custom AWS Signature V4 HMAC-SHA256 signing (no boto3).
+
+**Bucket structure**:
+```
+nso/                                           # R2 bucket
+├── {project_id}/{workspace}/{branch}/         # .zar packages
+│   ├── v{version}.zar
+│   ├── latest.zar
+│   └── branches.json
+├── _user_storage/{project_id}/{bucket_name}/  # user file storage
+│   └── {filename}
+└── _modules/{name}/                           # system modules
+    ├── v{version}.zar
+    └── latest.zar
+```
+
+**User storage** (nso/engine/infrastructure/storage/):
+- Per-project isolation by `project_id` prefix
+- `storage_buckets` table tracks `size_bytes` and `object_count` per bucket
+- Quota enforcement: checks total bytes vs plan limit (`storage_gb`) on each upload
+- Presigned URLs for downloads (15-min expiry)
+- Upload limit: 100MB per file
+- 3 retries with exponential backoff (2s, 4s, 8s)
+
+**Scalability note**: quota check does `list_keys_with_sizes()` scanning all objects per project — no pagination implemented. Slow with large buckets.
+
+## Managed Databases (nso/engine/infrastructure/database/)
+
+Users can create managed PostgreSQL databases via the platform.
+
+- All managed DBs run on **same server as NSO central** by default (`NSO_MANAGED_DB_HOST`, defaults to `65.20.102.242`)
+- Per-project isolation: unique username `nso_{name}` + auto-generated password
+- Credentials encrypted with Fernet before storage in `managed_databases` table
+- Queries executed via agent SSH → base64 → psql (not direct connection)
+- States: `creating` → `running` | `error`
+
+**Scalability note**: all user databases share the central PostgreSQL instance. No dedicated DB servers or per-user isolation at the infrastructure level.
+
+## Central Database (nso/shared/db.py)
+
+PostgreSQL via asyncpg with connection pooling:
+```python
+POOL_MIN_SIZE = 2       # minimum idle connections
+POOL_MAX_SIZE = 10      # maximum total connections
+# PostgreSQL max_connections = 50 (set during install)
+```
+
+**Scalability notes**:
+- No pgBouncer — apps connect directly to PostgreSQL
+- Hard limit at 50 connections server-wide
+- Orchestrator reconciler runs sequentially (10s interval), health checks are not parallelized
+- Build cache and scaling cooldowns stored in memory dicts (lost on restart)
+- Agent deploy state uses file-based fcntl locking (single-machine only, no distributed locking)
+
 ## Database Tables
 
 ```

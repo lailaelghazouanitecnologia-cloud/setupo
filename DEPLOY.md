@@ -584,7 +584,132 @@ npm run export
 
 ---
 
-## 12. Troubleshooting
+## 12. User Storage (R2)
+
+All user file storage goes to a single Cloudflare R2 bucket (`nso`), namespaced by project.
+
+### R2 bucket structure
+
+```
+nso/                                           # R2 bucket
+├── {project_id}/{workspace}/{branch}/         # .zar packages
+│   ├── v{version}.zar
+│   ├── latest.zar
+│   └── branches.json
+├── _user_storage/{project_id}/{bucket_name}/  # user file storage
+│   └── {filename}
+└── _modules/{name}/                           # system modules
+    ├── v{version}.zar
+    └── latest.zar
+```
+
+### Storage API (via plugin)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `.../p/storage/files` | List files in bucket |
+| POST | `.../p/storage/upload` | Upload file (max 100MB) |
+| GET | `.../p/storage/download` | Download via presigned URL (15-min expiry) |
+| DELETE | `.../p/storage/files` | Delete file |
+
+### Quotas
+
+- Plan-based limit via `storage_gb` from billing plan
+- Tracked per bucket in `storage_buckets` table (`size_bytes`, `object_count`)
+- Checked on every upload against total project usage
+- Free plans: hard block (403); paid plans: allows overage
+
+### Technical details
+
+- Custom AWS Signature V4 HMAC-SHA256 signing (no boto3 dependency)
+- 3 retries with exponential backoff (2s, 4s, 8s)
+- Presigned URLs for client-side downloads
+
+---
+
+## 13. Managed Databases
+
+Users can create managed PostgreSQL databases through the platform API.
+
+### How it works
+
+- All managed DBs run on the **same server as NSO central** by default
+- Configurable via `NSO_MANAGED_DB_HOST` env var
+- Each DB gets unique username (`nso_{name}`) and auto-generated password
+- Credentials encrypted with Fernet in `managed_databases` table
+- Queries executed via agent SSH → base64-encoded psql command
+- States: `creating` → `running` | `error`
+
+### API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/projects/{pid}/databases` | List databases |
+| POST | `/api/projects/{pid}/databases` | Create database |
+| GET | `/api/projects/{pid}/databases/{id}` | Get details + connection string |
+| DELETE | `/api/projects/{pid}/databases/{id}` | Drop database |
+| POST | `/api/projects/{pid}/databases/{id}/query` | Execute SQL query |
+
+### Connection from user apps
+
+User apps connect to the managed DB using the provided connection string:
+```
+postgresql://nso_myapp:{password}@65.20.102.242:5432/myapp
+```
+
+The managed host's `pg_hba.conf` is configured to accept remote connections from VPS instances.
+
+---
+
+## 14. Scalability — Current Limits
+
+### PostgreSQL (central)
+
+```
+Pool: 2-10 connections (asyncpg)
+PostgreSQL max_connections: 50
+No pgBouncer
+```
+
+At 100+ agents querying simultaneously, the 50-connection limit becomes a bottleneck. Recommendation: deploy pgBouncer in transaction pooling mode.
+
+### Orchestrator reconciler
+
+- Single loop, 10s interval, processes ALL projects sequentially
+- Health checks to agents are sequential (not parallelized)
+- 500 instances × 5-10s per health check = hours for one sweep
+- Scaling cooldowns stored in memory dict (lost on restart)
+
+### R2 storage
+
+- R2 itself scales infinitely (Cloudflare handles sharding)
+- But `list_keys_with_sizes()` scans all objects per project without pagination
+- Quota checks become slow with many files
+
+### Agent state
+
+- Deploy state + supervisor state use file-based fcntl locking
+- Protects against same-process concurrency only
+- No distributed locking between central server and agent
+
+### Managed databases
+
+- All user databases share the central PostgreSQL instance
+- No per-user resource limits at the DB level
+- One heavy user can impact platform performance
+
+### Recommendations for production scale
+
+1. **pgBouncer** between apps and PostgreSQL (transaction pooling, 200+ effective connections)
+2. **Parallel health checks** with `asyncio.gather()` in reconciler
+3. **Persistent cache** — move build cache and scaling cooldowns from memory dicts to PostgreSQL
+4. **R2 pagination** — implement cursor-based pagination for list operations
+5. **Dedicated DB host** — separate managed user databases from central NSO database
+6. **Reconciler sharding** — split by project_id range across multiple workers
+
+---
+
+## 15. Troubleshooting
 
 ```bash
 # Check services
