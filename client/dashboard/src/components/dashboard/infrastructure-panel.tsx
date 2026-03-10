@@ -550,6 +550,29 @@ function CreateBucketForm({ projectId, onCreated, onCancel }: {
 
 /* ── Bucket Detail (File Browser) ── */
 
+const MAX_UPLOAD_MB = 50;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+const BLOCKED_EXTENSIONS = new Set([
+  ".iso", ".img", ".vmdk", ".vhd", ".vhdx", ".qcow2", ".ova", ".ovf",
+  ".dmg", ".sparseimage", ".raw",
+  ".exe", ".msi", ".dll", ".sys", ".com", ".bat", ".cmd", ".scr", ".pif",
+  ".app", ".deb", ".rpm", ".appimage", ".snap", ".flatpak",
+  ".hta", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".psm1",
+  ".cab", ".wim", ".swm",
+]);
+
+function validateUploadFile(file: File): string | null {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return `File too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max is ${MAX_UPLOAD_MB}MB.`;
+  }
+  const name = file.name.toLowerCase();
+  const ext = name.includes(".") ? "." + name.split(".").pop() : "";
+  if (BLOCKED_EXTENSIONS.has(ext)) {
+    return `File type "${ext}" is not allowed. Disk images, executables, and installers cannot be uploaded.`;
+  }
+  return null;
+}
+
 function BucketDetail({ bucket, projectId, onBack }: {
   bucket: Bucket;
   projectId: string;
@@ -559,6 +582,7 @@ function BucketDetail({ bucket, projectId, onBack }: {
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [uploadError, setUploadError] = useState("");
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -574,12 +598,22 @@ function BucketDetail({ bucket, projectId, onBack }: {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setUploadError("");
+
+    const error = validateUploadFile(file);
+    if (error) {
+      setUploadError(error);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
     setUploading(true);
     try {
       await uploadObject(projectId, bucket.id, file);
       refresh();
-    } catch { }
-    finally {
+    } catch (err: any) {
+      setUploadError(err.message || "Upload failed");
+    } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
@@ -626,11 +660,14 @@ function BucketDetail({ bucket, projectId, onBack }: {
         <span className="text-xs opacity-50">{objects.length} objects</span>
       </div>
 
+      {uploadError && <div className="error-banner"><AlertTriangle className="h-3.5 w-3.5 inline" /> {uploadError}</div>}
+
       <div className="panel-actions" style={{ marginBottom: 12 }}>
         <button className="btn-sm" onClick={refresh}><RefreshCw className="h-3.5 w-3.5" /></button>
         <button className="btn-sm btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           <Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading..." : "Upload"}
         </button>
+        <span className="text-xs opacity-50">Max {MAX_UPLOAD_MB}MB per file</span>
         <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
       </div>
 

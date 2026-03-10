@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query
+from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 
@@ -10,6 +10,60 @@ from nso.engine.infrastructure.storage import service
 
 logger = logging.getLogger("nso.infrastructure.storage")
 router = APIRouter()
+
+# ── Upload safety limits ────────────────────────────────────────
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
+
+# Blocked extensions — disk images, executables, archives that hide executables
+BLOCKED_EXTENSIONS = frozenset({
+    # OS / disk images
+    ".iso", ".img", ".vmdk", ".vhd", ".vhdx", ".qcow2", ".ova", ".ovf",
+    ".dmg", ".sparseimage", ".raw",
+    # Executables & installers
+    ".exe", ".msi", ".dll", ".sys", ".com", ".bat", ".cmd", ".scr", ".pif",
+    ".app", ".deb", ".rpm", ".AppImage", ".snap", ".flatpak",
+    # Dangerous script / macro containers
+    ".hta", ".vbs", ".vbe", ".wsf", ".wsh", ".ps1", ".psm1",
+    # Large archives often used to smuggle the above
+    ".cab", ".wim", ".swm",
+})
+
+ALLOWED_CONTENT_TYPES = {
+    # Images
+    "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
+    "image/bmp", "image/tiff", "image/avif",
+    # Documents
+    "application/pdf", "application/json", "text/plain", "text/html",
+    "text/css", "text/csv", "text/xml", "application/xml",
+    # Web assets
+    "application/javascript", "text/javascript",
+    "application/wasm", "font/woff", "font/woff2",
+    # Data
+    "application/zip", "application/gzip", "application/x-tar",
+    "application/x-7z-compressed",
+    # Audio / video (reasonable sizes for app assets)
+    "audio/mpeg", "audio/ogg", "audio/wav", "audio/webm",
+    "video/mp4", "video/webm", "video/ogg",
+    # Fallback
+    "application/octet-stream",
+}
+
+
+def _check_file_allowed(filename: str, content_type: str | None) -> None:
+    """Raise HTTPException if file extension is blocked."""
+    if not filename:
+        return
+    lower = filename.lower()
+    for ext in BLOCKED_EXTENSIONS:
+        if lower.endswith(ext):
+            raise HTTPException(
+                415,
+                f"File type '{ext}' is not allowed. "
+                "Disk images, executables, and installers cannot be uploaded."
+            )
+    # Warn on unknown MIME but don't block (application/octet-stream is catch-all)
+    if content_type and content_type not in ALLOWED_CONTENT_TYPES:
+        logger.info("Upload with uncommon content-type: %s (%s)", content_type, filename)
 
 
 class CreateBucketRequest(BaseModel):
@@ -63,15 +117,28 @@ async def list_objects(bucket_id: str, prefix: str = "",
 
 
 @router.post("/buckets/{bucket_id}/upload", summary="Upload object")
-async def upload_object(bucket_id: str, file: UploadFile = File(...),
+async def upload_object(bucket_id: str, request: Request,
+                        file: UploadFile = File(...),
                         key: str = Query(None),
                         project_id: str = Depends(require_project)):
-    # Enforce frozen check + storage limit
+    # ── 1. Reject blocked file types BEFORE reading any bytes ───
+    filename = file.filename or key or "unnamed"
+    _check_file_allowed(filename, file.content_type)
+
+    # ── 2. Early size rejection via Content-Length header ────────
+    content_length = request.headers.get("content-length")
+    if content_length and int(content_length) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413,
+            f"File too large (max {MAX_UPLOAD_BYTES // (1024*1024)}MB). "
+            "Reduce file size or use a different storage solution for large files."
+        )
+
+    # ── 3. Enforce frozen check + storage limit ─────────────────
     try:
         from nso.engine.billing.service import check_project_not_frozen, _get_owner_for_project, get_user_plan_features
         await check_project_not_frozen(project_id)
 
-        # Check storage limit (bucket-level tracking)
         owner_id = await _get_owner_for_project(project_id)
         if owner_id:
             features = await get_user_plan_features(owner_id)
@@ -97,12 +164,23 @@ async def upload_object(bucket_id: str, file: UploadFile = File(...),
     except Exception as e:
         logger.warning("Storage limit check failed (allowing): %s", e)
 
-    object_key = key or file.filename or "unnamed"
-    data = await file.read()
-
-    # 100MB limit
-    if len(data) > 100 * 1024 * 1024:
-        raise HTTPException(413, "File too large (max 100MB)")
+    # ── 4. Stream-read with hard cap (never buffer more than MAX) ─
+    object_key = key or filename
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(256 * 1024)  # 256 KB at a time
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                413,
+                f"File too large (max {MAX_UPLOAD_BYTES // (1024*1024)}MB). "
+                "Upload was stopped to protect server memory."
+            )
+        chunks.append(chunk)
+    data = b"".join(chunks)
 
     try:
         result = await service.upload_object(
