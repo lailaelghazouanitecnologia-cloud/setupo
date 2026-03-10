@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 
@@ -15,6 +16,10 @@ logger = logging.getLogger("nso.deploy")
 DEPS_INSTALL_TIMEOUT = 300
 REMOTE_APP_DIR = "/opt/app"
 DEFAULT_PORT = 3000
+
+# Limit concurrent deploys to avoid saturating CPU/network
+MAX_CONCURRENT_DEPLOYS = 3
+_deploy_semaphore = asyncio.Semaphore(MAX_CONCURRENT_DEPLOYS)
 
 STACK_CHECKS = [
     ("package.json", "node"),
@@ -150,6 +155,21 @@ async def deploy_to_instance(
 
     await _check_deploy_limit(project_id)
 
+    # Limit concurrent deploys server-wide to prevent resource exhaustion
+    if _deploy_semaphore.locked():
+        logger.info("Deploy queued for %s — %d concurrent deploys running", instance_id, MAX_CONCURRENT_DEPLOYS)
+
+    async with _deploy_semaphore:
+        return await _do_deploy(project_id, instance_id, workspace_name, branch, command)
+
+
+async def _do_deploy(
+    project_id: str,
+    instance_id: str,
+    workspace_name: str,
+    branch: str = "main",
+    command: str | None = None,
+) -> dict:
     inst = await db.fetch_one("instances", id=instance_id)
     if not inst or inst["project_id"] != project_id:
         raise NotFoundError("Machine", instance_id)

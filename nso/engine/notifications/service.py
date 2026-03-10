@@ -7,6 +7,7 @@ fraud alerts, deploy status, and welcome messages.
 import hashlib
 import hmac
 import html as html_lib
+import asyncio
 import logging
 import os
 import secrets
@@ -64,8 +65,8 @@ def _verify_token(token: str, purpose: str) -> str | None:
         return None
 
 
-def _send_email(to: str, subject: str, html: str, text: str = ""):
-    """Send email via SMTP. No-op if SMTP not configured."""
+async def _send_email(to: str, subject: str, html: str, text: str = ""):
+    """Send email via SMTP (async). No-op if SMTP not configured."""
     if not SMTP_HOST:
         logger.warning("SMTP not configured — email to %s skipped: %s", to, subject)
         return False
@@ -79,7 +80,7 @@ def _send_email(to: str, subject: str, html: str, text: str = ""):
         msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(html, "html"))
 
-    try:
+    def _blocking_send():
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as server:
             server.ehlo()
             if SMTP_PORT != 25:
@@ -87,6 +88,9 @@ def _send_email(to: str, subject: str, html: str, text: str = ""):
             if SMTP_USER:
                 server.login(SMTP_USER, SMTP_PASS)
             server.sendmail(SMTP_FROM, to, msg.as_string())
+
+    try:
+        await asyncio.to_thread(_blocking_send)
         logger.info("Email sent: %s → %s", subject, to)
         return True
     except Exception as e:

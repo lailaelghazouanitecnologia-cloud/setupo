@@ -31,6 +31,11 @@ BUILD_RATE_LIMIT = (1, 60)
 # path -> { ip -> [timestamps] }
 _buckets: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
 
+# Safety caps: prevent memory growth from many unique IPs
+_MAX_IPS_PER_PATH = 10_000
+_CLEANUP_INTERVAL = 300  # 5 minutes
+_last_cleanup = time.monotonic()
+
 
 def _get_client_ip(request: Request) -> str:
     """Get real client IP, respecting X-Forwarded-For behind nginx."""
@@ -42,6 +47,29 @@ def _get_client_ip(request: Request) -> str:
     return "unknown"
 
 
+def _cleanup_stale_buckets():
+    """Remove IPs with no recent activity. Runs periodically."""
+    global _last_cleanup
+    now = time.monotonic()
+    if now - _last_cleanup < _CLEANUP_INTERVAL:
+        return
+    _last_cleanup = now
+
+    removed = 0
+    for path, ip_map in list(_buckets.items()):
+        config = RATE_LIMITS.get(path)
+        if not config:
+            continue
+        _, window = config
+        cutoff = now - window
+        for ip in list(ip_map.keys()):
+            if not ip_map[ip] or ip_map[ip][-1] < cutoff:
+                del ip_map[ip]
+                removed += 1
+    if removed:
+        logger.debug("Rate limit cleanup: removed %d stale IP entries", removed)
+
+
 def _is_rate_limited(path: str, ip: str) -> bool:
     """Check if request should be rate limited."""
     config = RATE_LIMITS.get(path)
@@ -50,12 +78,22 @@ def _is_rate_limited(path: str, ip: str) -> bool:
 
     max_requests, window = config
     now = time.monotonic()
-    bucket = _buckets[path][ip]
+
+    # Periodic cleanup of stale entries
+    _cleanup_stale_buckets()
+
+    # Cap IPs per path to prevent memory exhaustion from DDoS
+    ip_map = _buckets[path]
+    if len(ip_map) >= _MAX_IPS_PER_PATH and ip not in ip_map:
+        logger.warning("Rate limit bucket full for %s (%d IPs), rejecting new IP %s", path, len(ip_map), ip)
+        return True
+
+    bucket = ip_map[ip]
 
     # Prune old entries
     cutoff = now - window
-    _buckets[path][ip] = [t for t in bucket if t > cutoff]
-    bucket = _buckets[path][ip]
+    ip_map[ip] = [t for t in bucket if t > cutoff]
+    bucket = ip_map[ip]
 
     if len(bucket) >= max_requests:
         return True
