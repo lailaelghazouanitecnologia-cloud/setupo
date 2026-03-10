@@ -271,17 +271,19 @@ async def sync_plan_to_quotas(user_id: str, plan_code: str) -> list[str]:
     """
     Sync billing plan to compute quotas for all projects owned by a user.
 
-    The plan sets the INCLUDED baseline. Paid plans (starter+) have no hard VM
-    cap — users can add more VMs and pay overage. Free plan has a hard limit of 1.
-    allowed_plans expands with higher tiers (free users can only use 'free' VMs,
-    starter can use 'free'+'starter', etc.).
-
-    Called automatically when a subscription is created, upgraded, or downgraded.
+    Handles legacy plan codes (starter→hobby, scale→team) transparently.
+    Called on subscription create, upgrade, downgrade, cancel, pause, resume.
     Returns list of project_ids that were updated.
     """
-    mapping = PLAN_QUOTA_MAP.get(plan_code)
+    # Resolve legacy plan codes
+    from nso.engine.billing.service import LEGACY_PLAN_MAP
+    resolved_code = LEGACY_PLAN_MAP.get(plan_code, plan_code)
+    if resolved_code != plan_code:
+        logger.info("Resolved legacy plan '%s' → '%s' for quota sync", plan_code, resolved_code)
+
+    mapping = PLAN_QUOTA_MAP.get(resolved_code)
     if not mapping:
-        logger.warning("No quota mapping for plan '%s' — skipping sync", plan_code)
+        logger.warning("No quota mapping for plan '%s' — skipping sync", resolved_code)
         return []
 
     # Find all projects owned by this user

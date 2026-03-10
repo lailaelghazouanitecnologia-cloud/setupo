@@ -266,26 +266,63 @@ USAGE_RATES = {
 #  Plans
 # ──────────────────────────────────────────────
 
+# Maps old plan codes to their replacement. Active subscriptions on legacy
+# codes are transparently resolved to the new plan when quotas sync.
+LEGACY_PLAN_MAP = {
+    "starter": "hobby",
+    "scale":   "team",
+}
+
+
 async def ensure_plans_seeded():
-    """Seed default plans if none exist."""
+    """Seed default plans or update existing ones to match DEFAULT_PLANS.
+
+    This is idempotent: new plans are inserted, existing plans are updated
+    (features, price, description), and legacy plans (starter, scale) are
+    marked inactive so no new subscriptions use them.
+    """
     existing = await db.fetch_all("billing_plans")
-    if existing:
-        return
+    existing_by_code = {p["code"]: p for p in existing}
+
     now = datetime.now(timezone.utc).isoformat()
+    default_codes = {p["code"] for p in DEFAULT_PLANS}
+
     for plan in DEFAULT_PLANS:
-        await db.insert("billing_plans", {
-            "id": f"plan_{token_gen.token_hex(8)}",
-            "code": plan["code"],
-            "name": plan["name"],
-            "description": plan["description"],
-            "interval": plan["interval"],
-            "amount_cents": plan["amount_cents"],
-            "currency": CURRENCY,
-            "features": plan["features"],
-            "active": True,
-            "created_at": now,
-        })
-    logger.info("Seeded %d default billing plans", len(DEFAULT_PLANS))
+        if plan["code"] in existing_by_code:
+            # Update existing plan to match latest definition
+            row = existing_by_code[plan["code"]]
+            await db.update("billing_plans", row["id"], {
+                "name": plan["name"],
+                "description": plan["description"],
+                "amount_cents": plan["amount_cents"],
+                "features": plan["features"],
+                "active": True,
+            })
+        else:
+            # Insert new plan
+            await db.insert("billing_plans", {
+                "id": f"plan_{token_gen.token_hex(8)}",
+                "code": plan["code"],
+                "name": plan["name"],
+                "description": plan["description"],
+                "interval": plan["interval"],
+                "amount_cents": plan["amount_cents"],
+                "currency": CURRENCY,
+                "features": plan["features"],
+                "active": True,
+                "created_at": now,
+            })
+
+    # Mark legacy plans as inactive (starter, scale, etc.)
+    for old_code in LEGACY_PLAN_MAP:
+        if old_code in existing_by_code:
+            row = existing_by_code[old_code]
+            if row.get("active", True):
+                await db.update("billing_plans", row["id"], {"active": False})
+                logger.info("Deactivated legacy plan '%s' (replaced by '%s')",
+                            old_code, LEGACY_PLAN_MAP[old_code])
+
+    logger.info("Plan seed/sync complete — %d active plans", len(DEFAULT_PLANS))
 
 
 async def list_plans(active_only: bool = True) -> list[dict]:
@@ -310,10 +347,12 @@ async def get_plan(plan_code: str) -> dict:
 # ──────────────────────────────────────────────
 
 async def get_subscription(user_id: str) -> dict | None:
-    """Get a user's current active subscription."""
+    """Get a user's current subscription (active, trialing, or past_due in grace period)."""
     sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="active")
     if not sub:
         sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="trialing")
+    if not sub:
+        sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="past_due")
     return sub
 
 
@@ -358,6 +397,20 @@ async def create_subscription(user_id: str, plan_code: str, trial: bool = False)
             "new_plan": plan_code,
             "proration_credit": proration_credit,
         })
+
+        # On downgrade: check if user has resources exceeding new plan limits
+        if plan["amount_cents"] < existing["amount_cents"]:
+            try:
+                warnings = await _check_downgrade_overages(user_id, plan)
+                if warnings:
+                    await _emit_event(
+                        BillingEventType.SUBSCRIPTION_DOWNGRADED.value,
+                        "downgrade_warning", existing["id"], user_id,
+                        {"warnings": warnings, "new_plan": plan_code},
+                    )
+                    logger.info("Downgrade warnings for user %s: %s", user_id, warnings)
+            except Exception as e:
+                logger.warning("Downgrade check failed (non-blocking): %s", e)
 
     now = datetime.now(timezone.utc)
 
@@ -434,8 +487,47 @@ def _calculate_proration(subscription: dict, plan: dict | None) -> int:
         return 0
 
 
+async def _check_downgrade_overages(user_id: str, new_plan: dict) -> list[str]:
+    """Check if a user's current resources exceed the new plan limits.
+
+    Returns a list of human-readable warnings. Does NOT block the downgrade —
+    existing resources continue running, but new ones are blocked by quotas.
+    """
+    import json as _json
+    features = new_plan.get("features", "{}")
+    if isinstance(features, str):
+        features = _json.loads(features) if features else {}
+
+    warnings = []
+    projects = await db.fetch_all("projects", owner=user_id)
+    project_count = len(projects)
+    max_projects = features.get("projects", -1)
+    if max_projects != -1 and project_count > max_projects:
+        warnings.append(f"Projects: {project_count}/{max_projects} (over limit)")
+
+    # Check managed instances across all projects
+    max_managed = features.get("managed_instances", -1)
+    if max_managed != -1:
+        from nso.engine.compute.quota import count_project_active_vms
+        total_vms = 0
+        for p in projects:
+            total_vms += await count_project_active_vms(p["id"])
+        if total_vms > max_managed:
+            warnings.append(f"Managed instances: {total_vms}/{max_managed} (over limit)")
+
+    # Check workspaces per project
+    max_ws = features.get("workspaces_per_project", -1)
+    if max_ws != -1:
+        for p in projects:
+            ws = await db.fetch_all("workspaces", project_id=p["id"])
+            if len(ws) > max_ws:
+                warnings.append(f"Project '{p.get('name', p['id'])}': {len(ws)}/{max_ws} workspaces (over limit)")
+
+    return warnings
+
+
 async def cancel_subscription(user_id: str, reason: str = "") -> dict:
-    """Cancel user's active subscription."""
+    """Cancel user's active subscription and reset quotas to free tier."""
     sub = await get_subscription(user_id)
     if not sub:
         raise NotFoundError("Subscription", user_id)
@@ -452,6 +544,13 @@ async def cancel_subscription(user_id: str, reason: str = "") -> dict:
         {"reason": reason, "plan_code": sub["plan_code"]},
     )
 
+    # Reset quotas to free tier so existing elevated limits don't persist
+    try:
+        from nso.engine.compute.quota import sync_plan_to_quotas
+        await sync_plan_to_quotas(user_id, "free")
+    except Exception as e:
+        logger.warning("Quota reset on cancel failed (non-blocking): %s", e)
+
     logger.info("Cancelled subscription %s for user %s", sub["id"], user_id)
     sub["status"] = "cancelled"
     sub["cancelled_at"] = now
@@ -459,21 +558,28 @@ async def cancel_subscription(user_id: str, reason: str = "") -> dict:
 
 
 async def pause_subscription(user_id: str) -> dict:
-    """Pause user's active subscription."""
+    """Pause user's active subscription. Quotas downgrade to free tier while paused."""
     sub = await get_subscription(user_id)
     if not sub:
         raise NotFoundError("Subscription", user_id)
     if sub["status"] != "active":
         raise ValidationError("Can only pause active subscriptions")
 
-    now = datetime.now(timezone.utc).isoformat()
     await db.update("billing_subscriptions", sub["id"], {"status": "paused"})
+
+    # Downgrade quotas while paused — existing resources keep running but no new ones
+    try:
+        from nso.engine.compute.quota import sync_plan_to_quotas
+        await sync_plan_to_quotas(user_id, "free")
+    except Exception as e:
+        logger.warning("Quota downgrade on pause failed (non-blocking): %s", e)
+
     sub["status"] = "paused"
     return sub
 
 
 async def resume_subscription(user_id: str) -> dict:
-    """Resume a paused subscription."""
+    """Resume a paused subscription. Restores quotas to the plan's tier."""
     sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="paused")
     if not sub:
         raise NotFoundError("Subscription", user_id)
@@ -485,6 +591,14 @@ async def resume_subscription(user_id: str) -> dict:
         "current_period_start": now.isoformat(),
         "current_period_end": period_end.isoformat(),
     })
+
+    # Restore quotas to the plan's tier
+    try:
+        from nso.engine.compute.quota import sync_plan_to_quotas
+        await sync_plan_to_quotas(user_id, sub["plan_code"])
+    except Exception as e:
+        logger.warning("Quota restore on resume failed (non-blocking): %s", e)
+
     sub["status"] = "active"
     return sub
 
@@ -1840,11 +1954,27 @@ async def handle_stripe_webhook(payload: dict) -> dict:
 
     elif event_type == "invoice.payment_failed":
         stripe_sub = data.get("subscription")
+        metadata = data.get("metadata", {}) or data.get("subscription_details", {}).get("metadata", {})
+        user_id = metadata.get("user_id", "")
+
         if stripe_sub:
+            # Mark subscription as past_due with grace period
+            if user_id:
+                sub = await get_subscription(user_id)
+                if sub and sub["status"] == "active":
+                    grace_end = (datetime.now(timezone.utc) + timedelta(days=GRACE_PERIOD_DAYS)).isoformat()
+                    await db.update("billing_subscriptions", sub["id"], {
+                        "status": "past_due",
+                    })
+                    logger.warning(
+                        "Subscription %s marked past_due (grace until %s)",
+                        sub["id"], grace_end,
+                    )
+
             await _emit_event(
                 BillingEventType.PAYMENT_FAILED.value,
-                "stripe_invoice", data.get("id", ""), "",
-                {"stripe_subscription": stripe_sub},
+                "stripe_invoice", data.get("id", ""), user_id,
+                {"stripe_subscription": stripe_sub, "grace_period_days": GRACE_PERIOD_DAYS},
             )
             logger.warning("Stripe payment failed for subscription %s", stripe_sub)
             return {"handled": True, "type": "payment_failed"}
