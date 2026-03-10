@@ -124,57 +124,6 @@ Client (HTTPS :443 → nso.dev)
 
 ---
 
-## Install System (nso/base/install.sh)
-
-### Bootstrap method
-
-The installer tries two sources for agent code:
-1. **HTTP download** from `{NSO_HOST}/api/download/agent` (presigned URL)
-2. **Fallback**: `git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git`
-
-If nso.dev is not running, it falls back to GitHub clone automatically.
-
-### Installation steps (in order)
-
-1. System packages: nginx, certbot, python3, git, curl, ufw, jq, fail2ban
-2. PostgreSQL 16 (**--central only**): creates DB `nso`, user `nso`, writes `DATABASE_URL`
-3. Node.js 20 (ensures >= 18 LTS)
-4. User & directories: creates `nso` system user, `/opt/nso/{data,config,workspaces,venv,vm,repo}`
-5. Python venv: FastAPI, uvicorn, asyncpg, httpx, pyyaml, websockets
-6. Agent code: download or git clone → copies `vm/agent`, `vm/cli` to `/opt/nso/`
-7. CLI: creates `/usr/local/bin/nso` symlink
-8. Agent config: writes `/opt/nso/config/agent.env` with auto-generated JWT_SECRET (64-char hex), AGENT_ADMIN_PASSWORD
-9. Nginx config: reverse proxy `/agent/*` → :8081, `/` → static files
-10. Systemd: creates `nso-agent.service` (uvicorn as root on 127.0.0.1:8081)
-11. Default workspace: creates landing page HTML at `/opt/nso/workspaces/default/static/`
-12. Firewall: enables ufw, opens 22, 80, 443
-13. SSL: runs certbot if domain auto-detected (reverse DNS lookup)
-14. Start agent: `systemctl start nso-agent`
-15. Platform registration: POSTs instance metadata back to NSO_HOST (if NSO_TOKEN provided)
-
-### What --central does
-
-- Installs PostgreSQL 16 via official apt repo
-- Creates database `nso` with user `nso` and auto-generated password
-- Writes `DATABASE_URL=postgresql://nso:{password}@localhost:5432/nso` to agent.env
-- Central server uses PostgreSQL; user VPS instances use SQLite via the agent
-
-### Usage
-
-```bash
-# From GitHub (no nso.dev needed)
-git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git
-cd setupo && bash nso/base/install.sh --central --email admin@nso.dev
-
-# From running nso.dev instance
-curl -fsSL https://nso.dev/install | bash -s -- --central --email admin@nso.dev
-
-# Agent-only (user VPS, called by cloud-init during instance provisioning)
-curl -fsSL https://nso.dev/install | bash -s -- --host https://nso.dev --token $NSO_TOKEN
-```
-
----
-
 ## NSO Agent — Detailed Reference (vm/agent/)
 
 The agent is a FastAPI app (v0.3.0) running on each VPS at :8081. It handles deployments, file management, process supervision, and monitoring.
@@ -228,162 +177,20 @@ The agent is a FastAPI app (v0.3.0) running on each VPS at :8081. It handles dep
 
 ### deploy.py — Deploy & Snapshot Engine
 
-**R2 download**: AWS Signature V4 HMAC-SHA256 signing (no boto3). Falls back to presigned URLs.
+- R2 download via AWS Signature V4 HMAC-SHA256 (no boto3), fallback to presigned URLs
+- Snapshot system: max 5 per app, stores nginx + systemd configs alongside filesystem
+- Stack auto-detection: package.json, requirements.txt, go.mod, Cargo.toml, docker-compose.yml, index.html
+- Deploy state: `/opt/nso/data/deploy-state.json` with atomic fcntl locking
+- If `deploy.toml` exists → delegates to pipeline.py for 10-phase execution
+- See DEPLOY.md for full deploy flow, stack detection table, and snapshot details
 
-**Snapshot system**:
-- Creates snapshot at `{SNAPSHOTS_DIR}/{app}/{timestamp}/` via recursive copytree
-- Stores nginx + systemd configs in `.nso-service-configs/` subfolder
-- Keeps max 5 snapshots per app (auto-prunes oldest)
-- Rollback restores filesystem + service configs + reloads nginx/systemd
+### pipeline.py — 10-Phase Deploy Pipeline
 
-**Stack detection** (auto-detect by marker file):
-
-| Marker | Stack | Install command |
-|--------|-------|----------------|
-| `package.json` | node | `npm install --production` |
-| `requirements.txt` | python | `/opt/nso/venv/bin/pip install -r requirements.txt` |
-| `go.mod` | go | `go build ./...` |
-| `Cargo.toml` | rust | `cargo build --release` |
-| `docker-compose.yml` | docker | `docker compose up -d --build` |
-| `index.html` | static | `echo ok` |
-
-**Deploy state**: persists to `/opt/nso/data/deploy-state.json` with atomic file locking (fcntl)
-
-**Key endpoints**:
-- `POST /deploy/pull` — Download .zar via R2, extract, run pipeline if deploy.toml exists
-- `POST /deploy/upload` — Accept multipart .zar, extract, install deps
-- `POST /deploy/rollback` — Restore snapshot, reload services
-- `GET /deploy/current` — All deployed versions and snapshots
-- `POST /deploy/self-update` — Update agent/core/frontend
-- `POST /deploy/setup-domain` — Generate nginx config + SSL cert for domain
-- `GET /deploy/progress` — Poll for SSE progress during active deploys
-- `POST /platform-update` — Pull latest code from repo, rebuild dashboards, restart services
-
-### pipeline.py — 10-Phase Deploy Pipeline (deploy.toml)
-
-Activated when `deploy.toml` exists in workspace and `use_pipeline=true`.
-
-**Phases** (in order):
-
-| # | Phase | What it does |
-|---|-------|-------------|
-| 0 | **Prepare** | Parse deploy.toml, resolve secrets, write .env file |
-| 1 | **Pre-hooks** | Execute `hooks.pre_deploy` (on_fail: abort/warn/ignore) |
-| 2 | **System** | Install packages, create users, setup firewall, enable services |
-| 3 | **Setup** | Create dirs, write files (with `{{KEY}}` template interpolation), run setup scripts |
-| 4 | **Install** | Run `[install]` command or auto-detect (npm install, pip install, etc.) |
-| 5 | **Build** | Run `[build]` command + additional build steps |
-| 6 | **Data** | Run migrations (`[data.migrate]`) and seeds (`[data.seed]` with `only_if: first_deploy`) |
-| 7 | **Services** | Generate systemd units from `[services.*]`, install nginx config, request SSL certs |
-| 8 | **Health** | Run health checks (HTTP, TCP, custom) with configurable retries |
-| 9 | **Post-hooks** | Execute `hooks.post_deploy` and smoke tests |
-
-**deploy.toml schema**:
-```toml
-[workspace]
-name = "myapp"
-version = "1.0.0"
-
-[system]
-packages = ["redis-server", "postgresql-client"]
-users = [{name = "appuser", shell = "/bin/bash", groups = ["docker"]}]
-services.enable = ["redis-server"]
-
-[setup]
-dirs.create = [{path = "/opt/app", owner = "appuser", mode = "0755"}]
-files = [{path = "/etc/my.conf", content = "...", template = true}]
-scripts = [{name = "init", command = "...", timeout = 60}]
-
-[install]
-command = "npm install --production"
-timeout = 300
-
-[build]
-command = "npm run build"
-env = {NODE_ENV = "production"}
-steps = [{name = "bundle", command = "..."}]
-
-[data]
-migrate.command = "python manage.py migrate"
-seed.command = "python manage.py seed"
-seed.only_if = "first_deploy"
-
-[services.api]
-command = "/opt/app/start.sh"
-port = 3000
-health_path = "/health"
-depends_on = ["db"]
-restart_policy = "always"
-
-[services.db]
-command = "redis-server"
-port = 6379
-
-[nginx]
-# nginx config template
-
-[domains]
-# [{name = "api.example.com", ssl = true}]
-
-[health]
-strategy = "http"   # http | tcp | custom
-port = 3000
-path = "/health"
-timeout = 30
-retries = 3
-
-[hooks]
-pre_deploy = [{command = "...", on_fail = "abort"}]
-post_deploy = [{command = "..."}]
-on_rollback = [{command = "..."}]
-```
-
-**Key features**:
-- Service topological sort: honors `depends_on` relationships
-- Template interpolation: replaces `{{KEY}}` with env var values
-- First deploy detection: `.nso-first-deploy-done` marker file
-- Failure handling: `on_fail: abort | warn | ignore | rollback`
-- On failure: restores snapshot, reloads systemd + nginx, runs `on_rollback` hooks
-- After success: hands process specs to supervisor for lifecycle management
+Activated when `deploy.toml` exists. Phases: prepare → pre-hooks → system → setup → install → build → data → services → health → post-hooks. Template interpolation (`{{KEY}}`), topological service sort, first-deploy detection, and auto-rollback on failure. See DEPLOY.md for full schema and phase details.
 
 ### supervisor.py — Process Lifecycle Manager
 
-Replaces blind systemctl; maintains desired vs actual process state with reconciliation.
-
-**Process states**:
-```
-PENDING → STARTING → RUNNING ⇄ UNHEALTHY
-                   → RESTARTING → RUNNING
-                   → FAILED (max 5 restarts)
-                   → UPDATING (rolling update)
-                   → DRAINING (graceful shutdown)
-                   → STOPPED (intentional)
-```
-
-**Reconciliation loop** (every 5s):
-1. Start missing processes (respecting `depends_on` order)
-2. Check alive processes still running
-3. Detect version drift → trigger rolling update
-4. Reset restart counter after 300s stability window
-5. Stop orphaned processes
-
-**Health checking** (every 10s):
-- Samples CPU, memory from `/proc/PID/status`
-- Optional HTTP health check: `GET http://127.0.0.1:{port}{health_path}`
-- Marks UNHEALTHY after 3 consecutive failures; recovers to RUNNING when health returns
-
-**Rolling update** (blue-green):
-1. Start new process on temp port (port + 10000)
-2. Wait for health checks to pass
-3. Kill old process (drain timeout)
-4. Start new on correct port
-5. Graceful shutdown: SIGTERM → wait drain_timeout → SIGKILL
-
-**Crash handling**:
-- Exponential backoff: 2^restart_count seconds (capped at 60s)
-- If >50% of processes fail → auto-rollback via `/opt/nso/data/rollback-request.json`
-
-**State persistence**: saves to `/opt/nso/data/supervisor-state.json`; restores on agent restart and re-verifies PIDs
+Reconciliation loop (5s) converges desired vs actual process state. Health checks every 10s. Blue-green rolling updates (temp port + 10000). Auto-rollback if >50% processes fail. State persisted to `/opt/nso/data/supervisor-state.json`. See DEPLOY.md for state diagram and full behavior.
 
 ### pool_handler.py — Multi-Tenant VM Provisioning
 
@@ -482,195 +289,6 @@ SQLite at `/opt/nso/data/metrics.db`. Tracks VPS instance boot/setup progress.
 | 10 | READY / ERROR | 100% |
 
 **Key functions**: `register_instance()`, `report(MetricReport)`, `get_metrics()`, `verify_token()`, `delete_metrics()`
-
----
-
-## Deploy System — Complete Reference
-
-The deploy system has three layers: Central Server orchestration, Agent-side execution, and AI-powered Deploy Agent chat.
-
-### Layer 1: Central Server Deploy (nso/engine/deploy/)
-
-**Core function**: `deploy_to_instance(project_id, instance_id, workspace_name, branch, command)`
-
-**Flow**:
-1. Check project not frozen (billing status)
-2. Check daily deploy limit (from billing plan)
-3. Acquire semaphore (`MAX_CONCURRENT_DEPLOYS=3`) to rate-limit server-wide
-4. Sync workspace files via rsync (fallback: scp) to `/opt/app` on target
-5. Detect stack (package.json, requirements.txt, Dockerfile, etc.)
-6. Install deps (npm, pip, cargo, docker-compose) — timeout 300s
-7. Set env vars → append to `.env` on remote
-8. Create systemd service `nso-app.service`
-9. Configure nginx → proxy to localhost:{port} or static serving
-10. Setup SSL via Let's Encrypt (via agent)
-11. Update instance state to RUNNING
-12. Return deploy result with URL
-
-**File sync** (sync.py):
-- rsync first (with `-o StrictHostKeyChecking=no`)
-- Excludes: `.git`, `node_modules`, `__pycache__`, `.env`, `venv`, `.venv`
-- Timeout: 300s; on rsync failure → fallback to sequential scp
-
-**Settings**: `REMOTE_APP_DIR="/opt/app"`, `DEFAULT_PORT=3000`
-
-### Layer 2: Agent-Side Execution (vm/agent/deploy.py + pipeline.py)
-
-Documented above in Agent section. Summary:
-- Agent receives `.zar` via `POST /deploy/pull` (R2 SigV4 download) or `POST /deploy/upload` (multipart)
-- Creates snapshot of current state (max 5 kept)
-- Extracts .zar, detects stack, installs deps
-- If `deploy.toml` exists → runs 10-phase pipeline (pipeline.py)
-- Hands off to supervisor for process lifecycle management
-- Supports rollback, self-update, domain setup
-
-### Layer 3: Deploy Agent AI (nso/engine/deploy_agent/)
-
-AI-powered deploy assistant accessible via chat interface. Uses dual-model architecture with tool calling.
-
-#### Model Configuration
-
-```bash
-# Supervisor LLM (tool execution, must support function calling)
-DEPLOY_AGENT_API_KEY=...
-DEPLOY_AGENT_API_URL=https://api.groq.com/openai/v1
-DEPLOY_AGENT_MODEL=openai/gpt-oss-20b
-DEPLOY_AGENT_PROVIDER=groq
-
-# Worker LLM (optional, response composition — enables dual-model mode)
-DEPLOY_AGENT_WORKER_API_KEY=...
-DEPLOY_AGENT_WORKER_MODEL=...
-DEPLOY_AGENT_WORKER_API_URL=...
-
-DEPLOY_AGENT_MAX_STEPS=8          # max tool calls per run
-DEPLOY_AGENT_MAX_COMPLETION_TOKENS=8192
-```
-
-**Dual-model mode** (when WORKER vars set):
-1. **Supervisor** receives tools, executes them silently (no chat)
-2. **Worker** composes human-friendly response from tool results
-
-**Single-model mode** (fallback): same LLM handles both
-
-#### Chat API Endpoints
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/.../deploy-agent/threads` | Create deploy thread |
-| GET | `/api/.../deploy-agent/threads` | List threads for project |
-| GET | `/api/.../deploy-agent/threads/{id}` | Get thread + history |
-| PATCH | `/api/.../deploy-agent/threads/{id}` | Update title/workspace |
-| DELETE | `/api/.../deploy-agent/threads/{id}` | Delete thread |
-| POST | `/api/.../deploy-agent/threads/{id}/stream` | Send message, stream SSE response |
-
-#### Deploy Agent Tool Registry
-
-**Workspace tools** (tools/workspace.py):
-
-| Tool | Purpose |
-|------|---------|
-| `analyze_project(workspace)` | Detect stack, deps, entry points |
-| `generate_deploy_config(workspace)` | Create deploy.toml from analysis |
-| `list_workspaces()` | List workspaces (filtered by agent_visible) |
-| `list_instances()` | List VPS instances with state/IP/plan |
-| `read_workspace_file(workspace, path)` | Read file (blocks sensitive: .env, credentials.json) |
-| `write_workspace_file(workspace, path, content)` | Write file (respects readonly/protected) |
-| `delete_workspace_file(workspace, path)` | Delete file/dir |
-| `create_workspace(name, stack, description, git_url)` | Create workspace, optionally clone from Git |
-| `exec_in_workspace(workspace, command, timeout=120)` | Run command (whitelisted: npm, pip, git, make, etc.) |
-| `list_workspace_files(workspace, path)` | List directory contents |
-| `clean_workspace(workspace, keep)` | Delete all files except specified |
-
-**Deploy tools** (tools/deploy.py):
-
-| Tool | Purpose |
-|------|---------|
-| `run_build(workspace, build_command)` | Build workspace (auto-detect if not provided) |
-| `run_ship(workspace, instance_id, branch, domain)` | **Full pipeline: pack → push R2 → deploy to agent** |
-| `check_deploy_status(instance_id)` | Query agent for current deploy state |
-| `run_validation(workspace, checks)` | Run validation (validate.toml) |
-
-**`run_ship` detailed flow**:
-1. Auto-claim subdomain for user (if not claimed)
-2. Resolve deploy target: explicit ID → workspace linked instance → config → first available compute node → first running instance → fail
-3. Pack workspace into .zar (tar.gz with manifest + config + files)
-4. Push to R2: `{project_id}/{workspace}/{branch}/v{version}.zar`
-5. Authenticate to agent at target IP:8081
-6. Deploy via agent `/deploy/pull` with R2 credentials + secrets from DB
-7. Auto-assign domain: `{workspace}-{user_subdomain}.nso.dev` (Cloudflare DNS)
-8. Auto-setup nginx + SSL on agent
-9. Send notification to user inbox with deploy URL
-
-**Service mapping for restarts**:
-- Platform workspaces: `server` → nso, `agent` → nso-agent, `dashboard/admin/cli` → no restart
-- User workspaces: static/custom → no restart, else → nso-app
-
-**Secrets tools** (tools/secrets.py):
-
-| Tool | Purpose |
-|------|---------|
-| `list_secrets()` | List project secrets grouped by bucket |
-| `add_secret(key, value)` | Add/update secret, auto-classify |
-
-**Connector tools** (tools/connectors.py):
-
-| Tool | Purpose |
-|------|---------|
-| `setup_connector(connector_id, config_json)` | Install connector (github, s3, slack, cloudflare, r2) |
-| `list_connectors()` | List installed connectors + test status |
-
-Connectors auto-sync to secrets: GitHub → GH_TOKEN/GH_REPO, S3/R2 → AWS keys, Slack → SLACK_TOKEN
-
-**Infrastructure tools** (tools/infrastructure.py):
-
-| Tool | Purpose |
-|------|---------|
-| `list_instances()` | List all instances + compute nodes |
-| `create_instance(label, region, plan, workspace)` | Create Vultr VPS (guards against redundant creation) |
-| `manage_service(target_id, action, service_name)` | Start/stop/restart systemd service via agent |
-| `link_workspace_instance(workspace, instance_id)` | Link workspace to instance for auto-targeting |
-| `manage_domain(workspace, action, custom_domain)` | Auto-assign/custom/remove domains |
-
-**Mesh tools** (tools/mesh.py) — manages external servers (Hetzner, OVH, DO, bare metal, Raspberry Pi):
-
-| Tool | Purpose |
-|------|---------|
-| `list_mesh_devices(status, tag)` | List external servers |
-| `list_mesh_groups()` | List device groups |
-| `register_mesh_device(name, host, ssh_port, ssh_user, tags)` | Register external server |
-| `exec_on_mesh_device(device_id, command, timeout)` | SSH command on single device |
-| `exec_on_mesh_group(group_id, command, timeout)` | SSH command on ALL devices concurrently |
-| `deploy_to_mesh(workspace, target, target_dir, restart_command)` | Deploy .zar to device(s) via SCP |
-| `mesh_device_status(device_id)` | Health + metrics |
-| `manage_mesh_group(action, group_id, device_ids)` | Create/update device groups |
-
-**Mesh deploy flow**: pack .zar → SCP to each target → extract → run restart_command
-
-### Deploy Flows Summary
-
-**Flow 1: Central Server Direct Deploy**
-```
-POST /api/projects/{pid}/instances/{iid}/deploy
-→ billing check → semaphore → rsync files → detect stack → install deps
-→ create systemd service → configure nginx → SSL → state=RUNNING → return URL
-```
-
-**Flow 2: Deploy Agent Ship (via Chat)**
-```
-User: "deploy my-workspace"
-Supervisor: run_ship("my-workspace", branch="main")
-  → pack .zar → push R2 → agent /deploy/pull → snapshot → extract → restart
-  → auto-assign domain: my-workspace-user.nso.dev → nginx + SSL
-Worker: "Listo! Tu app está en: https://my-workspace-user.nso.dev"
-```
-
-**Flow 3: Mesh Deploy (External Servers)**
-```
-User: "deploy to all production servers"
-Supervisor: deploy_to_mesh("my-workspace", target="grp_prod")
-  → pack .zar → SCP to each device → extract → restart on each
-Worker: "Desplegado en 3/3 servidores."
-```
 
 ---
 
@@ -940,33 +558,7 @@ Worker: "Desplegado en 3/3 servidores."
 
 ## .zar System
 
-### Format
-A tar.gz archive:
-```
-.zar-manifest.json   — metadata, version, hash, dependencies
-config.toml          — workspace config
-files/               — actual workspace files
-```
-
-### R2 Storage Layout
-```
-{project_id}/{workspace}/{branch}/v{version}.zar
-{project_id}/{workspace}/{branch}/latest.zar
-{project_id}/{workspace}/branches.json
-_modules/{name}/v{version}.zar          # System modules
-_modules/{name}/latest.zar
-```
-
-### Deploy Flow
-```
-pack workspace → push .zar to R2 → agent pulls from R2 → snapshot existing
-→ extract .zar → detect stack → install deps → run pipeline (if deploy.toml)
-→ hand off to supervisor → health check → READY
-```
-
-### Workspace Dependencies
-Workspaces depend on others via `[package.dependencies]` in config.toml.
-Resolved recursively (max depth 5) from R2.
+tar.gz archive containing `.zar-manifest.json` + `config.toml` + `files/`. R2 layout: `{project_id}/{workspace}/{branch}/v{version}.zar`. Deploy flow: pack → push R2 → agent pulls → snapshot → extract → install deps → pipeline (if deploy.toml) → supervisor → health check → READY. See DEPLOY.md for full details.
 
 ## Database Tables
 
@@ -1222,72 +814,21 @@ setupo/
 ## Common Commands
 
 ```bash
-# Run central server (dev)
-cd /opt/nso && venv/bin/uvicorn nso.main:app --reload --port 8000
+# Dev servers
+cd /opt/nso && venv/bin/uvicorn nso.main:app --reload --port 8000   # central
+cd /opt/nso/vm/agent && ../../venv/bin/uvicorn main:app --port 8081 # agent
 
-# Run agent (dev)
-cd /opt/nso/vm/agent && ../../venv/bin/uvicorn main:app --port 8081
-
-# Build dashboard
-cd client/dashboard && npm run build && npm run export
-
-# Build admin
-cd client/admin && npm run build && npm run export
-
-# Ship workspace (pack + push + deploy)
-nso ship my-workspace inst_xxx
-
-# Or via API
-curl -X POST -H "Authorization: Bearer sk_live_xxx" \
-  -H "Content-Type: application/json" \
-  -d '{"instance_id":"inst_xxx"}' \
-  https://nso.dev/api/projects/{pid}/zar/{name}/ship
-
-# Restart services
+# Services
 systemctl restart nso nso-agent
-
-# Check status
-systemctl status nso nso-agent nginx postgresql
-
-# View logs
 journalctl -u nso -f
 journalctl -u nso-agent -f
 
-# Install from git (no nso.dev needed)
+# Deploy
+nso ship my-workspace inst_xxx
+
+# Install (see DEPLOY.md for full guide)
 git clone https://github.com/lailaelghazouanitecnologia-cloud/setupo.git
 cd setupo && bash nso/base/install.sh --central --email admin@nso.dev
-
-# PostgreSQL setup (existing VPS, migrate from SQLite)
-bash nso/base/setup-postgres.sh --migrate /opt/nso/data/nso.db
 ```
 
-## VPS Directory Layout
-
-```
-/opt/nso/
-├── config/
-│   ├── agent.env           # Agent: JWT_SECRET, AGENT_ADMIN_PASSWORD, DATABASE_URL
-│   └── nso.env             # Central: DATABASE_URL, provider keys
-├── data/
-│   ├── nso.db              # SQLite (legacy/agent-only)
-│   ├── metrics.db           # SQLite metrics store (boot progress)
-│   ├── deploy-state.json    # Current deploy state (fcntl locked)
-│   ├── supervisor-state.json # Process supervisor state
-│   └── rollback-request.json # Auto-rollback trigger (>50% process failure)
-├── workspaces/             # Deployed workspace files
-│   └── default/static/     # Default landing page
-├── venv/                   # Python virtualenv (FastAPI, uvicorn, asyncpg, etc.)
-├── vm/
-│   ├── agent/              # Agent source
-│   ├── cli/                # CLI source
-│   └── nso                 # CLI binary
-├── vms/                    # Pool VM configs (pool_handler.py)
-│   └── {vm_id}/config.json
-├── domains/                # Per-domain env files (envvars.py scopes)
-│   └── {domain}/.env
-├── .env                    # General scope env vars
-├── client/
-│   ├── dashboard/static/   # Built dashboard (served by nginx)
-│   └── admin/static/       # Built admin dashboard
-└── repo/                   # Git clone of setupo (for updates)
-```
+See DEPLOY.md for VPS directory layout, troubleshooting, nginx config, dashboard builds, and full deploy operations.
