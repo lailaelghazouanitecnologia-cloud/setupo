@@ -188,6 +188,18 @@ async def install_plugin(req: InstallPluginRequest, project_id: str = Depends(re
     if existing:
         raise HTTPException(409, f"Plugin '{req.plugin_id}' is already installed")
 
+    # Enforce addon limit from billing plan (legacy plugins count toward same limit)
+    try:
+        from nso.engine.billing.service import check_plan_limit_for_project
+        installed = await db.fetch_all("plugins", project_id=project_id)
+        await check_plan_limit_for_project(
+            project_id, "addons", len(installed), "addon",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Plugin limit check failed (allowing): %s", e)
+
     plugin_data = {
         "id": f"plg_{token_gen.token_hex(8)}",
         "project_id": project_id,

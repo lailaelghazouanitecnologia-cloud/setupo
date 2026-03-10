@@ -136,6 +136,15 @@ async def _check_workspace_limit(project_id: str) -> None:
 
 @router.post("", status_code=201, summary="Create workspace")
 async def create_workspace(req: CreateWorkspaceRequest, project_id: str = Depends(require_project_admin)):
+    # Block writes on frozen projects
+    try:
+        from nso.engine.billing.service import check_project_not_frozen
+        await check_project_not_frozen(project_id)
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # Fail open
+
     existing = await db.fetch_one("workspaces", project_id=project_id, name=req.name)
     if existing:
         raise HTTPException(409, f"Workspace '{req.name}' already exists")

@@ -21,6 +21,19 @@ async def create_project(req: CreateProjectRequest) -> tuple[Project, str]:
     if existing:
         raise ConflictError(f"Project '{req.name}' already exists")
 
+    # Enforce project count limit from billing plan
+    if req.owner:
+        try:
+            from nso.engine.billing.service import check_plan_limit
+            owned = await db.fetch_all("projects", owner=req.owner)
+            await check_plan_limit(req.owner, "projects", len(owned), "project")
+        except ConflictError:
+            raise
+        except Exception as e:
+            if hasattr(e, "status_code") and e.status_code == 403:
+                raise
+            logger.warning("Project limit check failed (allowing): %s", e)
+
     api_key = generate_api_key()
     project_id = _gen_id()
 

@@ -119,6 +119,20 @@ async def redeem_invite(code: str, user_id: str) -> dict:
     if existing:
         raise ConflictError("You are already a member of this project")
 
+    # Enforce team member limit from billing plan (checks the project owner's plan)
+    try:
+        from nso.engine.billing.service import check_plan_limit_for_project
+        current_members = await db.fetch_all("project_members", project_id=invite["project_id"])
+        await check_plan_limit_for_project(
+            invite["project_id"], "team_members", len(current_members), "team member",
+        )
+    except ConflictError:
+        raise
+    except Exception as e:
+        if hasattr(e, "status_code") and getattr(e, "status_code", 0) == 403:
+            raise
+        logger.warning("Team member limit check failed (allowing): %s", e)
+
     # Add member
     now = datetime.now(timezone.utc).isoformat()
     member = {

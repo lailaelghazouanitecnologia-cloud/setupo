@@ -263,6 +263,97 @@ USAGE_RATES = {
 
 
 # ──────────────────────────────────────────────
+#  Plan Limit Enforcement
+# ──────────────────────────────────────────────
+
+async def get_user_plan_features(user_id: str) -> dict:
+    """Get the features dict for a user's current plan. Returns free-tier defaults if no subscription."""
+    sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="active")
+    if not sub:
+        sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="trialing")
+    if not sub:
+        sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="past_due")
+
+    if not sub:
+        free = next((p for p in DEFAULT_PLANS if p["code"] == "free"), None)
+        return free["features"] if free else {}
+
+    plan = await db.fetch_one("billing_plans", id=sub.get("plan_id", ""))
+    if not plan:
+        free = next((p for p in DEFAULT_PLANS if p["code"] == "free"), None)
+        return free["features"] if free else {}
+
+    import json as _json
+    features = plan.get("features", "{}")
+    if isinstance(features, str):
+        features = _json.loads(features) if features else {}
+    return features
+
+
+async def check_plan_limit(
+    user_id: str,
+    feature_key: str,
+    current_count: int,
+    resource_name: str = "resources",
+) -> None:
+    """Check if creating one more resource would exceed the plan limit.
+
+    Raises HTTPException(403) for free plans when at limit.
+    Paid plans are soft-limited (allowed but overage logged).
+    -1 means unlimited.
+    """
+    from fastapi import HTTPException
+
+    features = await get_user_plan_features(user_id)
+    limit = features.get(feature_key, -1)
+
+    if limit == -1:
+        return  # Unlimited
+
+    if current_count >= limit:
+        sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="active")
+        if not sub:
+            sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="trialing")
+        if not sub:
+            sub = await db.fetch_one("billing_subscriptions", user_id=user_id, status="past_due")
+
+        is_free = not sub or sub.get("amount_cents", 0) == 0
+
+        if is_free:
+            raise HTTPException(
+                403,
+                f"{resource_name.capitalize()} limit reached ({current_count}/{limit}). "
+                f"Upgrade your plan to add more."
+            )
+        else:
+            logger.info(
+                "User %s over %s limit (%d/%d) — overage will be billed",
+                user_id, feature_key, current_count, limit,
+            )
+
+
+async def _get_owner_for_project(project_id: str) -> str | None:
+    """Look up the owner (user_id) of a project."""
+    project = await db.fetch_one("projects", id=project_id)
+    if not project:
+        return None
+    return project.get("owner")
+
+
+async def check_plan_limit_for_project(
+    project_id: str,
+    feature_key: str,
+    current_count: int,
+    resource_name: str = "resources",
+) -> None:
+    """Same as check_plan_limit but resolves owner from project_id first."""
+    owner_id = await _get_owner_for_project(project_id)
+    if not owner_id:
+        return  # No owner → admin/system project, skip
+    await check_plan_limit(owner_id, feature_key, current_count, resource_name)
+
+
+# ──────────────────────────────────────────────
 #  Plans
 # ──────────────────────────────────────────────
 
@@ -398,19 +489,21 @@ async def create_subscription(user_id: str, plan_code: str, trial: bool = False)
             "proration_credit": proration_credit,
         })
 
-        # On downgrade: check if user has resources exceeding new plan limits
-        if plan["amount_cents"] < existing["amount_cents"]:
-            try:
-                warnings = await _check_downgrade_overages(user_id, plan)
-                if warnings:
-                    await _emit_event(
-                        BillingEventType.SUBSCRIPTION_DOWNGRADED.value,
-                        "downgrade_warning", existing["id"], user_id,
-                        {"warnings": warnings, "new_plan": plan_code},
-                    )
-                    logger.info("Downgrade warnings for user %s: %s", user_id, warnings)
-            except Exception as e:
-                logger.warning("Downgrade check failed (non-blocking): %s", e)
+        # Check resource overages and freeze/unfreeze projects accordingly.
+        # On downgrade: freezes excess projects. On upgrade: unfreezes them.
+        try:
+            warnings = await _check_downgrade_overages(user_id, plan)
+            if warnings:
+                await _emit_event(
+                    BillingEventType.SUBSCRIPTION_DOWNGRADED.value
+                    if plan["amount_cents"] < existing["amount_cents"]
+                    else BillingEventType.SUBSCRIPTION_UPGRADED.value,
+                    "plan_change_warning", existing["id"], user_id,
+                    {"warnings": warnings, "new_plan": plan_code},
+                )
+                logger.info("Plan change warnings for user %s: %s", user_id, warnings)
+        except Exception as e:
+            logger.warning("Overage check failed (non-blocking): %s", e)
 
     now = datetime.now(timezone.utc)
 
@@ -490,8 +583,12 @@ def _calculate_proration(subscription: dict, plan: dict | None) -> int:
 async def _check_downgrade_overages(user_id: str, new_plan: dict) -> list[str]:
     """Check if a user's current resources exceed the new plan limits.
 
-    Returns a list of human-readable warnings. Does NOT block the downgrade —
-    existing resources continue running, but new ones are blocked by quotas.
+    When projects exceed the new limit, excess projects (oldest first, excluding
+    system projects) are frozen. Frozen projects are read-only — no deploys,
+    no new workspaces, no new resources. The user can unfreeze by upgrading
+    or deleting other projects to get under the limit.
+
+    Returns a list of human-readable warnings.
     """
     import json as _json
     features = new_plan.get("features", "{}")
@@ -500,30 +597,126 @@ async def _check_downgrade_overages(user_id: str, new_plan: dict) -> list[str]:
 
     warnings = []
     projects = await db.fetch_all("projects", owner=user_id)
-    project_count = len(projects)
+
+    # Filter out system projects
+    regular_projects = []
+    for p in projects:
+        settings = p.get("settings")
+        if isinstance(settings, str):
+            try:
+                settings = _json.loads(settings)
+            except Exception:
+                settings = {}
+        if isinstance(settings, dict) and settings.get("system"):
+            continue
+        regular_projects.append(p)
+
+    project_count = len(regular_projects)
     max_projects = features.get("projects", -1)
+
     if max_projects != -1 and project_count > max_projects:
         warnings.append(f"Projects: {project_count}/{max_projects} (over limit)")
+
+        # Freeze excess projects — keep the most recently used, freeze oldest
+        # Sort by created_at ascending so oldest are first (to be frozen)
+        sorted_projects = sorted(regular_projects, key=lambda p: p.get("created_at", ""))
+        excess_count = project_count - max_projects
+        to_freeze = sorted_projects[:excess_count]
+        to_keep = sorted_projects[excess_count:]
+
+        for p in to_freeze:
+            settings = p.get("settings")
+            if isinstance(settings, str):
+                try:
+                    settings = _json.loads(settings)
+                except Exception:
+                    settings = {}
+            if not isinstance(settings, dict):
+                settings = {}
+            if not settings.get("frozen"):
+                settings["frozen"] = True
+                settings["frozen_reason"] = "plan_downgrade"
+                await db.update("projects", p["id"], {"settings": settings})
+                warnings.append(f"Project '{p.get('name', p['id'])}' frozen (over plan limit)")
+                logger.info("Froze project %s (downgrade overage)", p["id"])
+
+        # Unfreeze projects that are within the limit (in case of re-upgrade)
+        for p in to_keep:
+            settings = p.get("settings")
+            if isinstance(settings, str):
+                try:
+                    settings = _json.loads(settings)
+                except Exception:
+                    settings = {}
+            if isinstance(settings, dict) and settings.get("frozen") and settings.get("frozen_reason") == "plan_downgrade":
+                settings.pop("frozen", None)
+                settings.pop("frozen_reason", None)
+                await db.update("projects", p["id"], {"settings": settings})
+                logger.info("Unfroze project %s (within new plan limit)", p["id"])
+
+    elif max_projects == -1 or project_count <= max_projects:
+        # Under limit — unfreeze any previously frozen projects
+        for p in regular_projects:
+            settings = p.get("settings")
+            if isinstance(settings, str):
+                try:
+                    settings = _json.loads(settings)
+                except Exception:
+                    settings = {}
+            if isinstance(settings, dict) and settings.get("frozen") and settings.get("frozen_reason") == "plan_downgrade":
+                settings.pop("frozen", None)
+                settings.pop("frozen_reason", None)
+                await db.update("projects", p["id"], {"settings": settings})
+                logger.info("Unfroze project %s (upgrade resolved overage)", p["id"])
 
     # Check managed instances across all projects
     max_managed = features.get("managed_instances", -1)
     if max_managed != -1:
         from nso.engine.compute.quota import count_project_active_vms
         total_vms = 0
-        for p in projects:
+        for p in regular_projects:
             total_vms += await count_project_active_vms(p["id"])
         if total_vms > max_managed:
-            warnings.append(f"Managed instances: {total_vms}/{max_managed} (over limit)")
+            warnings.append(f"Managed instances: {total_vms}/{max_managed} (over limit — existing VMs keep running)")
 
     # Check workspaces per project
     max_ws = features.get("workspaces_per_project", -1)
     if max_ws != -1:
-        for p in projects:
+        for p in regular_projects:
             ws = await db.fetch_all("workspaces", project_id=p["id"])
             if len(ws) > max_ws:
                 warnings.append(f"Project '{p.get('name', p['id'])}': {len(ws)}/{max_ws} workspaces (over limit)")
 
     return warnings
+
+
+async def check_project_not_frozen(project_id: str) -> None:
+    """Raise HTTPException(403) if a project is frozen due to plan downgrade.
+
+    Should be called on write operations (create workspace, deploy, add domain, etc.)
+    """
+    import json as _json
+    from fastapi import HTTPException
+
+    project = await db.fetch_one("projects", id=project_id)
+    if not project:
+        return
+
+    settings = project.get("settings")
+    if isinstance(settings, str):
+        try:
+            settings = _json.loads(settings)
+        except Exception:
+            return
+    if isinstance(settings, dict) and settings.get("frozen"):
+        reason = settings.get("frozen_reason", "unknown")
+        if reason == "plan_downgrade":
+            raise HTTPException(
+                403,
+                "This project is frozen because you exceeded your plan's project limit. "
+                "Upgrade your plan or delete other projects to unfreeze it."
+            )
+        raise HTTPException(403, f"This project is frozen ({reason}).")
 
 
 async def cancel_subscription(user_id: str, reason: str = "") -> dict:

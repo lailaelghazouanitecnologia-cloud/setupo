@@ -281,6 +281,18 @@ async def install_addon(req: InstallPluginRequest, addon_type: str = "plugin", p
     if existing:
         raise HTTPException(409, f"Addon '{req.plugin_id}' is already installed")
 
+    # Enforce addon limit from billing plan
+    try:
+        from nso.engine.billing.service import check_plan_limit_for_project
+        installed = await db.fetch_all("addons", project_id=project_id)
+        await check_plan_limit_for_project(
+            project_id, "addons", len(installed), "addon",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Addon limit check failed (allowing): %s", e)
+
     addon_data = {
         "id": f"adn_{token_gen.token_hex(8)}",
         "project_id": project_id,

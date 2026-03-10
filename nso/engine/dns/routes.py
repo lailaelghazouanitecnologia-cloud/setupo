@@ -14,6 +14,19 @@ router = APIRouter()
 
 @router.post("", status_code=201, summary="Add domain")
 async def create_domain(req: CreateDomainRequest, project_id: str = Depends(require_project_admin)):
+    # Block writes on frozen projects + enforce domain limit
+    try:
+        from nso.engine.billing.service import check_project_not_frozen, check_plan_limit_for_project
+        await check_project_not_frozen(project_id)
+        current_domains = await db.fetch_all("domains", project_id=project_id)
+        await check_plan_limit_for_project(
+            project_id, "custom_domains", len(current_domains), "custom domain",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Domain limit/frozen check failed (allowing): %s", e)
+
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:
         raise HTTPException(404, "Machine not found")

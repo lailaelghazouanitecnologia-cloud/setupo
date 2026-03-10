@@ -139,6 +139,15 @@ async def deploy_to_instance(
     branch: str = "main",
     command: str | None = None,
 ) -> dict:
+    # Block deploys on frozen projects
+    try:
+        from nso.engine.billing.service import check_project_not_frozen
+        await check_project_not_frozen(project_id)
+    except Exception as e:
+        if hasattr(e, "status_code") and getattr(e, "status_code", 0) == 403:
+            raise
+        logger.warning("Frozen check failed (allowing): %s", e)
+
     await _check_deploy_limit(project_id)
 
     inst = await db.fetch_one("instances", id=instance_id)
