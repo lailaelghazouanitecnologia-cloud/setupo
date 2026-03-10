@@ -107,6 +107,7 @@ async def generate_location_blocks() -> str:
             proxy_set_header X-Forwarded-Proto $scheme;
         {extra_headers}    proxy_connect_timeout 5s;
             proxy_read_timeout 60s;
+            proxy_buffering off;
         }}
         """)
         blocks.append(block)
