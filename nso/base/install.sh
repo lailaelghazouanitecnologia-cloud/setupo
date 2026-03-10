@@ -18,6 +18,8 @@ NSO_TOKEN="${NSO_TOKEN:-}"
 NSO_DOMAIN="${NSO_DOMAIN:-}"
 NSO_ADMIN_EMAIL="${NSO_ADMIN_EMAIL:-}"
 NSO_ADMIN_PASSWORD="${NSO_ADMIN_PASSWORD:-}"
+NSO_CENTRAL="${NSO_CENTRAL:-false}"  # Set to true to install as central server with PostgreSQL
+DB_PASSWORD="${DB_PASSWORD:-}"
 
 # ── Colors ──
 RED='\033[0;31m'
@@ -40,6 +42,8 @@ while [[ $# -gt 0 ]]; do
         --domain)   NSO_DOMAIN="$2"; shift 2 ;;
         --email)    NSO_ADMIN_EMAIL="$2"; shift 2 ;;
         --password) NSO_ADMIN_PASSWORD="$2"; shift 2 ;;
+        --central)  NSO_CENTRAL="true"; shift ;;
+        --db-password) DB_PASSWORD="$2"; shift 2 ;;
         --help)
             echo "Usage: curl -fsSL https://nso.dev/install | bash -s -- [OPTIONS]"
             echo ""
@@ -98,6 +102,26 @@ apt-get update -qq
 apt-get install -y -qq nginx certbot python3-certbot-nginx python3-pip python3-venv \
     git curl ufw jq unzip fail2ban > /dev/null 2>&1
 ok "System packages installed"
+
+# ── Step 1b: PostgreSQL (central server only) ──
+if [[ "$NSO_CENTRAL" == "true" ]]; then
+    info "Installing PostgreSQL (central server mode)..."
+    apt-get install -y -qq postgresql postgresql-contrib > /dev/null 2>&1
+    systemctl enable postgresql
+    systemctl start postgresql
+
+    [[ -z "$DB_PASSWORD" ]] && DB_PASSWORD=$(openssl rand -hex 24)
+    DATABASE_URL="postgresql://nso:${DB_PASSWORD}@localhost:5432/nso"
+
+    # Create user and database
+    sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='nso'" | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE USER nso WITH PASSWORD '${DB_PASSWORD}';" > /dev/null
+    sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='nso'" | grep -q 1 \
+        || sudo -u postgres psql -c "CREATE DATABASE nso OWNER nso;" > /dev/null
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE nso TO nso;" > /dev/null
+    sudo -u postgres psql -d nso -c "GRANT ALL ON SCHEMA public TO nso;" > /dev/null
+    ok "PostgreSQL ready (user: nso, db: nso)"
+fi
 
 # ── Step 2: Node.js 20 ──
 if ! command -v node &>/dev/null || [[ $(node -v 2>/dev/null | cut -d. -f1 | tr -d v) -lt 18 ]]; then
@@ -170,6 +194,7 @@ NSO_JWT_SECRET=${NSO_JWT_SECRET}
 NSO_AGENT_HOST=127.0.0.1
 NSO_AGENT_PORT=${NSO_AGENT_PORT}
 NSO_CENTRAL_URL=${NSO_HOST}
+${NSO_CENTRAL:+DATABASE_URL=${DATABASE_URL:-}}
 AGENT_ENV
 chmod 600 $NSO_DIR/config/agent.env
 ok "Agent configured"
@@ -326,6 +351,10 @@ echo -e "  Server IP:   ${BLUE}${SERVER_IP}${NC}"
 [[ -n "$NSO_DOMAIN" ]] && echo -e "  Domain:      ${BLUE}${NSO_DOMAIN}${NC}"
 echo -e "  Agent:       ${BLUE}http://${SERVER_IP}:${NSO_AGENT_PORT}/health${NC}"
 echo -e "  Admin pass:  ${YELLOW}${NSO_ADMIN_PASSWORD}${NC}"
+if [[ "$NSO_CENTRAL" == "true" ]]; then
+    echo -e "  DB URL:      ${YELLOW}${DATABASE_URL}${NC}"
+    echo -e "  DB Password: ${YELLOW}${DB_PASSWORD}${NC}"
+fi
 echo ""
 echo -e "  ${BLUE}Save this password — you'll need it to connect.${NC}"
 echo ""
