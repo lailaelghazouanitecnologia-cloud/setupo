@@ -550,8 +550,8 @@ function CreateBucketForm({ projectId, onCreated, onCancel }: {
 
 /* ── Bucket Detail (File Browser) ── */
 
-const MAX_UPLOAD_MB = 50;
-const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
+const MAX_UPLOAD_GB = 5;
+const MAX_UPLOAD_BYTES = MAX_UPLOAD_GB * 1024 * 1024 * 1024;
 const BLOCKED_EXTENSIONS = new Set([
   ".iso", ".img", ".vmdk", ".vhd", ".vhdx", ".qcow2", ".ova", ".ovf",
   ".dmg", ".sparseimage", ".raw",
@@ -563,7 +563,7 @@ const BLOCKED_EXTENSIONS = new Set([
 
 function validateUploadFile(file: File): string | null {
   if (file.size > MAX_UPLOAD_BYTES) {
-    return `File too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max is ${MAX_UPLOAD_MB}MB.`;
+    return `File too large (${(file.size / (1024 * 1024 * 1024)).toFixed(2)}GB). Max is ${MAX_UPLOAD_GB}GB.`;
   }
   const name = file.name.toLowerCase();
   const ext = name.includes(".") ? "." + name.split(".").pop() : "";
@@ -667,7 +667,7 @@ function BucketDetail({ bucket, projectId, onBack }: {
         <button className="btn-sm btn-primary" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           <Upload className="h-3.5 w-3.5" /> {uploading ? "Uploading..." : "Upload"}
         </button>
-        <span className="text-xs opacity-50">Max {MAX_UPLOAD_MB}MB per file</span>
+        <span className="text-xs opacity-50">Max {MAX_UPLOAD_GB}GB per file (large files upload direct to R2)</span>
         <input ref={fileInputRef} type="file" className="hidden" onChange={handleUpload} />
       </div>
 

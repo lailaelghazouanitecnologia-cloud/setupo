@@ -219,6 +219,60 @@ class R2Client:
 
         return f"{self.endpoint}{path}?{query_params}&X-Amz-Signature={signature}"
 
+    def presign_put(self, key: str, content_type: str = "application/octet-stream",
+                    expires_in: int = 900) -> str:
+        """Generate a presigned PUT URL valid for `expires_in` seconds (default 15min)."""
+        now = datetime.now(timezone.utc)
+        date_stamp = now.strftime("%Y%m%d")
+        amz_date = now.strftime("%Y%m%dT%H%M%SZ")
+        host = self.endpoint.replace("https://", "").replace("http://", "")
+
+        credential_scope = f"{date_stamp}/{REGION}/{SERVICE}/aws4_request"
+        credential = f"{self.access_key}/{credential_scope}"
+
+        path = f"/{self.bucket}/{quote(key, safe='/')}"
+        query_params = (
+            f"X-Amz-Algorithm=AWS4-HMAC-SHA256"
+            f"&X-Amz-Credential={quote(credential, safe='')}"
+            f"&X-Amz-Date={amz_date}"
+            f"&X-Amz-Expires={expires_in}"
+            f"&X-Amz-SignedHeaders=content-type%3Bhost"
+        )
+
+        canonical_request = (
+            f"PUT\n"
+            f"{path}\n"
+            f"{query_params}\n"
+            f"content-type:{content_type}\n"
+            f"host:{host}\n\n"
+            f"content-type;host\n"
+            f"UNSIGNED-PAYLOAD"
+        )
+
+        string_to_sign = (
+            f"AWS4-HMAC-SHA256\n"
+            f"{amz_date}\n"
+            f"{credential_scope}\n"
+            f"{hashlib.sha256(canonical_request.encode()).hexdigest()}"
+        )
+
+        def _hmac_sha256(k: bytes, msg: str) -> bytes:
+            return hmac.new(k, msg.encode(), hashlib.sha256).digest()
+
+        signing_key = _hmac_sha256(
+            _hmac_sha256(
+                _hmac_sha256(
+                    _hmac_sha256(f"AWS4{self.secret_key}".encode(), date_stamp),
+                    REGION,
+                ),
+                SERVICE,
+            ),
+            "aws4_request",
+        )
+        signature = hmac.new(signing_key, string_to_sign.encode(), hashlib.sha256).hexdigest()
+
+        return f"{self.endpoint}{path}?{query_params}&X-Amz-Signature={signature}"
+
     async def list_keys(self, prefix: str) -> list[str]:
         payload_hash = hashlib.sha256(b"").hexdigest()
         sign_headers = self._sign("GET", "", {}, payload_hash)

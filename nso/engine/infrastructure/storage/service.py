@@ -152,6 +152,52 @@ async def delete_object(project_id: str, bucket_id: str, key: str):
     logger.info("Deleted %s from bucket %s", key, bucket_id)
 
 
+async def get_upload_url(project_id: str, bucket_id: str, key: str,
+                         content_type: str = "application/octet-stream",
+                         size: int = 0) -> dict:
+    """Generate a presigned PUT URL for direct browser-to-R2 upload."""
+    bucket = await get_bucket(project_id, bucket_id)
+
+    if ".." in key or key.startswith("/"):
+        raise NsoError(400, "Invalid object key")
+
+    full_key = bucket["r2_prefix"] + key
+    r2 = _r2()
+    try:
+        url = r2.presign_put(full_key, content_type=content_type, expires_in=900)
+    finally:
+        await r2.close()
+
+    logger.info("Generated presigned PUT URL for %s in bucket %s (size=%d)", key, bucket_id, size)
+    return {
+        "upload_url": url,
+        "key": key,
+        "content_type": content_type,
+        "expires_in": 900,
+        "method": "PUT",
+        "headers": {"Content-Type": content_type},
+    }
+
+
+async def confirm_upload(project_id: str, bucket_id: str, key: str) -> dict:
+    """Confirm that a presigned upload completed; refresh bucket stats."""
+    bucket = await get_bucket(project_id, bucket_id)
+    full_key = bucket["r2_prefix"] + key
+
+    # Verify the object actually exists in R2
+    r2 = _r2()
+    try:
+        exists = await r2.exists(full_key)
+        if not exists:
+            raise NsoError(404, f"Object '{key}' not found in R2 — upload may have failed")
+    finally:
+        await r2.close()
+
+    await _refresh_bucket_stats(project_id, bucket_id)
+    logger.info("Confirmed upload of %s in bucket %s", key, bucket_id)
+    return {"key": key, "confirmed": True}
+
+
 async def _refresh_bucket_stats(project_id: str, bucket_id: str):
     """Update cached size and object count for a bucket."""
     bucket = await get_bucket(project_id, bucket_id)

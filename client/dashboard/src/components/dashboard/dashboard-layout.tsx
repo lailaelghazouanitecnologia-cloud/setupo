@@ -6,7 +6,8 @@ import {
   X, LogOut, ChevronDown, Settings, Rocket,
   Bell, Wallet, CreditCard, Sun, Moon,
   FolderOpen, Plus, Check, Layers, Shield, Cpu,
-  Users, Copy, Link, Trash2, Crown, Eye,
+  Users, Copy, Link, Trash2, Crown, Eye, Download,
+  ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDashboardStore } from "@/stores/dashboard-store";
@@ -340,30 +341,63 @@ function UserProfile() {
       <button
         className="user-profile-trigger"
         onClick={() => setMenuOpen(!menuOpen)}
+        style={{
+          display: "flex", alignItems: "center", gap: 12,
+          width: "100%", padding: "12px 8px", margin: 0,
+          borderRadius: 0, border: "none",
+          background: "transparent", cursor: "pointer",
+          transition: "gap 0.15s ease-out",
+        }}
       >
-        <div className="user-profile-avatar">{initial}</div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div className="user-profile-email">{userEmail || "User"}</div>
-          <div className="user-profile-role">{userRole || "user"}</div>
+        {/* Avatar circle */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <div style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            borderRadius: "50%", width: 36, height: 36,
+            background: "var(--muted-foreground)", color: "var(--background)",
+            fontSize: 16, fontWeight: 700, userSelect: "none",
+            transition: "opacity 0.2s ease",
+          }}>
+            {initial}
+          </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+
+        {/* Name + plan */}
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", alignItems: "flex-start", paddingRight: 4 }}>
+          <span style={{
+            width: "100%", textAlign: "left", display: "block",
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontSize: "0.875rem", fontWeight: 500, color: "var(--foreground)",
+          }}>
+            {(userEmail || "User").split("@")[0]}
+          </span>
+          <span style={{
+            width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            fontSize: "0.75rem", color: "var(--muted-foreground)", fontWeight: 400, textAlign: "left",
+          }}>
+            {userRole === "admin" ? "Admin" : "Free plan"}
+          </span>
+        </div>
+
+        {/* Action buttons */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {/* Download/apps button */}
           <div
             role="button"
             tabIndex={0}
-            className="add-node-btn"
-            title="Add node"
+            title="Get apps and extensions"
             onClick={(e) => {
               e.stopPropagation();
-              setActiveView("infrastructure");
+              window.location.href = "/download";
             }}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.stopPropagation();
-                setActiveView("infrastructure");
+                window.location.href = "/download";
               }
             }}
             style={{
-              width: 28, height: 28, borderRadius: 6,
+              width: 32, height: 32, borderRadius: 8,
               display: "flex", alignItems: "center", justifyContent: "center",
               border: "0.5px solid var(--border)",
               background: "transparent",
@@ -373,7 +407,7 @@ function UserProfile() {
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.background = "var(--accent)";
-              e.currentTarget.style.color = "var(--color-teal)";
+              e.currentTarget.style.color = "var(--foreground)";
               e.currentTarget.style.borderColor = "transparent";
             }}
             onMouseLeave={(e) => {
@@ -382,15 +416,14 @@ function UserProfile() {
               e.currentTarget.style.borderColor = "var(--border)";
             }}
           >
-            <Cpu className="h-3.5 w-3.5" />
+            <Download className="h-4 w-4" />
           </div>
-          <ChevronDown
-            className="h-3 w-3"
+          {/* Chevron */}
+          <ChevronsUpDown
+            className="h-3.5 w-3.5"
             style={{
               color: "var(--muted-foreground)",
-              opacity: 0.6,
-              transform: menuOpen ? "rotate(180deg)" : "rotate(0)",
-              transition: "transform 0.15s ease",
+              flexShrink: 0,
             }}
           />
         </div>

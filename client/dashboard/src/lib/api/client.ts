@@ -1799,11 +1799,49 @@ export async function listBucketObjects(projectId: string, bucketId: string, pre
   return centralApi<{ objects: any[]; count: number }>(`/api/projects/${projectId}/storage/buckets/${bucketId}/objects${qs}`);
 }
 
+export async function getUploadUrl(projectId: string, bucketId: string, key: string, contentType: string, size: number) {
+  return centralApi<{
+    upload_url: string;
+    key: string;
+    content_type: string;
+    expires_in: number;
+    method: string;
+    headers: Record<string, string>;
+  }>(`/api/projects/${projectId}/storage/buckets/${bucketId}/upload-url`, {
+    method: "POST",
+    body: JSON.stringify({ key, content_type: contentType, size }),
+  });
+}
+
+export async function confirmUpload(projectId: string, bucketId: string, key: string) {
+  return centralApi<{ key: string; confirmed: boolean }>(
+    `/api/projects/${projectId}/storage/buckets/${bucketId}/confirm-upload`,
+    { method: "POST", body: JSON.stringify({ key }) },
+  );
+}
+
 export async function uploadObject(projectId: string, bucketId: string, file: File, key?: string) {
+  const objectKey = key || file.name;
+
+  // For files > 50MB, use presigned URL (direct browser → R2)
+  if (file.size > 50 * 1024 * 1024) {
+    const urlData = await getUploadUrl(projectId, bucketId, objectKey, file.type || "application/octet-stream", file.size);
+    const putResp = await fetch(urlData.upload_url, {
+      method: "PUT",
+      headers: { "Content-Type": urlData.content_type },
+      body: file,
+    });
+    if (!putResp.ok) {
+      throw new Error(`Direct upload failed: ${putResp.status} ${putResp.statusText}`);
+    }
+    return confirmUpload(projectId, bucketId, objectKey);
+  }
+
+  // For smaller files, use the existing multipart upload
   const token = getToken("nso_api_token");
   const form = new FormData();
   form.append("file", file);
-  const qs = key ? `?key=${encodeURIComponent(key)}` : `?key=${encodeURIComponent(file.name)}`;
+  const qs = `?key=${encodeURIComponent(objectKey)}`;
   const resp = await fetch(`${API_BASE}/api/projects/${projectId}/storage/buckets/${bucketId}/upload${qs}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },

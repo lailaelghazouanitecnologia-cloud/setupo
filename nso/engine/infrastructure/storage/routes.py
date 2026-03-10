@@ -116,6 +116,70 @@ async def list_objects(bucket_id: str, prefix: str = "",
     return {"objects": objects, "count": len(objects)}
 
 
+class UploadUrlRequest(BaseModel):
+    key: str
+    content_type: str = "application/octet-stream"
+    size: int = 0  # expected size in bytes (for quota check)
+
+
+class ConfirmUploadRequest(BaseModel):
+    key: str
+
+
+@router.post("/buckets/{bucket_id}/upload-url", summary="Get presigned upload URL")
+async def get_upload_url(bucket_id: str, req: UploadUrlRequest,
+                         project_id: str = Depends(require_project)):
+    """Generate a presigned PUT URL for direct browser-to-R2 upload (up to 5GB)."""
+    _check_file_allowed(req.key, req.content_type)
+
+    # Quota check
+    try:
+        from nso.shared import db
+        from nso.engine.billing.service import check_project_not_frozen, _get_owner_for_project, get_user_plan_features
+        await check_project_not_frozen(project_id)
+
+        if req.size > 0:
+            owner_id = await _get_owner_for_project(project_id)
+            if owner_id:
+                features = await get_user_plan_features(owner_id)
+                storage_limit_gb = features.get("storage_gb", -1)
+                if storage_limit_gb != -1:
+                    buckets = await db.fetch_all("storage_buckets", project_id=project_id)
+                    total_bytes = sum(b.get("size_bytes", 0) for b in buckets)
+                    total_gb = (total_bytes + req.size) / (1024 ** 3)
+                    if total_gb >= storage_limit_gb:
+                        sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="active")
+                        is_free = not sub or sub.get("amount_cents", 0) == 0
+                        if is_free:
+                            raise HTTPException(
+                                403,
+                                f"Storage limit would be exceeded ({total_gb:.1f}GB/{storage_limit_gb}GB). "
+                                f"Upgrade your plan to upload more."
+                            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Storage limit check failed (allowing): %s", e)
+
+    try:
+        return await service.get_upload_url(
+            project_id, bucket_id, req.key,
+            content_type=req.content_type, size=req.size,
+        )
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
+@router.post("/buckets/{bucket_id}/confirm-upload", summary="Confirm presigned upload")
+async def confirm_upload(bucket_id: str, req: ConfirmUploadRequest,
+                         project_id: str = Depends(require_project)):
+    """Confirm that a direct upload to R2 completed successfully."""
+    try:
+        return await service.confirm_upload(project_id, bucket_id, req.key)
+    except NsoError as e:
+        raise HTTPException(e.status_code, e.message)
+
+
 @router.post("/buckets/{bucket_id}/upload", summary="Upload object")
 async def upload_object(bucket_id: str, request: Request,
                         file: UploadFile = File(...),
