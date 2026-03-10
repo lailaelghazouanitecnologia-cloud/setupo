@@ -91,7 +91,7 @@ def _validate_path(ws_path: str, relative: str) -> str:
 
 
 async def _check_workspace_limit(project_id: str) -> None:
-    """Enforce workspace limit from billing plan. Free plan = hard limit; paid = soft (overage billed)."""
+    """Enforce workspace-per-project limit from billing plan. Free = hard limit; paid = soft (overage billed)."""
     try:
         from nso.engine.compute.quota import get_owner_for_project
         owner_id = await get_owner_for_project(project_id)
@@ -113,14 +113,15 @@ async def _check_workspace_limit(project_id: str) -> None:
         if isinstance(features, str):
             features = _json.loads(features) if features else {}
 
-        max_workspaces = features.get("workspaces", -1)
+        # Support both old "workspaces" key and new "workspaces_per_project" key
+        max_workspaces = features.get("workspaces_per_project", features.get("workspaces", -1))
         if max_workspaces == -1:
             return  # Unlimited
 
         current = await db.fetch_all("workspaces", project_id=project_id)
         current_count = len(current)
 
-        # Free plan: hard limit
+        # Free plan: hard limit; paid plans: soft limit (overage billed)
         if plan.get("amount_cents", 0) == 0 and current_count >= max_workspaces:
             raise HTTPException(
                 403,

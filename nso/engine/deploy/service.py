@@ -57,7 +57,7 @@ async def _log(instance_id: str, message: str, level: str = "info"):
 
 
 async def _check_deploy_limit(project_id: str) -> None:
-    """Enforce deploys-per-day limit from billing plan. Free = hard limit; paid = no cap."""
+    """Enforce deploys-per-day limit from billing plan. Hard limit for all tiers with a cap; -1 = unlimited."""
     try:
         from nso.engine.compute.quota import get_owner_for_project
         owner_id = await get_owner_for_project(project_id)
@@ -74,10 +74,6 @@ async def _check_deploy_limit(project_id: str) -> None:
         if not plan:
             return
 
-        # Only enforce hard limit for free plans
-        if plan.get("amount_cents", 0) > 0:
-            return
-
         import json as _json
         features = plan.get("features", "{}")
         if isinstance(features, str):
@@ -85,7 +81,7 @@ async def _check_deploy_limit(project_id: str) -> None:
 
         max_deploys = features.get("deploys_per_day", -1)
         if max_deploys == -1:
-            return
+            return  # Unlimited (Pro, Team)
 
         # Count today's deploys for this project
         from datetime import datetime, timezone

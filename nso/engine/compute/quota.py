@@ -25,11 +25,12 @@ logger = logging.getLogger("nso.compute.quota")
 
 
 # ── Default limits (no custom quota set) ──
+# Defaults match free tier: no managed instances allowed (BYOV only).
 
-DEFAULT_MAX_VMS = 3
-DEFAULT_MAX_VCPUS = 4
-DEFAULT_MAX_RAM_MB = 4096
-DEFAULT_ALLOWED_PLANS = ["free", "starter"]
+DEFAULT_MAX_VMS = 0
+DEFAULT_MAX_VCPUS = 0
+DEFAULT_MAX_RAM_MB = 0
+DEFAULT_ALLOWED_PLANS: list[str] = []
 
 
 # ── Migration ──
@@ -38,10 +39,10 @@ QUOTA_MIGRATIONS = [
     """
     CREATE TABLE IF NOT EXISTS compute_quotas (
         project_id TEXT PRIMARY KEY,
-        max_vms INTEGER DEFAULT 3,
-        max_vcpus INTEGER DEFAULT 4,
-        max_ram_mb INTEGER DEFAULT 4096,
-        allowed_plans TEXT DEFAULT '["free","starter"]',
+        max_vms INTEGER DEFAULT 0,
+        max_vcpus INTEGER DEFAULT 0,
+        max_ram_mb INTEGER DEFAULT 0,
+        allowed_plans TEXT DEFAULT '[]',
         notes TEXT DEFAULT '',
         updated_at TEXT DEFAULT (datetime('now')),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
@@ -254,15 +255,15 @@ async def get_owner_for_project(project_id: str) -> str | None:
 
 # ── Plan-to-quota mapping ──
 
-# The billing plan defines the INCLUDED baseline (free tier of resources).
-# Users can exceed these limits — overage is billed per usage rates.
-# allowed_plans controls which compute VM sizes are available for the project.
-# max_vms = -1 means no hard cap (pay-as-you-go beyond included).
+# These limits apply ONLY to managed instances (Vultr VPS created via NSO).
+# BYOV (Bring Your Own VPS) servers are always unlimited — they don't cost us.
+# max_vms = hard cap on managed instances for the billing tier.
+# allowed_plans = which compute VM sizes (micro/small/medium/large) are available.
 PLAN_QUOTA_MAP = {
-    "free":    {"max_vms": 1,  "max_vcpus": 1,  "max_ram_mb": 512,   "allowed_plans": ["free"]},
-    "starter": {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter"]},
-    "pro":     {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter", "pro"]},
-    "scale":   {"max_vms": -1, "max_vcpus": -1,  "max_ram_mb": -1,    "allowed_plans": ["free", "starter", "pro", "business"]},
+    "free":  {"max_vms": 0,  "max_vcpus": 0,  "max_ram_mb": 0,     "allowed_plans": []},
+    "hobby": {"max_vms": 1,  "max_vcpus": 1,  "max_ram_mb": 1024,  "allowed_plans": ["micro", "small"]},
+    "pro":   {"max_vms": 3,  "max_vcpus": 8,  "max_ram_mb": 16384, "allowed_plans": ["micro", "small", "medium"]},
+    "team":  {"max_vms": 10, "max_vcpus": 40, "max_ram_mb": 81920, "allowed_plans": ["micro", "small", "medium", "large"]},
 }
 
 
