@@ -157,9 +157,11 @@ async def _refresh_bucket_stats(project_id: str, bucket_id: str):
     bucket = await get_bucket(project_id, bucket_id)
     r2 = _r2()
     try:
-        keys = await r2.list_keys(bucket["r2_prefix"])
+        objects = await r2.list_keys_with_sizes(bucket["r2_prefix"])
+        total_size = sum(obj["size"] for obj in objects)
         await db.update("storage_buckets", bucket_id, {
-            "object_count": len(keys),
+            "object_count": len(objects),
+            "size_bytes": total_size,
         })
     except Exception as e:
         logger.warning("Failed to refresh stats for bucket %s: %s", bucket_id, e)

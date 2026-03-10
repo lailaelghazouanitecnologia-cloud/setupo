@@ -2,7 +2,7 @@ DB_MIGRATIONS = [
     """CREATE TABLE IF NOT EXISTS managed_databases (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
-        instance_id TEXT NOT NULL,
+        instance_id TEXT,
         name TEXT NOT NULL,
         engine TEXT DEFAULT 'postgresql',
         version TEXT DEFAULT '16',
@@ -17,7 +17,7 @@ DB_MIGRATIONS = [
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         ready_at TEXT,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE CASCADE
+        FOREIGN KEY (instance_id) REFERENCES instances(id) ON DELETE SET NULL
     )""",
     "CREATE INDEX IF NOT EXISTS idx_managed_databases_project ON managed_databases(project_id)",
     "CREATE INDEX IF NOT EXISTS idx_managed_databases_instance ON managed_databases(instance_id)",

@@ -72,6 +72,12 @@ class Settings:
 
     SERVE_STATIC = bool(os.environ.get("NSO_SERVE_STATIC", ""))
 
+    # Managed database host (where PostgreSQL instances run)
+    MANAGED_DB_HOST = os.environ.get("NSO_MANAGED_DB_HOST", "65.20.102.242")
+
+    # Encryption key for secrets at rest (Fernet, auto-generated if not set)
+    ENCRYPTION_KEY = os.environ.get("NSO_ENCRYPTION_KEY", "")
+
     SMTP_HOST = os.environ.get("SMTP_HOST", "")
     try:
         SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))

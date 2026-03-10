@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import httpx
 
 from nso.shared import db
+from nso.shared.crypto import encrypt, decrypt
 from nso.shared.errors import NotFoundError, ConflictError, NsoError
 from nso.config import settings
 
@@ -65,15 +66,15 @@ async def _agent_exec(ip: str, command: str, timeout: int = 60) -> tuple[str, in
 # ── NSO-managed DB host ──────────────────────────────────────────
 
 # All managed databases run on NSO infrastructure, not user instances.
-# The DB host is the main NSO VPS (or a dedicated DB server if configured).
-NSO_DB_HOST_IP = "65.20.102.242"
-NSO_DB_INSTANCE_ID = "__nso_managed__"
+# The DB host is configurable via NSO_MANAGED_DB_HOST env var.
+NSO_DB_HOST_IP = settings.MANAGED_DB_HOST
+NSO_DB_INSTANCE_ID = None  # NULL = managed by NSO infrastructure (no FK reference)
 
 
 async def _get_db_host_ip(record: dict) -> str:
     """Resolve the IP where this database runs."""
-    instance_id = record.get("instance_id", NSO_DB_INSTANCE_ID)
-    if instance_id == NSO_DB_INSTANCE_ID:
+    instance_id = record.get("instance_id")
+    if not instance_id:
         return NSO_DB_HOST_IP
     # Legacy: DB was created on a user instance
     inst = await db.fetch_one("instances", id=instance_id)
@@ -107,7 +108,7 @@ async def create_database(project_id: str, name: str, *,
         "host": ip,
         "port": 5432,
         "db_user": db_user,
-        "password_encrypted": db_password,  # TODO: encrypt at rest
+        "password_encrypted": encrypt(db_password),
         "state": "creating",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
@@ -218,28 +219,44 @@ async def execute_query(project_id: str, database_id: str, sql: str) -> dict:
 
     ip = await _get_db_host_ip(record)
 
-    # Escape SQL for shell (use stdin pipe to avoid shell injection)
-    # We pass SQL via stdin to psql for safety
+    # Use JSON output from psql for reliable parsing (no CSV comma issues)
+    db_password = decrypt(record["password_encrypted"])
+    # Wrap query in a JSON-producing SQL wrapper
+    json_sql = (
+        f"SELECT json_agg(row_to_json(t)) AS data FROM ({sql}) t"
+    )
     cmd = (
-        f"PGPASSWORD='{record['password_encrypted']}' "
+        f"PGPASSWORD='{db_password}' "
         f"psql -h 127.0.0.1 -p {record['port']} -U {record['db_user']} "
-        f"-d {record['name']} -t -A --csv "
-        f"-c $(echo {_shell_b64(sql)} | base64 -d)"
+        f"-d {record['name']} -t -A "
+        f"-c \"$(echo {_shell_b64(json_sql)} | base64 -d)\""
     )
     out, code = await _agent_exec(ip, cmd, timeout=30)
 
     if code != 0:
-        return {"ok": False, "error": out.strip(), "rows": []}
+        # Fallback: try running the original SQL directly (for non-SELECT statements)
+        cmd_raw = (
+            f"PGPASSWORD='{db_password}' "
+            f"psql -h 127.0.0.1 -p {record['port']} -U {record['db_user']} "
+            f"-d {record['name']} -t -A "
+            f"-c \"$(echo {_shell_b64(sql)} | base64 -d)\""
+        )
+        out, code = await _agent_exec(ip, cmd_raw, timeout=30)
+        if code != 0:
+            return {"ok": False, "error": out.strip(), "rows": []}
+        return {"ok": True, "rows": [], "row_count": 0, "output": out.strip()}
 
-    # Parse CSV output
+    # Parse JSON output
+    import json as _json
     rows = []
-    lines = out.strip().split("\n") if out.strip() else []
-    if lines:
-        headers = lines[0].split(",") if lines else []
-        for line in lines[1:]:
-            if line.strip():
-                values = line.split(",")
-                rows.append(dict(zip(headers, values)))
+    raw = out.strip()
+    if raw and raw != "null" and raw != "":
+        try:
+            rows = _json.loads(raw)
+            if not isinstance(rows, list):
+                rows = []
+        except _json.JSONDecodeError:
+            return {"ok": False, "error": f"Failed to parse query result: {raw[:200]}", "rows": []}
 
     return {"ok": True, "rows": rows, "row_count": len(rows)}
 
@@ -262,8 +279,9 @@ async def get_database_status(project_id: str, database_id: str) -> dict:
         f"SELECT pg_database_size('{record['name']}') as size_bytes, "
         f"(SELECT count(*) FROM pg_stat_activity WHERE datname='{record['name']}') as connections"
     )
+    db_password = decrypt(record["password_encrypted"])
     cmd = (
-        f"PGPASSWORD='{record['password_encrypted']}' "
+        f"PGPASSWORD='{db_password}' "
         f"psql -h 127.0.0.1 -U {record['db_user']} -d {record['name']} -t -A -F ',' "
         f"-c \"$(echo {_shell_b64(status_sql)} | base64 -d)\""
     )

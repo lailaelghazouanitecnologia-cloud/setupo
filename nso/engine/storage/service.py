@@ -238,6 +238,38 @@ class R2Client:
             text = text[end:]
         return keys
 
+    async def list_keys_with_sizes(self, prefix: str) -> list[dict]:
+        """List keys with their sizes from R2. Returns [{"key": ..., "size": int}, ...]."""
+        payload_hash = hashlib.sha256(b"").hexdigest()
+        sign_headers = self._sign("GET", "", {}, payload_hash)
+
+        url = f"{self.endpoint}/{self.bucket}?prefix={quote(prefix)}&list-type=2"
+        resp = await self.client.get(url, headers=sign_headers)
+
+        if resp.status_code != 200:
+            return []
+
+        objects = []
+        text = resp.text
+        while "<Key>" in text:
+            key_start = text.index("<Key>") + 5
+            key_end = text.index("</Key>", key_start)
+            key = text[key_start:key_end]
+
+            size = 0
+            size_search = text[key_end:]
+            if "<Size>" in size_search:
+                s_start = size_search.index("<Size>") + 6
+                s_end = size_search.index("</Size>", s_start)
+                try:
+                    size = int(size_search[s_start:s_end])
+                except ValueError:
+                    pass
+
+            objects.append({"key": key, "size": size})
+            text = text[key_end:]
+        return objects
+
     def _zar_key(self, project_id: str, workspace: str, branch: str, version: str) -> str:
         return f"{project_id}/{workspace}/{branch}/v{version}.zar"
 
