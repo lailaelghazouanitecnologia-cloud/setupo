@@ -334,7 +334,7 @@ async def get_balance_proof(user_id: str) -> dict:
         }
 
     user = await db.fetch_one("users", id=user_id)
-    user_balance_cents = int((user.get("balance", 0) if user else 0) * 100)
+    user_balance_cents = user.get("balance_cents", 0) if user else 0
 
     # Sum wallet balances
     d = await db.get_db()

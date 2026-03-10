@@ -5,7 +5,7 @@ TABLES = """
         password_hash TEXT NOT NULL,
         name TEXT DEFAULT '',
         role TEXT DEFAULT 'user',
-        balance REAL DEFAULT 0.00,
+        balance_cents INTEGER DEFAULT 0,
         verified INTEGER DEFAULT 0,
         subdomain TEXT UNIQUE,
         last_active TEXT,
@@ -29,3 +29,14 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_email_tokens_hash ON email_tokens(token_hash);
     CREATE INDEX IF NOT EXISTS idx_email_tokens_user ON email_tokens(user_id);
 """
+
+
+async def run_alterations(conn, logger):
+    """Migrate balance REAL → balance_cents INTEGER for existing databases."""
+    cursor = await conn.execute("PRAGMA table_info(users)")
+    columns = {row[1]: row[2] for row in await cursor.fetchall()}
+    if "balance" in columns and "balance_cents" not in columns:
+        logger.info("Migrating users.balance (REAL) → balance_cents (INTEGER)")
+        await conn.execute("ALTER TABLE users ADD COLUMN balance_cents INTEGER DEFAULT 0")
+        await conn.execute("UPDATE users SET balance_cents = CAST(ROUND(balance * 100) AS INTEGER)")
+        logger.info("Migration complete — balance_cents populated from balance")

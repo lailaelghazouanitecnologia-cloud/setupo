@@ -681,7 +681,7 @@ async def get_balance(auth: AuthContext = Depends(require_user)):
     user = await db.fetch_one("users", id=auth.user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    return {"balance": user["balance"], "currency": "USD"}
+    return {"balance_cents": user.get("balance_cents", 0), "currency": "USD"}
 
 
 @router.get("/transactions", summary="List transactions")
@@ -716,7 +716,8 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
     if not user:
         raise HTTPException(404, "User not found")
 
-    new_balance = user["balance"] + req.amount
+    amount_cents = int(req.amount * 100)
+    new_balance_cents = user.get("balance_cents", 0) + amount_cents
     txn_id = f"txn_{stdlib_secrets.token_hex(12)}"
 
     await db.insert("transactions", {
@@ -727,10 +728,10 @@ async def top_up(req: TopUpRequest, auth: AuthContext = Depends(require_admin)):
         "description": f"Balance top-up: ${req.amount:.2f}",
         "reference": req.reference,
     })
-    await db.update("users", req.user_id, {"balance": new_balance})
+    await db.update("users", req.user_id, {"balance_cents": new_balance_cents})
 
-    logger.info("Top-up: %s +$%.2f (balance: $%.2f)", req.user_id, req.amount, new_balance)
-    return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
+    logger.info("Top-up: %s +$%.2f (balance_cents: %d)", req.user_id, req.amount, new_balance_cents)
+    return {"ok": True, "balance_cents": new_balance_cents, "transaction_id": txn_id}
 
 
 @router.post("/charge", summary="Charge user")
@@ -742,10 +743,12 @@ async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_ad
     user = await db.fetch_one("users", id=req.user_id)
     if not user:
         raise HTTPException(404, "User not found")
-    if user["balance"] < req.amount:
-        raise HTTPException(400, f"Insufficient balance: ${user['balance']:.2f}")
+    amount_cents = int(req.amount * 100)
+    current_cents = user.get("balance_cents", 0)
+    if current_cents < amount_cents:
+        raise HTTPException(400, f"Insufficient balance: ${current_cents / 100:.2f}")
 
-    new_balance = user["balance"] - req.amount
+    new_balance_cents = current_cents - amount_cents
     txn_id = f"txn_{stdlib_secrets.token_hex(12)}"
 
     await db.insert("transactions", {
@@ -756,10 +759,10 @@ async def charge_user(req: ChargeRequest, auth: AuthContext = Depends(require_ad
         "description": req.description or f"Service charge: ${req.amount:.2f}",
         "reference": req.reference,
     })
-    await db.update("users", req.user_id, {"balance": new_balance})
+    await db.update("users", req.user_id, {"balance_cents": new_balance_cents})
 
-    logger.info("Charge: %s -$%.2f (balance: $%.2f)", req.user_id, req.amount, new_balance)
-    return {"ok": True, "balance": new_balance, "transaction_id": txn_id}
+    logger.info("Charge: %s -$%.2f (balance_cents: %d)", req.user_id, req.amount, new_balance_cents)
+    return {"ok": True, "balance_cents": new_balance_cents, "transaction_id": txn_id}
 
 
 # ──────────────────────────────────────────────
@@ -823,7 +826,7 @@ async def list_users(auth: AuthContext = Depends(require_admin)):
                 "email": u["email"],
                 "name": u["name"],
                 "role": u["role"],
-                "balance": u["balance"],
+                "balance_cents": u.get("balance_cents", 0),
                 "verified": u["verified"],
                 "created_at": u["created_at"],
             }

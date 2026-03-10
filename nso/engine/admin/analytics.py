@@ -22,7 +22,7 @@ _ALLOWED_SORTS = {
     "created_at": "created_at",
     "email": "email",
     "name": "name",
-    "balance": "balance",
+    "balance": "balance_cents",
     "last_active": "last_active",
 }
 
@@ -486,8 +486,8 @@ async def run_fraud_scan(admin_id: str = "") -> dict:
     # 3. Suspicious accounts — high balance but no payment records
     d = await db.get_db()
     cursor = await d.execute(
-        "SELECT u.id, u.email, u.balance, u.created_at FROM users u "
-        "WHERE u.balance > 100 AND u.id NOT IN ("
+        "SELECT u.id, u.email, u.balance_cents, u.created_at FROM users u "
+        "WHERE u.balance_cents > 10000 AND u.id NOT IN ("
         "  SELECT DISTINCT user_id FROM billing_invoices WHERE payment_status = 'succeeded'"
         ") AND u.id NOT IN ("
         "  SELECT DISTINCT user_id FROM billing_wallets"
@@ -497,7 +497,7 @@ async def run_fraud_scan(admin_id: str = "") -> dict:
         results["suspicious_accounts"].append({
             "user_id": row[0],
             "email": row[1],
-            "balance": row[2],
+            "balance_cents": row[2],
             "created_at": row[3],
             "reason": "High balance with no payment history",
         })

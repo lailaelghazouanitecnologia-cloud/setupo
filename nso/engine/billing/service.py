@@ -922,8 +922,11 @@ async def void_credit_note(cn_id: str) -> dict:
     return cn
 
 
-async def _apply_credit_notes(user_id: str, amount_cents: int) -> tuple[int, list[dict]]:
-    """Apply available credit notes to reduce an amount. Returns (credits_used, details)."""
+async def _apply_credit_notes(user_id: str, amount_cents: int, conn=None) -> tuple[int, list[dict]]:
+    """Apply available credit notes to reduce an amount. Returns (credits_used, details).
+
+    When called within a db.transaction(), pass conn for atomicity.
+    """
     notes = await db.fetch_all("billing_credit_notes", user_id=user_id, status="available")
     total_applied = 0
     details = []
@@ -938,12 +941,23 @@ async def _apply_credit_notes(user_id: str, amount_cents: int) -> tuple[int, lis
         use = min(available, amount_cents - total_applied)
         total_applied += use
         new_balance = available - use
-
         status = "consumed" if new_balance == 0 else "available"
-        await db.update("billing_credit_notes", cn["id"], {
-            "balance_cents": new_balance,
-            "status": status,
-        })
+
+        if conn:
+            cursor = await conn.execute(
+                "UPDATE billing_credit_notes SET balance_cents = ?, status = ? "
+                "WHERE id = ? AND balance_cents = ?",
+                (new_balance, status, cn["id"], available),
+            )
+            if cursor.rowcount == 0:
+                raise ConflictError(
+                    f"Credit note {cn['id']} changed concurrently — retry"
+                )
+        else:
+            await db.update("billing_credit_notes", cn["id"], {
+                "balance_cents": new_balance,
+                "status": status,
+            })
         details.append({"credit_note_id": cn["id"], "number": cn["number"], "amount_cents": use})
 
     return total_applied, details
@@ -1142,11 +1156,17 @@ async def get_wallet_transactions(wallet_id: str) -> list[dict]:
     return await db.fetch_all("billing_wallet_transactions", wallet_id=wallet_id)
 
 
-async def _debit_wallets(user_id: str, amount_cents: int) -> tuple[int, list[dict]]:
-    """Debit from user's wallets in priority order. Returns (debited, details)."""
+async def _debit_wallets(user_id: str, amount_cents: int, conn=None) -> tuple[int, list[dict]]:
+    """Debit from user's wallets in priority order with optimistic locking.
+
+    When called within a db.transaction(), pass conn to use the same transaction.
+    The optimistic lock ensures balance_cents hasn't changed since we read it,
+    preventing double-spend race conditions.
+    """
     wallets = await db.fetch_all("billing_wallets", user_id=user_id, status="active", order_by="priority ASC")
     total_debited = 0
     details = []
+    now_iso = datetime.now(timezone.utc).isoformat()
 
     for wallet in wallets:
         if total_debited >= amount_cents:
@@ -1155,7 +1175,13 @@ async def _debit_wallets(user_id: str, amount_cents: int) -> tuple[int, list[dic
         if wallet.get("expiration_at"):
             exp = datetime.fromisoformat(wallet["expiration_at"])
             if datetime.now(timezone.utc) > exp:
-                await db.update("billing_wallets", wallet["id"], {"status": "terminated"})
+                if conn:
+                    await conn.execute(
+                        "UPDATE billing_wallets SET status = 'terminated' WHERE id = ?",
+                        (wallet["id"],),
+                    )
+                else:
+                    await db.update("billing_wallets", wallet["id"], {"status": "terminated"})
                 continue
 
         available = wallet["balance_cents"]
@@ -1168,28 +1194,51 @@ async def _debit_wallets(user_id: str, amount_cents: int) -> tuple[int, list[dic
         new_balance = available - debit
         new_consumed = wallet["consumed_cents"] + debit
         credit_debit = debit / (wallet["rate_amount"] * 100) if wallet["rate_amount"] > 0 else 0
+        depleted_at = now_iso if new_balance == 0 else wallet.get("depleted_at")
 
-        updates: dict = {
-            "balance_cents": new_balance,
-            "consumed_cents": new_consumed,
-            "credits_consumed": wallet["credits_consumed"] + credit_debit,
-            "credits_balance": wallet["credits_balance"] - credit_debit,
-        }
-        if new_balance == 0:
-            updates["depleted_at"] = datetime.now(timezone.utc).isoformat()
-
-        await db.update("billing_wallets", wallet["id"], updates)
-
-        await db.insert("billing_wallet_transactions", {
-            "id": f"wt_{token_gen.token_hex(8)}",
-            "wallet_id": wallet["id"],
-            "transaction_type": "outbound",
-            "amount": debit / 100,
-            "credit_amount": credit_debit,
-            "source": "invoice_deduction",
-            "settled_at": datetime.now(timezone.utc).isoformat(),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        if conn:
+            # Optimistic lock: only update if balance hasn't changed since read
+            cursor = await conn.execute(
+                "UPDATE billing_wallets SET balance_cents = ?, consumed_cents = ?, "
+                "credits_consumed = ?, credits_balance = ?, depleted_at = ? "
+                "WHERE id = ? AND balance_cents = ?",
+                (new_balance, new_consumed,
+                 wallet["credits_consumed"] + credit_debit,
+                 wallet["credits_balance"] - credit_debit,
+                 depleted_at,
+                 wallet["id"], available),
+            )
+            if cursor.rowcount == 0:
+                raise ConflictError(
+                    f"Wallet {wallet['id']} balance changed concurrently — retry the operation"
+                )
+            wt_id = f"wt_{token_gen.token_hex(8)}"
+            await conn.execute(
+                "INSERT INTO billing_wallet_transactions "
+                "(id, wallet_id, transaction_type, amount, credit_amount, source, settled_at, created_at) "
+                "VALUES (?, ?, 'outbound', ?, ?, 'invoice_deduction', ?, ?)",
+                (wt_id, wallet["id"], debit / 100, credit_debit, now_iso, now_iso),
+            )
+        else:
+            updates: dict = {
+                "balance_cents": new_balance,
+                "consumed_cents": new_consumed,
+                "credits_consumed": wallet["credits_consumed"] + credit_debit,
+                "credits_balance": wallet["credits_balance"] - credit_debit,
+            }
+            if new_balance == 0:
+                updates["depleted_at"] = now_iso
+            await db.update("billing_wallets", wallet["id"], updates)
+            await db.insert("billing_wallet_transactions", {
+                "id": f"wt_{token_gen.token_hex(8)}",
+                "wallet_id": wallet["id"],
+                "transaction_type": "outbound",
+                "amount": debit / 100,
+                "credit_amount": credit_debit,
+                "source": "invoice_deduction",
+                "settled_at": now_iso,
+                "created_at": now_iso,
+            })
 
         details.append({
             "wallet_id": wallet["id"],
@@ -1337,7 +1386,12 @@ async def generate_invoice(user_id: str, subscription_id: str | None = None) -> 
 
 
 async def finalize_invoice(invoice_id: str) -> dict:
-    """Finalize a draft invoice — makes it immutable, applies credits + wallets, triggers payment."""
+    """Finalize a draft invoice — atomically applies credits + wallets, triggers payment.
+
+    All financial mutations (credit notes, wallets, user balance, invoice status)
+    happen inside a single SQLite transaction with optimistic locking.
+    If any balance changed concurrently, the entire transaction rolls back.
+    """
     inv = await db.fetch_one("billing_invoices", id=invoice_id)
     if not inv:
         raise NotFoundError("Invoice", invoice_id)
@@ -1348,50 +1402,57 @@ async def finalize_invoice(invoice_id: str) -> dict:
     remaining = inv["total_cents"]
     total_credits = 0
 
-    # 1) Apply credit notes
-    cn_used, cn_details = await _apply_credit_notes(inv["user_id"], remaining)
-    if cn_used > 0:
-        remaining -= cn_used
-        total_credits += cn_used
+    async with db.transaction() as conn:
+        # 1) Apply credit notes (with optimistic lock)
+        cn_used, cn_details = await _apply_credit_notes(inv["user_id"], remaining, conn=conn)
+        if cn_used > 0:
+            remaining -= cn_used
+            total_credits += cn_used
 
-    # 2) Apply wallets (Lago-style)
-    if remaining > 0:
-        wallet_used, wallet_details = await _debit_wallets(inv["user_id"], remaining)
-        if wallet_used > 0:
-            remaining -= wallet_used
-            total_credits += wallet_used
+        # 2) Apply wallets (with optimistic lock)
+        if remaining > 0:
+            wallet_used, wallet_details = await _debit_wallets(inv["user_id"], remaining, conn=conn)
+            if wallet_used > 0:
+                remaining -= wallet_used
+                total_credits += wallet_used
 
-    # 3) Legacy wallet (users.balance)
-    if remaining > 0:
-        user = await db.fetch_one("users", id=inv["user_id"])
-        if user and user["balance"] > 0:
-            balance_cents = int(user["balance"] * 100)
-            from_balance = min(balance_cents, remaining)
-            remaining -= from_balance
-            total_credits += from_balance
-            new_balance = (balance_cents - from_balance) / 100
-            await db.update("users", user["id"], {"balance": new_balance})
+        # 3) Legacy wallet (users.balance_cents) with optimistic lock
+        if remaining > 0:
+            user = await db.fetch_one("users", id=inv["user_id"])
+            if user and user.get("balance_cents", 0) > 0:
+                balance_cents = user["balance_cents"]
+                from_balance = min(balance_cents, remaining)
+                remaining -= from_balance
+                total_credits += from_balance
+                new_balance_cents = balance_cents - from_balance
 
-            if from_balance > 0:
-                await db.insert("transactions", {
-                    "id": f"txn_{token_gen.token_hex(12)}",
-                    "user_id": inv["user_id"],
-                    "type": "charge",
-                    "amount": -(from_balance / 100),
-                    "description": f"Invoice {inv['number']}",
-                    "reference": invoice_id,
-                })
+                # Optimistic lock on user balance
+                cursor = await conn.execute(
+                    "UPDATE users SET balance_cents = ? WHERE id = ? AND balance_cents = ?",
+                    (new_balance_cents, user["id"], balance_cents),
+                )
+                if cursor.rowcount == 0:
+                    raise ConflictError("User balance changed concurrently — retry")
 
-    payment_status = "succeeded" if remaining == 0 else "pending"
-    await db.update("billing_invoices", invoice_id, {
-        "status": "finalized",
-        "credits_applied_cents": total_credits,
-        "total_cents": remaining,
-        "payment_status": payment_status,
-        "finalized_at": now,
-        "paid_at": now if payment_status == "succeeded" else None,
-    })
+                if from_balance > 0:
+                    txn_id = f"txn_{token_gen.token_hex(12)}"
+                    await conn.execute(
+                        "INSERT INTO transactions (id, user_id, type, amount, description, reference) "
+                        "VALUES (?, ?, 'charge', ?, ?, ?)",
+                        (txn_id, inv["user_id"], -(from_balance / 100),
+                         f"Invoice {inv['number']}", invoice_id),
+                    )
 
+        # 4) Update invoice status (all within same transaction)
+        payment_status = "succeeded" if remaining == 0 else "pending"
+        await conn.execute(
+            "UPDATE billing_invoices SET status = 'finalized', credits_applied_cents = ?, "
+            "total_cents = ?, payment_status = ?, finalized_at = ?, paid_at = ? WHERE id = ?",
+            (total_credits, remaining, payment_status, now,
+             now if payment_status == "succeeded" else None, invoice_id),
+        )
+
+    # Events emitted outside the transaction (non-critical)
     event_type = (BillingEventType.INVOICE_PAID.value
                   if payment_status == "succeeded"
                   else BillingEventType.INVOICE_FINALIZED.value)
@@ -1673,16 +1734,22 @@ async def handle_stripe_webhook(payload: dict) -> dict:
             amount = amount_cents / 100
             user = await db.fetch_one("users", id=user_id)
             if user:
-                new_balance = user["balance"] + amount
-                await db.update("users", user_id, {"balance": new_balance})
-                await db.insert("transactions", {
-                    "id": f"txn_{token_gen.token_hex(12)}",
-                    "user_id": user_id,
-                    "type": "topup",
-                    "amount": amount,
-                    "description": f"Stripe top-up: ${amount:.2f}",
-                    "reference": data.get("id", ""),
-                })
+                async with db.transaction() as conn:
+                    current_cents = user.get("balance_cents", 0)
+                    new_balance_cents = current_cents + amount_cents
+                    cursor = await conn.execute(
+                        "UPDATE users SET balance_cents = ? WHERE id = ? AND balance_cents = ?",
+                        (new_balance_cents, user_id, current_cents),
+                    )
+                    if cursor.rowcount == 0:
+                        raise ConflictError("User balance changed concurrently during top-up")
+                    txn_id = f"txn_{token_gen.token_hex(12)}"
+                    await conn.execute(
+                        "INSERT INTO transactions (id, user_id, type, amount, description, reference) "
+                        "VALUES (?, ?, 'topup', ?, ?, ?)",
+                        (txn_id, user_id, amount,
+                         f"Stripe top-up: ${amount:.2f}", data.get("id", "")),
+                    )
                 await _emit_event(
                     BillingEventType.PAYMENT_SUCCEEDED.value,
                     "topup", data.get("id", ""), user_id,
@@ -1791,7 +1858,7 @@ async def get_billing_overview(user_id: str) -> dict:
     wallet_balance = sum(w["balance_cents"] for w in wallets if w["status"] == "active")
 
     return {
-        "balance": user["balance"] if user else 0,
+        "balance_cents": user.get("balance_cents", 0) if user else 0,
         "currency": CURRENCY,
         "plan": plan,
         "subscription": sub,

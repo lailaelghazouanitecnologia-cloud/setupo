@@ -1,7 +1,9 @@
 import json
 import re
 import logging
+import asyncio
 import importlib
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +16,10 @@ logger = logging.getLogger("nso.db")
 _db: aiosqlite.Connection | None = None
 
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+# Retry settings for transient "database is locked" errors
+_MAX_RETRIES = 3
+_RETRY_BASE_DELAY = 0.05  # 50ms, 100ms, 200ms
 
 JSON_FIELDS = frozenset({
     "settings", "metadata", "config", "config_schema",
@@ -47,6 +53,11 @@ async def init_db():
     logger.info("Opening database at %s", path)
     _db = await aiosqlite.connect(path)
     _db.row_factory = aiosqlite.Row
+    # Performance & concurrency pragmas
+    await _db.execute("PRAGMA journal_mode = WAL")
+    await _db.execute("PRAGMA busy_timeout = 5000")
+    await _db.execute("PRAGMA synchronous = NORMAL")
+    await _db.execute("PRAGMA cache_size = -8000")  # 8MB cache
     await _db.execute("PRAGMA foreign_keys = ON")
     await _run_module_migrations(_db)
 
@@ -128,6 +139,24 @@ def row_to_dict(row: aiosqlite.Row) -> dict:
     return d
 
 
+async def _retry_on_locked(coro_fn):
+    """Retry a database operation on transient 'database is locked' errors."""
+    last_err = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await coro_fn()
+        except Exception as e:
+            if "database is locked" in str(e) and attempt < _MAX_RETRIES:
+                last_err = e
+                delay = _RETRY_BASE_DELAY * (2 ** attempt)
+                logger.warning("Database locked (attempt %d/%d), retrying in %.0fms",
+                               attempt + 1, _MAX_RETRIES, delay * 1000)
+                await asyncio.sleep(delay)
+            else:
+                raise
+    raise last_err  # type: ignore[misc]
+
+
 async def insert(table: str, data: dict):
     _validate_identifier(table, "table")
     for k in data:
@@ -136,8 +165,11 @@ async def insert(table: str, data: dict):
     cols = ", ".join(data.keys())
     placeholders = ", ".join(["?"] * len(data))
     vals = [_serialize_value(v) for v in data.values()]
-    await conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", vals)
-    await conn.commit()
+
+    async def _do():
+        await conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", vals)
+        await conn.commit()
+    await _retry_on_locked(_do)
 
 
 async def update(table: str, id_val: str, data: dict):
@@ -148,8 +180,11 @@ async def update(table: str, id_val: str, data: dict):
     sets = [f"{k} = ?" for k in data]
     vals = [_serialize_value(v) for v in data.values()]
     vals.append(id_val)
-    await conn.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id = ?", vals)
-    await conn.commit()
+
+    async def _do():
+        await conn.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id = ?", vals)
+        await conn.commit()
+    await _retry_on_locked(_do)
 
 
 async def fetch_one(table: str, **where) -> dict | None:
@@ -186,8 +221,11 @@ async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> l
 async def delete(table: str, id_val: str):
     _validate_identifier(table, "table")
     conn = await get_db()
-    await conn.execute(f"DELETE FROM {table} WHERE id = ?", (id_val,))
-    await conn.commit()
+
+    async def _do():
+        await conn.execute(f"DELETE FROM {table} WHERE id = ?", (id_val,))
+        await conn.commit()
+    await _retry_on_locked(_do)
 
 
 async def delete_where(table: str, **where):
@@ -196,5 +234,32 @@ async def delete_where(table: str, **where):
         _validate_identifier(k, "column")
     conn = await get_db()
     conditions = " AND ".join(f"{k} = ?" for k in where)
-    await conn.execute(f"DELETE FROM {table} WHERE {conditions}", list(where.values()))
-    await conn.commit()
+
+    async def _do():
+        await conn.execute(f"DELETE FROM {table} WHERE {conditions}", list(where.values()))
+        await conn.commit()
+    await _retry_on_locked(_do)
+
+
+# ── Atomic transactions ────────────────────────────────────────
+# Use this context manager for multi-step operations that must
+# succeed or fail together (billing, financial operations, etc.)
+
+@asynccontextmanager
+async def transaction():
+    """Execute multiple operations atomically.
+
+    Usage:
+        async with db.transaction() as conn:
+            await conn.execute("UPDATE ...", ...)
+            await conn.execute("INSERT ...", ...)
+        # auto-commits on exit, rolls back on exception
+    """
+    conn = await get_db()
+    await conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+        await conn.commit()
+    except Exception:
+        await conn.rollback()
+        raise

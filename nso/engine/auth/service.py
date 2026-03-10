@@ -88,7 +88,7 @@ async def create_user(email: str, password: str, name: str = "") -> dict:
             "password_hash": pw_hash,
             "name": display_name,
             "role": "user",
-            "balance": 0.00,
+            "balance_cents": 0,
             "verified": 0,
         })
     except aiosqlite.IntegrityError:
@@ -100,7 +100,7 @@ async def create_user(email: str, password: str, name: str = "") -> dict:
         "email": email,
         "name": display_name,
         "role": "user",
-        "balance": 0.00,
+        "balance_cents": 0,
         "verified": False,
         "subdomain": None,
     }
