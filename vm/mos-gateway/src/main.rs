@@ -50,6 +50,9 @@ struct AppState {
     sessions: Arc<RwLock<HashMap<Uuid, Arc<SessionHandle>>>>,
 }
 
+const SESSION_IDLE_TTL_MS: u64 = 5 * 60 * 1000;
+const MAX_ACTIVE_SESSIONS: usize = 4;
+
 struct SessionHandle {
     meta: RwLock<SessionRecord>,
     client: Mutex<Option<RfbClient>>,
@@ -96,6 +99,15 @@ struct FrameEvent {
     width: u16,
     height: u16,
     updated_at_ms: u64,
+    patches: Vec<FramePatch>,
+}
+
+#[derive(Clone)]
+struct FramePatch {
+    x: u16,
+    y: u16,
+    width: u16,
+    height: u16,
     data: Vec<u8>,
 }
 
@@ -204,6 +216,7 @@ async fn main() -> Result<()> {
     let state = AppState {
         sessions: Arc::new(RwLock::new(HashMap::new())),
     };
+    tokio::spawn(session_reaper(state.clone()));
 
     let app = Router::new()
         .route("/health", get(health))
@@ -237,6 +250,33 @@ async fn create_session(
 ) -> Result<Json<CreateSessionResponse>, (StatusCode, String)> {
     if req.host.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "host is required".to_string()));
+    }
+
+    let mut duplicates = Vec::new();
+    let mut overflow = Vec::new();
+    {
+        let sessions = state.sessions.read().await;
+        for handle in sessions.values() {
+            let meta = handle.meta.read().await;
+            if meta.host == req.host && meta.port == req.port {
+                duplicates.push(meta.id);
+            }
+        }
+
+        if sessions.len() >= MAX_ACTIVE_SESSIONS {
+            let mut ordered = Vec::with_capacity(sessions.len());
+            for handle in sessions.values() {
+                let meta = handle.meta.read().await.clone();
+                ordered.push((meta.updated_at_ms, meta.id));
+            }
+            ordered.sort_by_key(|(updated_at_ms, _)| *updated_at_ms);
+            let remove_count = sessions.len().saturating_sub(MAX_ACTIVE_SESSIONS) + 1;
+            overflow.extend(ordered.into_iter().take(remove_count).map(|(_, id)| id));
+        }
+    }
+
+    for id in duplicates.into_iter().chain(overflow.into_iter()) {
+        close_session(&state, id).await;
     }
 
     let created_at_ms = now_ms();
@@ -299,26 +339,10 @@ async fn delete_session(
     State(state): State<AppState>,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let handle = {
-        let mut sessions = state.sessions.write().await;
-        sessions
-            .remove(&id)
-            .ok_or((StatusCode::NOT_FOUND, "session not found".to_string()))?
-    };
-
-    {
-        let mut meta = handle.meta.write().await;
-        meta.state = SessionState::Closed;
-        meta.updated_at_ms = now_ms();
+    let removed = close_session(&state, id).await;
+    if !removed {
+        return Err((StatusCode::NOT_FOUND, "session not found".to_string()));
     }
-
-    if let Some(mut client) = handle.client.lock().await.take() {
-        let _ = client.disconnect().await;
-    }
-    if let Some(pc) = handle.peer_connection.lock().await.take() {
-        let _ = pc.close().await;
-    }
-    stop_video_process(&handle).await;
 
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
 }
@@ -328,6 +352,7 @@ async fn get_framebuffer(
     Path(id): Path<Uuid>,
 ) -> Result<Json<FramebufferResponse>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     let fb = handle.framebuffer.read().await.clone();
 
     Ok(Json(FramebufferResponse {
@@ -347,6 +372,7 @@ async fn stream_session(
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     let initial_meta = handle.meta.read().await.clone();
     let initial_fb = handle.framebuffer.read().await.clone();
     let mut rx = handle.stream_tx.subscribe();
@@ -369,7 +395,13 @@ async fn stream_session(
                 width: initial_fb.width,
                 height: initial_fb.height,
                 updated_at_ms: initial_fb.updated_at_ms,
-                data: initial_fb.data,
+                patches: vec![FramePatch {
+                    x: 0,
+                    y: 0,
+                    width: initial_fb.width,
+                    height: initial_fb.height,
+                    data: initial_fb.data,
+                }],
             };
             let _ = socket.send(Message::Binary(encode_frame_packet(&event))).await;
         }
@@ -400,6 +432,7 @@ async fn send_input(
     Json(req): Json<InputEventRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     apply_input_event(&handle, &req).await?;
 
     Ok(Json(serde_json::json!({ "ok": true, "session_id": id })))
@@ -411,6 +444,7 @@ async fn send_clipboard(
     Json(req): Json<ClipboardRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     apply_clipboard(&handle, &req.text).await?;
 
     Ok(Json(serde_json::json!({
@@ -426,6 +460,7 @@ async fn webrtc_offer(
     Json(req): Json<WebRtcOfferRequest>,
 ) -> Result<Json<WebRtcOfferResponse>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     let codec = req.codec.unwrap_or_else(|| "h264".to_string());
     if req.sdp.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "offer SDP is required".to_string()));
@@ -472,6 +507,7 @@ async fn webrtc_ice(
     Json(req): Json<WebRtcIceRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let handle = get_session_handle(&state, id).await?;
+    touch_session(&handle).await;
     let pc = handle
         .peer_connection
         .lock()
@@ -584,14 +620,15 @@ async fn run_session(handle: Arc<SessionHandle>, config: ConnectionConfig) {
 }
 
 async fn publish_frame(handle: &Arc<SessionHandle>, width: u16, height: u16, data: Vec<u8>) {
-    let (sequence, updated_at_ms) = {
+    let (sequence, updated_at_ms, patches) = {
         let mut fb = handle.framebuffer.write().await;
+        let patches = build_frame_patches(&fb, width, height, &data);
         fb.sequence += 1;
         fb.width = width;
         fb.height = height;
         fb.updated_at_ms = now_ms();
         fb.data = data.clone();
-        (fb.sequence, fb.updated_at_ms)
+        (fb.sequence, fb.updated_at_ms, patches)
     };
 
     let session_id = handle.meta.read().await.id;
@@ -601,8 +638,62 @@ async fn publish_frame(handle: &Arc<SessionHandle>, width: u16, height: u16, dat
         width,
         height,
         updated_at_ms,
-        data,
+        patches,
     });
+}
+
+async fn touch_session(handle: &Arc<SessionHandle>) {
+    let mut meta = handle.meta.write().await;
+    meta.updated_at_ms = now_ms();
+}
+
+async fn close_session(state: &AppState, id: Uuid) -> bool {
+    let handle = {
+        let mut sessions = state.sessions.write().await;
+        sessions.remove(&id)
+    };
+
+    let Some(handle) = handle else {
+        return false;
+    };
+
+    {
+        let mut meta = handle.meta.write().await;
+        meta.state = SessionState::Closed;
+        meta.updated_at_ms = now_ms();
+    }
+
+    if let Some(mut client) = handle.client.lock().await.take() {
+        let _ = client.disconnect().await;
+    }
+    if let Some(pc) = handle.peer_connection.lock().await.take() {
+        let _ = pc.close().await;
+    }
+    stop_video_process(&handle).await;
+    true
+}
+
+async fn session_reaper(state: AppState) {
+    let interval = Duration::from_secs(30);
+    loop {
+        tokio::time::sleep(interval).await;
+        let now = now_ms();
+        let mut stale = Vec::new();
+        {
+            let sessions = state.sessions.read().await;
+            for handle in sessions.values() {
+                let meta = handle.meta.read().await;
+                if now.saturating_sub(meta.updated_at_ms) > SESSION_IDLE_TTL_MS {
+                    stale.push(meta.id);
+                }
+            }
+        }
+
+        for id in stale {
+            info!("reaping idle session {id}");
+            close_session(&state, id).await;
+        }
+    }
 }
 
 async fn set_error(handle: &Arc<SessionHandle>, message: String) {
@@ -688,13 +779,116 @@ fn scale_component(value: u32, max: u16) -> u8 {
 }
 
 fn encode_frame_packet(event: &FrameEvent) -> Vec<u8> {
-    let mut packet = Vec::with_capacity(24 + event.data.len());
+    let payload_len: usize = event
+        .patches
+        .iter()
+        .map(|patch| 12 + patch.data.len())
+        .sum();
+
+    let mut packet = Vec::with_capacity(28 + payload_len);
+    packet.extend_from_slice(b"MOS2");
     packet.extend_from_slice(&event.sequence.to_le_bytes());
     packet.extend_from_slice(&event.updated_at_ms.to_le_bytes());
     packet.extend_from_slice(&event.width.to_le_bytes());
     packet.extend_from_slice(&event.height.to_le_bytes());
-    packet.extend_from_slice(&event.data);
+    packet.extend_from_slice(&(event.patches.len() as u16).to_le_bytes());
+    packet.extend_from_slice(&0u16.to_le_bytes());
+
+    for patch in &event.patches {
+        packet.extend_from_slice(&patch.x.to_le_bytes());
+        packet.extend_from_slice(&patch.y.to_le_bytes());
+        packet.extend_from_slice(&patch.width.to_le_bytes());
+        packet.extend_from_slice(&patch.height.to_le_bytes());
+        packet.extend_from_slice(&(patch.data.len() as u32).to_le_bytes());
+        packet.extend_from_slice(&patch.data);
+    }
+
     packet
+}
+
+fn build_frame_patches(
+    previous: &FramebufferState,
+    width: u16,
+    height: u16,
+    next: &[u8],
+) -> Vec<FramePatch> {
+    if previous.width != width
+        || previous.height != height
+        || previous.data.len() != next.len()
+        || previous.data.is_empty()
+    {
+        return vec![FramePatch {
+            x: 0,
+            y: 0,
+            width,
+            height,
+            data: next.to_vec(),
+        }];
+    }
+
+    const TILE: usize = 64;
+    let stride = width as usize * 4;
+    let mut patches = Vec::new();
+
+    for tile_y in (0..height as usize).step_by(TILE) {
+        for tile_x in (0..width as usize).step_by(TILE) {
+            let patch_w = (width as usize - tile_x).min(TILE);
+            let patch_h = (height as usize - tile_y).min(TILE);
+            if !tile_changed(&previous.data, next, stride, tile_x, tile_y, patch_w, patch_h) {
+                continue;
+            }
+
+            let mut patch_data = Vec::with_capacity(patch_w * patch_h * 4);
+            for row in 0..patch_h {
+                let start = (tile_y + row) * stride + tile_x * 4;
+                let end = start + patch_w * 4;
+                patch_data.extend_from_slice(&next[start..end]);
+            }
+
+            patches.push(FramePatch {
+                x: tile_x as u16,
+                y: tile_y as u16,
+                width: patch_w as u16,
+                height: patch_h as u16,
+                data: patch_data,
+            });
+        }
+    }
+
+    if patches.is_empty() {
+        return Vec::new();
+    }
+
+    if patches.len() > 96 || patches.iter().map(|patch| patch.data.len()).sum::<usize>() > next.len() / 2 {
+        return vec![FramePatch {
+            x: 0,
+            y: 0,
+            width,
+            height,
+            data: next.to_vec(),
+        }];
+    }
+
+    patches
+}
+
+fn tile_changed(
+    previous: &[u8],
+    next: &[u8],
+    stride: usize,
+    x: usize,
+    y: usize,
+    width: usize,
+    height: usize,
+) -> bool {
+    for row in 0..height {
+        let start = (y + row) * stride + x * 4;
+        let end = start + width * 4;
+        if previous[start..end] != next[start..end] {
+            return true;
+        }
+    }
+    false
 }
 
 async fn apply_input_event(
@@ -914,16 +1108,24 @@ async fn capture_size(handle: &Arc<SessionHandle>) -> String {
 
     let fb = handle.framebuffer.read().await;
     if fb.width > 0 && fb.height > 0 {
-        return format!("{}x{}", fb.width, fb.height);
+        let width = fb.width as u32;
+        let height = fb.height as u32;
+        let max_width = 960u32;
+        if width <= max_width {
+            return format!("{}x{}", width, height);
+        }
+        let scaled_height = ((height * max_width) / width).max(2);
+        let even_height = scaled_height - (scaled_height % 2);
+        return format!("{}x{}", max_width, even_height.max(2));
     }
 
-    "1024x640".to_string()
+    "960x540".to_string()
 }
 
 fn spawn_ffmpeg_capture(port: u16, size: &str) -> Result<tokio::process::Child> {
     let bin = std::env::var("MOS_WEBRTC_FFMPEG_BIN").unwrap_or_else(|_| "ffmpeg".to_string());
     let display = std::env::var("MOS_WEBRTC_DISPLAY").unwrap_or_else(|_| ":1".to_string());
-    let framerate = std::env::var("MOS_WEBRTC_FRAMERATE").unwrap_or_else(|_| "12".to_string());
+    let framerate = std::env::var("MOS_WEBRTC_FRAMERATE").unwrap_or_else(|_| "10".to_string());
 
     let mut command = tokio::process::Command::new(bin);
     command

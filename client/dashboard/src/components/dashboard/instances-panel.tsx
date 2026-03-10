@@ -6,7 +6,7 @@ import {
   Activity, Monitor, Terminal, FolderOpen,
   Send, RotateCcw, Power, FileText, Loader,
   Cpu, Pause, ShieldCheck, ShieldOff, Download, ChevronRight,
-  MapPin, Maximize2, Minimize2, ZoomIn, ZoomOut,
+  MapPin, Maximize2, Minimize2, ZoomIn, ZoomOut, ArrowUpRight,
 } from "lucide-react";
 import { useDashboardStore } from "@/stores/dashboard-store";
 import { formatSize, stateColor, stateBadgeClass } from "@/lib/format";
@@ -516,6 +516,8 @@ function nodeStatusColor(status: string): string {
 
 export function InstancesTab() {
   const activeProject = useDashboardStore((s) => s.activeProject);
+  const activeProjectRole = (activeProject as { role?: string } | null)?.role;
+  const isProjectAdmin = activeProjectRole === "admin";
   const projectId = activeProject?.id || null;
   const [loading, setLoading] = useState(true);
   const [instances, setInstances] = useState<Instance[]>([]);
@@ -705,7 +707,7 @@ export function InstancesTab() {
         <Server className="h-10 w-10" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
         <div className="panel-empty-title">No machines</div>
         <div className="panel-empty-sub">Add a server from NSO Cloud, connect via Vultr/Hetzner, or use SSH.</div>
-        {activeProject?.role === "admin" && (
+        {isProjectAdmin && (
           <div style={{ display: "flex", gap: 6 }}>
             <button className="panel-btn" onClick={() => setShowCreate(true)}>
               <Plus className="h-3.5 w-3.5" /><span>Add Machine</span>
@@ -731,7 +733,7 @@ export function InstancesTab() {
           <button className="panel-btn-sm" onClick={fetchData} disabled={loading}>
             <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
           </button>
-          {activeProject?.role === "admin" && (
+          {isProjectAdmin && (
             <>
               <button className="panel-btn-sm" onClick={handleSync} disabled={syncing} title="Sync machines to nodes">
                 <Download className="h-3 w-3" />
@@ -847,11 +849,11 @@ export function InstancesTab() {
                   >
                     <FolderOpen className="h-3.5 w-3.5" />
                   </button>
-                  {activeProject?.role === "admin" && (selected.state === "ready" || selected.state === "active") ? (
+                  {isProjectAdmin && (selected.state === "ready" || selected.state === "active") ? (
                     <button className="svc-btn yellow" title="Stop" onClick={() => handleStop(selected.raw_instance!)}>
                       <Power className="h-3.5 w-3.5" />
                     </button>
-                  ) : activeProject?.role === "admin" && selected.state === "stopped" ? (
+                  ) : isProjectAdmin && selected.state === "stopped" ? (
                     <button className="svc-btn green" title="Start" onClick={() => handleStart(selected.raw_instance!)}>
                       <Play className="h-3.5 w-3.5" />
                     </button>
@@ -859,7 +861,7 @@ export function InstancesTab() {
                 </>
               )}
               {/* Node actions */}
-              {activeProject?.role === "admin" && selected.raw_node && selected.raw_node.status === "online" && (
+              {isProjectAdmin && selected.raw_node && selected.raw_node.status === "online" && (
                 <>
                   <button className="svc-btn yellow" title="Drain" onClick={() => handleDrain(selected.raw_node!)}>
                     <Pause className="h-3.5 w-3.5" />
@@ -869,12 +871,12 @@ export function InstancesTab() {
                   </button>
                 </>
               )}
-              {activeProject?.role === "admin" && selected.raw_node && (selected.raw_node.status === "draining" || selected.raw_node.status === "maintenance") && (
+              {isProjectAdmin && selected.raw_node && (selected.raw_node.status === "draining" || selected.raw_node.status === "maintenance") && (
                 <button className="svc-btn green" title="Uncordon" onClick={() => handleUncordon(selected.raw_node!)}>
                   <ShieldOff className="h-3.5 w-3.5" />
                 </button>
               )}
-              {activeProject?.role === "admin" && (
+              {isProjectAdmin && (
                 <button className="svc-btn red" title="Destroy" onClick={() => handleDelete(selected)}>
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -1539,6 +1541,11 @@ export function ServicesTab() {
     setSysLoading(false);
   };
 
+  const openRemoteDesktopTab = () => {
+    if (typeof window === "undefined") return;
+    window.open("/remote", "_blank", "noopener,noreferrer");
+  };
+
   const goToWorkspace = (ws: any) => {
     setActiveWorkspace(ws);
     setActiveView("workspaces");
@@ -1638,7 +1645,19 @@ export function ServicesTab() {
         </div>
       </div>
 
-      <RemoteDesktopPanel />
+      <div className="settings-section">
+        <div className="settings-section-header">
+          <span className="settings-section-title">Remote Desktop</span>
+          <button className="panel-btn-sm" onClick={openRemoteDesktopTab}>
+            <ArrowUpRight className="h-3 w-3" />
+            <span>Open in tab</span>
+          </button>
+        </div>
+        <div className="settings-placeholder" style={{ minHeight: 120 }}>
+          <Monitor className="h-6 w-6" style={{ color: "var(--muted-foreground)", opacity: 0.3 }} />
+          <span>Open the remote desktop in a dedicated tab.</span>
+        </div>
+      </div>
 
       <div className="settings-section">
         <div className="settings-section-header">
@@ -1674,7 +1693,7 @@ export function ServicesTab() {
   );
 }
 
-function RemoteDesktopPanel() {
+export function RemoteDesktopPanel({ standalone = false }: { standalone?: boolean } = {}) {
   const [gateway, setGateway] = useState<any>(null);
   const [gatewayLoading, setGatewayLoading] = useState(false);
   const [session, setSession] = useState<RemoteSession | null>(null);
@@ -1687,6 +1706,7 @@ function RemoteDesktopPanel() {
   const [statusText, setStatusText] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [hasWebRtcVideo, setHasWebRtcVideo] = useState(false);
+  const [rawFallbackEnabled, setRawFallbackEnabled] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [fitToView, setFitToView] = useState(true);
   const [textBuffer, setTextBuffer] = useState("");
@@ -1720,6 +1740,43 @@ function RemoteDesktopPanel() {
     ctx.putImageData(imageDataRef.current, 0, 0);
   };
 
+  const applyFramePatch = (
+    rgba: Uint8ClampedArray,
+    fullWidth: number,
+    fullHeight: number,
+    x: number,
+    y: number,
+    patchWidth: number,
+    patchHeight: number,
+  ) => {
+    const canvas = displayRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      setFramebufferError("Canvas context unavailable");
+      return;
+    }
+
+    if (!imageDataRef.current || imageDataRef.current.width !== fullWidth || imageDataRef.current.height !== fullHeight) {
+      imageDataRef.current = new ImageData(fullWidth, fullHeight);
+      canvas.width = fullWidth;
+      canvas.height = fullHeight;
+    }
+
+    const target = imageDataRef.current.data;
+    const stride = fullWidth * 4;
+    const patchStride = patchWidth * 4;
+    for (let row = 0; row < patchHeight; row += 1) {
+      const srcStart = row * patchStride;
+      const srcEnd = srcStart + patchStride;
+      const destStart = ((y + row) * stride) + (x * 4);
+      target.set(rgba.subarray(srcStart, srcEnd), destStart);
+    }
+
+    const patchImage = new ImageData(new Uint8ClampedArray(rgba), patchWidth, patchHeight);
+    ctx.putImageData(patchImage, x, y);
+  };
+
   const refreshGateway = async () => {
     setGatewayLoading(true);
     try {
@@ -1737,6 +1794,7 @@ function RemoteDesktopPanel() {
   useEffect(() => {
     setZoom(1);
     setFitToView(true);
+    setRawFallbackEnabled(false);
   }, [session?.id]);
 
   useEffect(() => {
@@ -1784,7 +1842,7 @@ function RemoteDesktopPanel() {
   }, [session?.id]);
 
   useEffect(() => {
-    if (!session || typeof window === "undefined") return;
+    if (!session || typeof window === "undefined" || !rawFallbackEnabled || hasWebRtcVideo) return;
 
     let cancelled = false;
     const token = window.localStorage.getItem("nso_token");
@@ -1823,6 +1881,50 @@ function RemoteDesktopPanel() {
       try {
         if (event.data instanceof ArrayBuffer) {
           const view = new DataView(event.data);
+          const bytes = new Uint8Array(event.data);
+          if (event.data.byteLength >= 28 &&
+              bytes[0] === 0x4d &&
+              bytes[1] === 0x4f &&
+              bytes[2] === 0x53 &&
+              bytes[3] === 0x32) {
+            const sequence = Number(view.getBigUint64(4, true));
+            const updatedAtMs = Number(view.getBigUint64(12, true));
+            const width = view.getUint16(20, true);
+            const height = view.getUint16(22, true);
+            const patchCount = view.getUint16(24, true);
+            let offset = 28;
+
+            for (let i = 0; i < patchCount; i += 1) {
+              if (offset + 12 > event.data.byteLength) {
+                throw new Error("Patch packet truncated");
+              }
+              const x = view.getUint16(offset, true);
+              const y = view.getUint16(offset + 2, true);
+              const patchWidth = view.getUint16(offset + 4, true);
+              const patchHeight = view.getUint16(offset + 6, true);
+              const patchLen = view.getUint32(offset + 8, true);
+              offset += 12;
+              if (offset + patchLen > event.data.byteLength) {
+                throw new Error("Patch payload truncated");
+              }
+              const rgba = new Uint8ClampedArray(event.data, offset, patchLen);
+              applyFramePatch(rgba, width, height, x, y, patchWidth, patchHeight);
+              offset += patchLen;
+            }
+
+            setFramebuffer({
+              session_id: session.id,
+              sequence,
+              width,
+              height,
+              encoding: "raw",
+              updated_at_ms: updatedAtMs,
+              data: "",
+            });
+            setFramebufferError("");
+            return;
+          }
+
           if (event.data.byteLength < 20) {
             throw new Error("Frame packet too small");
           }
@@ -1871,14 +1973,20 @@ function RemoteDesktopPanel() {
       }
       socket.close();
     };
-  }, [session?.id]);
+  }, [hasWebRtcVideo, rawFallbackEnabled, session?.id]);
 
   useEffect(() => {
     if (!session || typeof window === "undefined" || typeof RTCPeerConnection === "undefined") {
+      setRawFallbackEnabled(true);
       return;
     }
 
     let closed = false;
+    let fallbackTimer: number | null = window.setTimeout(() => {
+      if (!closed) {
+        setRawFallbackEnabled(true);
+      }
+    }, 1500);
     const pc = new RTCPeerConnection();
     peerRef.current = pc;
 
@@ -1906,7 +2014,12 @@ function RemoteDesktopPanel() {
         pc.ontrack = (event) => {
           const stream = event.streams[0] || new MediaStream([event.track]);
           mediaStreamRef.current = stream;
+          if (fallbackTimer !== null) {
+            window.clearTimeout(fallbackTimer);
+            fallbackTimer = null;
+          }
           setHasWebRtcVideo(true);
+          setRawFallbackEnabled(false);
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             void videoRef.current.play().catch(() => {});
@@ -1921,6 +2034,11 @@ function RemoteDesktopPanel() {
         await pc.setRemoteDescription({ type: "answer", sdp: res.answer_sdp });
         setStatusText(`Streaming ${session.name} (${res.mode} signal)`);
       } catch (err: any) {
+        if (fallbackTimer !== null) {
+          window.clearTimeout(fallbackTimer);
+          fallbackTimer = null;
+        }
+        setRawFallbackEnabled(true);
         setStatusText(`Streaming ${session.name}`);
       }
     };
@@ -1929,6 +2047,9 @@ function RemoteDesktopPanel() {
 
     return () => {
       closed = true;
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer);
+      }
       if (inputChannelRef.current) {
         inputChannelRef.current.close();
         inputChannelRef.current = null;
@@ -2024,6 +2145,11 @@ function RemoteDesktopPanel() {
     } catch (err: any) {
       setStatusText(err.message || "Could not close session");
     }
+  };
+
+  const handleOpenStandalone = () => {
+    if (typeof window === "undefined") return;
+    window.open("/remote", "_blank", "noopener,noreferrer");
   };
 
   const handleToggleFullscreen = async () => {
@@ -2229,10 +2355,14 @@ function RemoteDesktopPanel() {
   };
 
   return (
-    <div className="settings-section">
+    <div className={standalone ? "remote-standalone-page" : "settings-section"}>
       <div className="settings-section-header">
         <span className="settings-section-title">Remote Desktop</span>
         <div style={{ display: "flex", gap: 6 }}>
+          <button className="panel-btn-sm" onClick={handleOpenStandalone}>
+            <ArrowUpRight className="h-3 w-3" />
+            <span>Open in tab</span>
+          </button>
           <button className="panel-btn-sm" onClick={refreshGateway} disabled={gatewayLoading}>
             <RefreshCw className={`h-3 w-3 ${gatewayLoading ? "animate-spin" : ""}`} />
             <span>Refresh</span>

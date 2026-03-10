@@ -21,6 +21,8 @@ MOS_GATEWAY_COMMAND = os.environ.get("MOS_GATEWAY_COMMAND", "/opt/nso/bin/mos-ga
 MOS_GATEWAY_START_TIMEOUT = float(os.environ.get("MOS_GATEWAY_START_TIMEOUT", "8"))
 MOS_GATEWAY_URL = f"http://{MOS_GATEWAY_BIND}"
 MOS_GATEWAY_WS_URL = f"ws://{MOS_GATEWAY_BIND}"
+REMOTE_X_DISPLAY = os.environ.get("NSO_REMOTE_X_DISPLAY", ":1")
+REMOTE_X_WINDOW_NAME = os.environ.get("NSO_REMOTE_X_WINDOW_NAME", "NSO Remote Desktop")
 
 _gateway_lock = asyncio.Lock()
 _gateway_proc: asyncio.subprocess.Process | None = None
@@ -128,6 +130,110 @@ async def _proxy(method: str, path: str, *, json: Any = None) -> JSONResponse:
     return JSONResponse(status_code=resp.status_code, content=body)
 
 
+async def _run_display_command(*args: str) -> tuple[int, str, str]:
+    env = os.environ.copy()
+    env["DISPLAY"] = REMOTE_X_DISPLAY
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+    return (
+        proc.returncode,
+        stdout.decode("utf-8", errors="replace"),
+        stderr.decode("utf-8", errors="replace"),
+    )
+
+
+async def _focus_remote_window():
+    if not shutil.which("xdotool"):
+        raise HTTPException(503, "xdotool is not installed on the agent host")
+
+    code, stdout, stderr = await _run_display_command(
+        "xdotool",
+        "getwindowfocus",
+        "windowactivate",
+        "--sync",
+    )
+    if code == 0:
+        return
+
+    code, stdout, stderr = await _run_display_command(
+        "xdotool",
+        "search",
+        "--name",
+        REMOTE_X_WINDOW_NAME,
+        "windowfocus",
+        "--sync",
+        "%@",
+    )
+    if code != 0:
+        logger.warning("remote x focus failed: stdout=%s stderr=%s", stdout.strip(), stderr.strip())
+        raise HTTPException(502, "Could not focus remote X window")
+
+
+async def _spawn_display_process(*args: str) -> tuple[int, str, str]:
+    env = os.environ.copy()
+    env["DISPLAY"] = REMOTE_X_DISPLAY
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+    return (
+        proc.returncode,
+        stdout.decode("utf-8", errors="replace"),
+        stderr.decode("utf-8", errors="replace"),
+    )
+
+
+async def _pump_ws_to_tcp(websocket: WebSocket, writer: asyncio.StreamWriter):
+    client_frames = 0
+    while True:
+        message = await websocket.receive()
+        if message.get("type") == "websocket.disconnect":
+            break
+
+        if "bytes" in message and message["bytes"] is not None:
+            payload = message["bytes"]
+            client_frames += 1
+            if client_frames <= 8:
+                logger.info(
+                    "vnc proxy client->tcp frame=%d bytes=%d prefix=%s",
+                    client_frames,
+                    len(payload),
+                    payload[:8].hex(),
+                )
+            writer.write(payload)
+        elif "text" in message and message["text"] is not None:
+            payload = message["text"].encode("utf-8")
+            client_frames += 1
+            if client_frames <= 8:
+                logger.info(
+                    "vnc proxy client->tcp frame=%d text_bytes=%d prefix=%s",
+                    client_frames,
+                    len(payload),
+                    payload[:8].hex(),
+                )
+            writer.write(payload)
+        else:
+            continue
+
+        await writer.drain()
+
+
+async def _pump_tcp_to_ws(reader: asyncio.StreamReader, websocket: WebSocket):
+    while True:
+        chunk = await reader.read(65536)
+        if not chunk:
+            break
+        await websocket.send_bytes(chunk)
+
+
 @router.get("/health")
 async def remote_health(admin: AdminUser = Depends(require_admin)):
     ok, data = await _gateway_health()
@@ -208,6 +314,74 @@ async def webrtc_ice(session_id: str, req: Request, admin: AdminUser = Depends(r
     return await _proxy("POST", f"/sessions/{session_id}/webrtc/ice", json=body)
 
 
+@router.post("/local/type")
+async def local_type(req: Request, admin: AdminUser = Depends(require_admin)):
+    body = await req.json()
+    text = str(body.get("text") or "")
+    if not text:
+        raise HTTPException(400, "text is required")
+
+    await _focus_remote_window()
+    code, stdout, stderr = await _run_display_command(
+        "xdotool",
+        "type",
+        "--clearmodifiers",
+        "--delay",
+        "1",
+        text,
+    )
+    if code != 0:
+        logger.warning("remote x type failed: stdout=%s stderr=%s", stdout.strip(), stderr.strip())
+        raise HTTPException(502, "Could not type into remote X session")
+    return {"ok": True}
+
+
+@router.post("/local/key")
+async def local_key(req: Request, admin: AdminUser = Depends(require_admin)):
+    body = await req.json()
+    keys = body.get("keys") or []
+    if isinstance(keys, str):
+        keys = [keys]
+    if not isinstance(keys, list) or not keys:
+        raise HTTPException(400, "keys is required")
+
+    await _focus_remote_window()
+    code, stdout, stderr = await _run_display_command(
+        "xdotool",
+        "key",
+        "--clearmodifiers",
+        *[str(key) for key in keys],
+    )
+    if code != 0:
+        logger.warning("remote x key failed: keys=%s stdout=%s stderr=%s", keys, stdout.strip(), stderr.strip())
+        raise HTTPException(502, "Could not send key to remote X session")
+    return {"ok": True}
+
+
+@router.post("/local/browser")
+async def local_browser(req: Request, admin: AdminUser = Depends(require_admin)):
+    body = await req.json()
+    url = str(body.get("url") or "https://www.google.com").strip()
+    browser = str(body.get("browser") or "chromium").strip()
+
+    binary = shutil.which(browser)
+    if not binary:
+        raise HTTPException(404, f"Browser not installed: {browser}")
+
+    env = os.environ.copy()
+    env["DISPLAY"] = REMOTE_X_DISPLAY
+    await asyncio.create_subprocess_exec(
+        binary,
+        "--no-sandbox",
+        "--disable-gpu",
+        url,
+        stdout=asyncio.subprocess.DEVNULL,
+        stderr=asyncio.subprocess.DEVNULL,
+        env=env,
+    )
+    return {"ok": True, "browser": browser, "url": url}
+
+
 @router.websocket("/sessions/{session_id}/stream")
 async def stream_session(websocket: WebSocket, session_id: str):
     token = websocket.query_params.get("token", "")
@@ -259,5 +433,55 @@ async def stream_session(websocket: WebSocket, session_id: str):
         logger.warning("remote stream proxy error: %s", e)
         try:
             await websocket.close(code=1011, reason="Gateway stream error")
+        except Exception:
+            pass
+
+
+@router.websocket("/vnc")
+async def vnc_proxy(websocket: WebSocket):
+    token = websocket.query_params.get("token", "")
+    payload = verify_token(token)
+    if not payload:
+        logger.warning("vnc proxy auth failed: token_prefix=%s", token[:24] if token else "<empty>")
+        await websocket.close(code=4401, reason="Unauthorized")
+        return
+
+    host = (websocket.query_params.get("host") or "").strip()
+    port_raw = (websocket.query_params.get("port") or "").strip()
+    if not host or not port_raw:
+        logger.warning("vnc proxy missing target: host=%r port=%r user=%s", host, port_raw, payload.get("sub"))
+        await websocket.close(code=4400, reason="Missing host or port")
+        return
+
+    try:
+        port = int(port_raw)
+    except ValueError:
+        logger.warning("vnc proxy invalid port: host=%r port=%r user=%s", host, port_raw, payload.get("sub"))
+        await websocket.close(code=4400, reason="Invalid port")
+        return
+
+    try:
+        reader, writer = await asyncio.open_connection(host, port)
+    except Exception as e:
+        logger.warning("vnc proxy connect failed: %s:%s user=%s err=%s", host, port, payload.get("sub"), e)
+        await websocket.close(code=1013, reason="VNC target unavailable")
+        return
+
+    logger.info("vnc proxy connected: %s:%s user=%s", host, port, payload.get("sub"))
+    await websocket.accept()
+
+    try:
+        await asyncio.gather(
+            _pump_ws_to_tcp(websocket, writer),
+            _pump_tcp_to_ws(reader, websocket),
+        )
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.warning("vnc proxy error: %s:%s %s", host, port, e)
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
         except Exception:
             pass
