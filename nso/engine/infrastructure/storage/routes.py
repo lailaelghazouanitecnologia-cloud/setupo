@@ -66,6 +66,37 @@ async def list_objects(bucket_id: str, prefix: str = "",
 async def upload_object(bucket_id: str, file: UploadFile = File(...),
                         key: str = Query(None),
                         project_id: str = Depends(require_project)):
+    # Enforce frozen check + storage limit
+    try:
+        from nso.engine.billing.service import check_project_not_frozen, _get_owner_for_project, get_user_plan_features
+        await check_project_not_frozen(project_id)
+
+        # Check storage limit (bucket-level tracking)
+        owner_id = await _get_owner_for_project(project_id)
+        if owner_id:
+            features = await get_user_plan_features(owner_id)
+            storage_limit_gb = features.get("storage_gb", -1)
+            if storage_limit_gb != -1:
+                buckets = await db.fetch_all("storage_buckets", project_id=project_id)
+                total_bytes = sum(b.get("size_bytes", 0) for b in buckets)
+                total_gb = total_bytes / (1024 ** 3)
+                if total_gb >= storage_limit_gb:
+                    sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="active")
+                    is_free = not sub or sub.get("amount_cents", 0) == 0
+                    if is_free:
+                        raise HTTPException(
+                            403,
+                            f"Storage limit reached ({total_gb:.1f}GB/{storage_limit_gb}GB). "
+                            f"Upgrade your plan to upload more."
+                        )
+                    else:
+                        logger.info("Project %s over storage limit (%.1fGB/%dGB) — overage billed",
+                                    project_id, total_gb, storage_limit_gb)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Storage limit check failed (allowing): %s", e)
+
     object_key = key or file.filename or "unnamed"
     data = await file.read()
 

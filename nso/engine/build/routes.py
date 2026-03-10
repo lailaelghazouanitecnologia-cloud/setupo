@@ -47,6 +47,45 @@ async def build_workspace(name: str, req: BuildRequest, project_id: str = Depend
       5. If agent: return marker so deploy sends build to user's VPS
       6. If cached: return existing artifact key (no rebuild)
     """
+    # Enforce frozen project check + build minutes limit
+    try:
+        from nso.engine.billing.service import check_project_not_frozen, _get_owner_for_project, get_user_plan_features
+        await check_project_not_frozen(project_id)
+
+        owner_id = await _get_owner_for_project(project_id)
+        if owner_id:
+            features = await get_user_plan_features(owner_id)
+            build_limit = features.get("build_minutes", -1)
+            if build_limit != -1:
+                conn = await db.get_db()
+                cursor = await conn.execute(
+                    "SELECT COALESCE(SUM(duration_s), 0) as total "
+                    "FROM build_logs WHERE project_id = ? "
+                    "AND created_at >= datetime('now', '-30 days')",
+                    (project_id,),
+                )
+                row = await cursor.fetchone()
+                used_minutes = (row["total"] if row else 0) / 60
+
+                if used_minutes >= build_limit:
+                    sub = await db.fetch_one("billing_subscriptions", user_id=owner_id, status="active")
+                    is_free = not sub or sub.get("amount_cents", 0) == 0
+                    if is_free:
+                        raise HTTPException(
+                            403,
+                            f"Build minutes exhausted ({used_minutes:.0f}/{build_limit} min). "
+                            f"Upgrade your plan for more build minutes."
+                        )
+                    else:
+                        logger.info(
+                            "Project %s over build minutes (%d/%d) — overage billed",
+                            project_id, int(used_minutes), build_limit,
+                        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Build minutes check failed (allowing): %s", e)
+
     ws = await db.fetch_one("workspaces", project_id=project_id, name=name)
     if not ws:
         raise HTTPException(404, f"Workspace '{name}' not found")

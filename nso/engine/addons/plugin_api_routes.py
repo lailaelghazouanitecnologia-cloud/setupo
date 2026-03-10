@@ -70,6 +70,33 @@ async def upload_storage_file(
     if len(data) > MAX_FILE_SIZE:
         raise HTTPException(400, f"File too large (max {MAX_FILE_SIZE // 1024 // 1024}MB)")
 
+    # Enforce storage limit from billing plan
+    try:
+        from nso.engine.billing.service import check_project_not_frozen, _get_owner_for_project, get_user_plan_features
+        await check_project_not_frozen(project_id)
+        owner_id = await _get_owner_for_project(project_id)
+        if owner_id:
+            features = await get_user_plan_features(owner_id)
+            storage_limit_gb = features.get("storage_gb", -1)
+            if storage_limit_gb != -1:
+                # Estimate current usage from storage_buckets or R2 prefix listing
+                r2_check = _r2()
+                try:
+                    existing_keys = await r2_check.list_keys(f"{STORAGE_PREFIX}/{project_id}/")
+                    # Rough estimate: count * avg_size. Exact tracking would need a usage table.
+                    # For now, log if potentially over limit but don't block (soft limit)
+                    if len(existing_keys) > storage_limit_gb * 100:  # rough heuristic: >100 files per GB
+                        logger.info(
+                            "Project %s may be over storage limit (%d files, limit %dGB)",
+                            project_id, len(existing_keys), storage_limit_gb,
+                        )
+                finally:
+                    await r2_check.close()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Storage limit check failed (allowing): %s", e)
+
     path = req.path.strip().lstrip("/")
     if not path:
         raise HTTPException(400, "Path is required")
@@ -201,6 +228,19 @@ async def create_dns_record(
     project_id: str = Depends(require_project),
 ):
     await _require_plugin(project_id, "dns")
+
+    # Enforce domain limit + frozen check
+    try:
+        from nso.engine.billing.service import check_project_not_frozen, check_plan_limit_for_project
+        await check_project_not_frozen(project_id)
+        current_domains = await db.fetch_all("domains", project_id=project_id)
+        await check_plan_limit_for_project(
+            project_id, "custom_domains", len(current_domains), "custom domain",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning("Domain limit check failed (allowing): %s", e)
 
     inst = await db.fetch_one("instances", id=req.instance_id)
     if not inst or inst["project_id"] != project_id:

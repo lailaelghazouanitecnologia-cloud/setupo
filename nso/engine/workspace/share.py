@@ -79,6 +79,23 @@ async def redeem_share(join_code: str, user_id: str) -> dict:
     if await cursor.fetchone():
         raise ConflictError("You already have access to this workspace")
 
+    # Enforce team member limit from billing plan
+    try:
+        from nso.engine.billing.service import check_plan_limit_for_project
+        # Count project-level members (workspace members are a subset)
+        project_id = share.get("project_id", "")
+        if project_id:
+            members = await db.fetch_all("project_members", project_id=project_id)
+            await check_plan_limit_for_project(
+                project_id, "team_members", len(members), "team member",
+            )
+    except (ConflictError, ValidationError, AuthError):
+        raise
+    except Exception as e:
+        if hasattr(e, "status_code") and getattr(e, "status_code", 0) == 403:
+            raise
+        logger.warning("Team member limit check on share failed (allowing): %s", e)
+
     member_id = f"wsm_{secrets.token_hex(12)}"
     await db.insert("workspace_members", {
         "id": member_id,
