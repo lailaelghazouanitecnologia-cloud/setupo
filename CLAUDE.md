@@ -769,6 +769,9 @@ STRIPE_PUBLISHABLE_KEY=...
 
 # PostgreSQL (set via setup-postgres.sh or install.sh --central)
 DB_PASSWORD=...                # auto-generated during setup
+
+# Redis (optional — required for multi-node clusters)
+REDIS_URL=redis://:password@localhost:6379/0
 ```
 
 ## Project Structure
@@ -843,6 +846,8 @@ setupo/
 ├── nso/base/                    # Server setup & operations scripts
 │   ├── install.sh               # Installer (--central for PostgreSQL; fallback: git clone)
 │   ├── setup-postgres.sh        # Standalone PostgreSQL 16 setup + tuning
+│   ├── setup-pgbouncer.sh       # pgBouncer connection pooling (multi-node)
+│   ├── setup-redis.sh           # Redis for distributed state (multi-node)
 │   ├── migrate-sqlite-to-pg.py  # SQLite → PostgreSQL data migration (async, idempotent)
 │   ├── cloud-init.yaml          # Cloud-init for user VPS instances
 │   └── cloud-init-pool-host.yaml # Cloud-init for pool/build host VMs
@@ -865,7 +870,8 @@ setupo/
 - **Email**: SMTP (verification, password reset, notifications)
 - **Deploy**: cloud-init (bootstrap), systemd, nginx reverse proxy, .zar packages
 - **CLI**: Python (rich, httpx)
-- **State**: Zustand (frontend), event bus (backend pub/sub)
+- **State**: Zustand (frontend), Redis (distributed state, leader election, pub/sub), event bus (backend)
+- **Clustering**: Redis (leader election, distributed locks, rate limits), pgBouncer (connection pooling)
 
 ## Common Commands
 
@@ -888,3 +894,67 @@ cd setupo && bash nso/base/install.sh --central --email admin@nso.dev
 ```
 
 See DEPLOY.md for VPS directory layout, troubleshooting, nginx config, dashboard builds, and full deploy operations.
+
+## Multi-Node Cluster Architecture
+
+NSO supports horizontal scaling with multiple gateway nodes and worker nodes.
+
+### Node Types
+
+| Role | What it runs | Scaling |
+|------|-------------|---------|
+| **Gateway** | nginx + FastAPI central (stateless) | Horizontal (Cloudflare LB) |
+| **Database** | PostgreSQL + pgBouncer + Redis | Vertical + read replicas |
+| **Worker** | nso-agent + supervisor + user apps | Horizontal (auto-scale) |
+
+### Cluster Components
+
+**Redis** (`nso/shared/redis.py`):
+- Leader election for reconciler (only 1 gateway runs reconciliation)
+- Distributed rate limiting (sliding window across all gateways)
+- LB round-robin counters (consistent distribution)
+- Pub/Sub for cross-node event propagation
+- Cluster node heartbeats
+- Falls back to in-memory when `REDIS_URL` not set (single-node mode)
+
+**pgBouncer** (`nso/base/setup-pgbouncer.sh`):
+- Transaction pooling between gateways and PostgreSQL
+- 200+ effective connections with 50 real PostgreSQL connections
+- Transparent to application code (same connection string, different port)
+
+**Cluster Management** (`nso/engine/orchestrator/cluster.py`):
+- Node registration and heartbeat in PostgreSQL `cluster_nodes` table
+- Deploy state stored in PostgreSQL with optimistic locking (`deploy_state` table)
+- Admin API endpoints under `/api/admin/orchestrator/cluster/*`
+
+### Cluster API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/admin/orchestrator/cluster/nodes` | List all cluster nodes |
+| GET | `/api/admin/orchestrator/cluster/leader` | Get reconciler leader |
+| POST | `/api/admin/orchestrator/cluster/nodes/{id}/drain` | Drain a node |
+| DELETE | `/api/admin/orchestrator/cluster/nodes/{id}` | Remove a node |
+| GET | `/api/admin/orchestrator/cluster/deploy-state/{id}` | Get deploy state |
+| PUT | `/api/admin/orchestrator/cluster/deploy-state/{id}` | Update deploy state |
+
+### Environment Variables (Cluster)
+
+```bash
+REDIS_URL=redis://:password@localhost:6379/0   # Required for multi-node
+DATABASE_URL=postgresql://nso:pass@db-host:6432/nso  # Point to pgBouncer port
+```
+
+### Setup (Multi-Node)
+
+```bash
+# On database node
+bash nso/base/setup-postgres.sh
+bash nso/base/setup-pgbouncer.sh
+bash nso/base/setup-redis.sh
+
+# On each gateway node
+export DATABASE_URL=postgresql://nso:pass@db-host:6432/nso
+export REDIS_URL=redis://:pass@db-host:6379/0
+bash nso/base/install.sh --central --email admin@nso.dev
+```

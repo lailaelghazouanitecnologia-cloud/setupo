@@ -1,14 +1,12 @@
 """
 Rate limiting middleware — protects auth endpoints from brute-force.
 
-Uses in-memory sliding window per IP. Resets on server restart which
-is acceptable since attackers must restart their attack too.
+Uses Redis sliding window when available for distributed rate limiting
+across multiple gateway nodes. Falls back to in-memory for single-node.
 """
-import time
 import logging
-from collections import defaultdict
 
-from fastapi import Request, HTTPException
+from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
@@ -28,14 +26,6 @@ RATE_LIMITS: dict[str, tuple[int, int]] = {
 # Build-specific rate limit: 1 build per 60s per project (enforced in build service)
 BUILD_RATE_LIMIT = (1, 60)
 
-# path -> { ip -> [timestamps] }
-_buckets: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
-
-# Safety caps: prevent memory growth from many unique IPs
-_MAX_IPS_PER_PATH = 10_000
-_CLEANUP_INTERVAL = 300  # 5 minutes
-_last_cleanup = time.monotonic()
-
 
 def _get_client_ip(request: Request) -> str:
     """Get real client IP, respecting X-Forwarded-For behind nginx."""
@@ -47,59 +37,16 @@ def _get_client_ip(request: Request) -> str:
     return "unknown"
 
 
-def _cleanup_stale_buckets():
-    """Remove IPs with no recent activity. Runs periodically."""
-    global _last_cleanup
-    now = time.monotonic()
-    if now - _last_cleanup < _CLEANUP_INTERVAL:
-        return
-    _last_cleanup = now
-
-    removed = 0
-    for path, ip_map in list(_buckets.items()):
-        config = RATE_LIMITS.get(path)
-        if not config:
-            continue
-        _, window = config
-        cutoff = now - window
-        for ip in list(ip_map.keys()):
-            if not ip_map[ip] or ip_map[ip][-1] < cutoff:
-                del ip_map[ip]
-                removed += 1
-    if removed:
-        logger.debug("Rate limit cleanup: removed %d stale IP entries", removed)
-
-
-def _is_rate_limited(path: str, ip: str) -> bool:
-    """Check if request should be rate limited."""
+async def _is_rate_limited(path: str, ip: str) -> bool:
+    """Check if request should be rate limited using Redis distributed window."""
     config = RATE_LIMITS.get(path)
     if not config:
         return False
 
     max_requests, window = config
-    now = time.monotonic()
-
-    # Periodic cleanup of stale entries
-    _cleanup_stale_buckets()
-
-    # Cap IPs per path to prevent memory exhaustion from DDoS
-    ip_map = _buckets[path]
-    if len(ip_map) >= _MAX_IPS_PER_PATH and ip not in ip_map:
-        logger.warning("Rate limit bucket full for %s (%d IPs), rejecting new IP %s", path, len(ip_map), ip)
-        return True
-
-    bucket = ip_map[ip]
-
-    # Prune old entries
-    cutoff = now - window
-    ip_map[ip] = [t for t in bucket if t > cutoff]
-    bucket = ip_map[ip]
-
-    if len(bucket) >= max_requests:
-        return True
-
-    bucket.append(now)
-    return False
+    from nso.shared.redis import check_rate_limit
+    allowed = await check_rate_limit(f"rl:{path}:{ip}", max_requests, window)
+    return not allowed
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -112,7 +59,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         ip = _get_client_ip(request)
-        if _is_rate_limited(path, ip):
+        if await _is_rate_limited(path, ip):
             config = RATE_LIMITS[path]
             logger.warning("Rate limited: %s on %s (%d/%ds)", ip, path, config[0], config[1])
             return JSONResponse(

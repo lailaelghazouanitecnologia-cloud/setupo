@@ -146,6 +146,14 @@ async def emit(event_type: str, data: dict[str, Any] | None = None, source: str 
     if len(_event_log) > _max_log_size:
         _event_log.pop(0)
 
+    # Publish to Redis for cross-node propagation
+    try:
+        from nso.shared.redis import publish, is_available
+        if is_available():
+            await publish("events", event_dict)
+    except Exception:
+        pass  # Don't block event emission on Redis failure
+
     # Collect handlers
     handlers = list(_handlers.get(event_type, []))
 

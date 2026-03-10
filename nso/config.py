@@ -70,6 +70,9 @@ class Settings:
     DEPLOY_AGENT_API_URL = os.environ.get("DEPLOY_AGENT_API_URL", "https://api.groq.com/openai/v1")
     DEPLOY_AGENT_MODEL = os.environ.get("DEPLOY_AGENT_MODEL", "openai/gpt-oss-20b")
 
+    # Redis (optional — required for multi-node clusters)
+    REDIS_URL = os.environ.get("REDIS_URL", "")  # e.g. redis://localhost:6379/0
+
     # Mesh
     MESH_KEYS_DIR = DATA_DIR / "mesh"
     MESH_HEALTH_INTERVAL = int(os.environ.get("NSO_MESH_HEALTH_INTERVAL", "30"))

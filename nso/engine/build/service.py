@@ -26,7 +26,6 @@ from nso.engine.storage.service import R2Client
 logger = logging.getLogger("nso.build")
 
 # ── Rate limiting: 1 build per minute per project on the build server ──
-_build_timestamps: dict[str, float] = defaultdict(float)
 BUILD_RATE_WINDOW = 60  # seconds
 
 # ── Lightweight threshold: source < 2MB → build on user's agent ──
@@ -53,15 +52,16 @@ def compute_source_hash(zar_bytes: bytes) -> str:
     return hashlib.sha256(zar_bytes).hexdigest()
 
 
-def _is_rate_limited(project_id: str) -> bool:
+async def _is_rate_limited(project_id: str) -> bool:
     """Check if this project has exceeded 1 build/min on the build server."""
-    last = _build_timestamps.get(project_id, 0)
-    return (time.monotonic() - last) < BUILD_RATE_WINDOW
+    from nso.shared.redis import check_rate_limit
+    allowed = await check_rate_limit(f"build:{project_id}", 1, BUILD_RATE_WINDOW)
+    return not allowed
 
 
-def _record_build_use(project_id: str):
-    """Record that this project used the build server."""
-    _build_timestamps[project_id] = time.monotonic()
+async def _record_build_use(project_id: str):
+    """Record that this project used the build server (no-op, rate check handles it)."""
+    pass
 
 
 def estimate_build_weight(zar_bytes: bytes, build_command: str) -> str:
@@ -306,7 +306,7 @@ async def resolve_build_strategy(
             "cache_hit": None,
         }
 
-    if _is_rate_limited(project_id):
+    if await _is_rate_limited(project_id):
         logger.info("Build routed to AGENT for %s/%s (rate limited)", project_id, workspace)
         return {
             "strategy": "agent",
@@ -381,7 +381,7 @@ async def execute_build(
         }
 
     # ── Server build: compile on NSO infra ──
-    _record_build_use(project_id)
+    await _record_build_use(project_id)
 
     t0 = time.monotonic()
     result = await build_on_server(

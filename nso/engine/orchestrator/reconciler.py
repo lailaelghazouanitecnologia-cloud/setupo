@@ -87,11 +87,23 @@ async def stop_reconciler():
 # ── Main loop ──
 
 async def _reconcile_loop():
-    """Main reconciliation loop."""
+    """Main reconciliation loop with leader election.
+
+    Only the leader node runs reconciliation. Other nodes standby.
+    If the leader fails, another node acquires the lock within ~30s.
+    """
+    from nso.shared.redis import try_acquire_lock, renew_lock, release_lock, NODE_ID
+
     while True:
         try:
-            await _reconcile_all()
+            is_leader = await try_acquire_lock("reconciler", ttl=30)
+            if is_leader:
+                await renew_lock("reconciler", ttl=30)
+                await _reconcile_all()
+            else:
+                logger.debug("Not leader — skipping reconcile sweep (node=%s)", NODE_ID)
         except asyncio.CancelledError:
+            await release_lock("reconciler")
             raise
         except Exception as e:
             logger.error("Reconciler sweep error: %s", e, exc_info=True)
@@ -539,17 +551,17 @@ async def _scale_down(project_id: str, running: list[InstanceResource], reason: 
 
 # ── Scaling state helpers ──
 
-_last_scale_times: dict[str, float] = {}
-
-
 async def _get_last_scale_time(project_id: str) -> float:
     """Get the last time a scaling action was taken for a project."""
-    return _last_scale_times.get(project_id, 0)
+    from nso.shared.redis import get as redis_get
+    val = await redis_get(f"scale_time:{project_id}")
+    return float(val) if val else 0
 
 
 async def _set_last_scale_time(project_id: str, t: float):
     """Record when a scaling action was taken."""
-    _last_scale_times[project_id] = t
+    from nso.shared.redis import set as redis_set
+    await redis_set(f"scale_time:{project_id}", str(t), ex=3600)
 
 
 # ── Agent communication ──

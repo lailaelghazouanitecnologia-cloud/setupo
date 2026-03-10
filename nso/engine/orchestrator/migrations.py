@@ -98,6 +98,24 @@ TABLES = """
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (pool_id) REFERENCES lb_pools(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS cluster_nodes (
+        node_id TEXT PRIMARY KEY,
+        role TEXT NOT NULL DEFAULT 'gateway',
+        host TEXT NOT NULL DEFAULT '',
+        port INTEGER DEFAULT 8000,
+        status TEXT DEFAULT 'active',
+        last_seen TEXT DEFAULT CURRENT_TIMESTAMP,
+        metadata TEXT DEFAULT '{}'
+    );
+
+    CREATE TABLE IF NOT EXISTS deploy_state (
+        instance_id TEXT PRIMARY KEY,
+        target_dir TEXT NOT NULL DEFAULT '/opt/app',
+        state TEXT NOT NULL DEFAULT '{}',
+        version INTEGER DEFAULT 1,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
 """
 
 async def run_alterations(conn, logger):
@@ -122,4 +140,7 @@ INDEXES = """
     CREATE INDEX IF NOT EXISTS idx_lb_backends_instance ON lb_backends(instance_id);
     CREATE INDEX IF NOT EXISTS idx_lb_rules_pool ON lb_rules(pool_id);
     CREATE INDEX IF NOT EXISTS idx_lb_rules_priority ON lb_rules(priority);
+    CREATE INDEX IF NOT EXISTS idx_cluster_nodes_role ON cluster_nodes(role);
+    CREATE INDEX IF NOT EXISTS idx_cluster_nodes_status ON cluster_nodes(status);
+    CREATE INDEX IF NOT EXISTS idx_deploy_state_target ON deploy_state(target_dir);
 """

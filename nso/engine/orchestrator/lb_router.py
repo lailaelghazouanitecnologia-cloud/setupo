@@ -1,9 +1,10 @@
 """
 LB Router — selects the best backend for a request using the configured algorithm.
+
+RR counters are stored in Redis for consistent distribution across gateway nodes.
 """
 import hashlib
 import logging
-from itertools import cycle
 from typing import Optional
 
 from nso.engine.orchestrator.lb_models import (
@@ -12,9 +13,6 @@ from nso.engine.orchestrator.lb_models import (
 from nso.engine.orchestrator import pool_manager
 
 logger = logging.getLogger("nso.lb.router")
-
-# Round-robin state: pool_id → index
-_rr_counters: dict[str, int] = {}
 
 
 async def resolve_backend(
@@ -84,17 +82,17 @@ def _select_backend(
     algo = pool.algorithm
 
     if algo == LBAlgorithm.ROUND_ROBIN:
-        return _round_robin(pool.id, backends)
+        return await _round_robin(pool.id, backends)
 
     elif algo == LBAlgorithm.LEAST_CONNECTIONS:
         return min(backends, key=lambda b: b.active_connections)
 
     elif algo == LBAlgorithm.WEIGHTED:
-        return _weighted_select(pool.id, backends)
+        return await _weighted_select(pool.id, backends)
 
     elif algo == LBAlgorithm.IP_HASH:
         if not client_ip:
-            return _round_robin(pool.id, backends)
+            return await _round_robin(pool.id, backends)
         idx = int(hashlib.md5(client_ip.encode()).hexdigest(), 16) % len(backends)
         return backends[idx]
 
@@ -105,21 +103,18 @@ def _select_backend(
     return backends[0]
 
 
-def _round_robin(pool_id: str, backends: list[Backend]) -> Backend:
-    idx = _rr_counters.get(pool_id, 0)
-    backend = backends[idx % len(backends)]
-    _rr_counters[pool_id] = idx + 1
-    return backend
+async def _round_robin(pool_id: str, backends: list[Backend]) -> Backend:
+    from nso.shared.redis import incr
+    idx = await incr(f"rr:{pool_id}")
+    return backends[(idx - 1) % len(backends)]
 
 
-def _weighted_select(pool_id: str, backends: list[Backend]) -> Backend:
+async def _weighted_select(pool_id: str, backends: list[Backend]) -> Backend:
     """Weighted round-robin: backends with higher weight get more requests."""
-    # Build expanded list based on weights
     weighted = []
     for b in backends:
         weighted.extend([b] * max(1, b.weight))
 
-    idx = _rr_counters.get(pool_id, 0)
-    backend = weighted[idx % len(weighted)]
-    _rr_counters[pool_id] = idx + 1
-    return backend
+    from nso.shared.redis import incr
+    idx = await incr(f"rr:w:{pool_id}")
+    return weighted[(idx - 1) % len(weighted)]

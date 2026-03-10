@@ -84,6 +84,12 @@ async def lifespan(app: FastAPI):
     logger.info("NSO starting in '%s' mode...", SERVER_MODE)
     await db.init_db()
 
+    # Initialize Redis (distributed state for multi-node clusters)
+    from nso.shared import redis as nso_redis
+    await nso_redis.init_redis()
+    await nso_redis.register_node(role="gateway" if SERVER_MODE == "admin" else SERVER_MODE)
+    await nso_redis.start_subscriber()
+
     services = None
     if SERVER_MODE in ("admin", "full"):
         from nso.shared.manager import ServiceManager
@@ -150,6 +156,8 @@ async def lifespan(app: FastAPI):
     logger.info("NSO shutting down...")
     if services:
         await services.stop_all()
+    await nso_redis.deregister_node()
+    await nso_redis.close_redis()
     await db.close_db()
 
 

@@ -209,3 +209,84 @@ async def rebalance_pool(
     """Process queued builds and try to assign them."""
     await scheduler._process_queue()
     return {"ok": True, "message": "Queue reprocessed"}
+
+
+# ── Cluster Management ────────────────────────────────────
+
+from nso.engine.orchestrator import cluster as cluster_mod
+
+@router.get("/cluster/nodes")
+async def list_cluster_nodes(
+    role: str | None = Query(None),
+    _admin=Depends(require_admin),
+):
+    """List all cluster nodes (gateways + workers)."""
+    nodes = await cluster_mod.list_nodes(role=role or "")
+    # Also get Redis-registered live nodes
+    from nso.shared.redis import list_nodes as redis_list_nodes
+    live_nodes = await redis_list_nodes()
+    live_ids = {n["node_id"] for n in live_nodes if n.get("alive")}
+    for n in nodes:
+        n["alive"] = n.get("node_id", "") in live_ids
+    return nodes
+
+
+@router.get("/cluster/leader")
+async def get_cluster_leader(
+    _admin=Depends(require_admin),
+):
+    """Get the current reconciler leader node."""
+    from nso.shared.redis import get_lock_holder
+    leader = await get_lock_holder("reconciler")
+    return {"leader_node_id": leader}
+
+
+@router.post("/cluster/nodes/{node_id}/drain")
+async def drain_cluster_node(
+    node_id: str,
+    _admin=Depends(require_admin),
+):
+    """Set a cluster node to draining (no new work, finish existing)."""
+    await cluster_mod.set_node_status(node_id, "draining")
+    return {"ok": True, "status": "draining"}
+
+
+@router.delete("/cluster/nodes/{node_id}")
+async def remove_cluster_node(
+    node_id: str,
+    _admin=Depends(require_admin),
+):
+    """Remove a cluster node."""
+    await cluster_mod.deregister_node(node_id)
+    return {"ok": True}
+
+
+@router.get("/cluster/deploy-state/{instance_id}")
+async def get_deploy_state(
+    instance_id: str,
+    _admin=Depends(require_admin),
+):
+    """Get deploy state for an instance (PostgreSQL-backed)."""
+    state = await cluster_mod.get_deploy_state(instance_id)
+    if not state:
+        raise HTTPException(404, "No deploy state found")
+    return state
+
+
+@router.put("/cluster/deploy-state/{instance_id}")
+async def update_deploy_state(
+    instance_id: str,
+    body: dict,
+    _admin=Depends(require_admin),
+):
+    """Update deploy state with optimistic locking."""
+    try:
+        version = await cluster_mod.save_deploy_state(
+            instance_id,
+            state=body.get("state", {}),
+            target_dir=body.get("target_dir", "/opt/app"),
+            expected_version=body.get("expected_version"),
+        )
+        return {"ok": True, "version": version}
+    except ValueError as e:
+        raise HTTPException(409, str(e))
