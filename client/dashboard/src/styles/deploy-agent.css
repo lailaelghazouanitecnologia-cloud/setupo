@@ -686,6 +686,72 @@
   padding: 1px 6px; border-radius: 4px;
 }
 
+/* ── Deploy card phases ── */
+.da-deploy-card-phases {
+  margin-top: 4px; padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, #4ade80 15%, var(--border));
+  display: flex; flex-direction: column; gap: 3px;
+}
+.da-deploy-card-phase {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted-foreground);
+}
+
+/* ── Deploy progress (SSE streaming) ── */
+.da-deploy-progress {
+  margin: 8px 0; border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--da-accent, #e8772e) 30%, var(--border));
+  background: color-mix(in srgb, var(--da-accent, #e8772e) 4%, transparent);
+  overflow: hidden;
+}
+.da-deploy-progress-header {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 14px; font-weight: 600; font-size: 14px;
+  color: var(--foreground);
+}
+.da-deploy-progress-title { flex: 1; }
+.da-deploy-progress-phases {
+  padding: 0 14px 10px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.da-deploy-progress-phase {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; color: var(--muted-foreground);
+  transition: color 0.2s;
+}
+.da-deploy-progress-phase.running { color: var(--foreground); font-weight: 500; }
+.da-deploy-progress-phase.done { color: var(--foreground); }
+.da-deploy-progress-phase.error { color: #f87171; }
+.da-progress-dot-pending {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 1.5px solid color-mix(in srgb, var(--muted-foreground) 30%, transparent);
+  flex-shrink: 0;
+}
+.da-deploy-progress-pipeline {
+  padding: 0 14px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--da-accent, #e8772e) 15%, var(--border));
+  margin-top: 4px; padding-top: 8px;
+}
+.da-deploy-progress-pipeline-title {
+  font-size: 11px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted-foreground); margin-bottom: 4px;
+}
+.da-deploy-progress-pipeline-item {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--muted-foreground); padding: 1px 0;
+}
+.da-deploy-progress-duration {
+  margin-left: auto; font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--muted-foreground); opacity: 0.7;
+}
+.da-deploy-progress-error {
+  display: flex; align-items: center; gap: 6px;
+  padding: 8px 14px; font-size: 13px; color: #f87171;
+  border-top: 1px solid color-mix(in srgb, #f87171 20%, var(--border));
+  background: color-mix(in srgb, #f87171 5%, transparent);
+}
+
 /* Tool result error hint */
 .da-result-error-hint {
   font-size: 11px; color: #f87171;

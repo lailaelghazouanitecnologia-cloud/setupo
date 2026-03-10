@@ -434,6 +434,96 @@ export async function zarShip(projectId: string, name: string, opts: { branch?: 
   );
 }
 
+/** SSE event from ship-stream endpoint */
+export interface ShipStreamEvent {
+  type: "phase" | "pipeline_phase" | "error" | "done";
+  phase?: string;
+  status?: string;
+  message?: string;
+  size?: number;
+  r2_key?: string;
+  strategy?: string;
+  cached?: boolean;
+  ok?: boolean;
+  version?: string;
+  workspace?: string;
+  branch?: string;
+  snapshot?: string;
+  // pipeline_phase fields
+  name?: string;
+  duration_ms?: number;
+}
+
+/**
+ * Ship a workspace with real-time SSE progress streaming.
+ * Returns an AbortController and a callback-based event reader.
+ */
+export function zarShipStream(
+  projectId: string,
+  name: string,
+  opts: { branch?: string; instance_id?: string; domain?: string } = {},
+  onEvent: (event: ShipStreamEvent) => void,
+): { controller: AbortController; done: Promise<void> } {
+  const controller = new AbortController();
+  const token = getToken("nso_api_token");
+
+  const done = (async () => {
+    const resp = await fetch(
+      `${API_BASE}/api/projects/${projectId}/zar/${name}/ship-stream`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          branch: opts.branch || "main",
+          instance_id: opts.instance_id || "",
+          domain: opts.domain || "",
+        }),
+        signal: controller.signal,
+      },
+    );
+
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      onEvent({ type: "error", message: `HTTP ${resp.status}: ${text}` });
+      return;
+    }
+
+    const reader = resp.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let currentEventType = "";
+
+    while (true) {
+      const { done: readerDone, value } = await reader.read();
+      if (readerDone) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (line.startsWith("event: ")) {
+          currentEventType = line.slice(7).trim();
+        } else if (line.startsWith("data: ")) {
+          const data = line.slice(6).trim();
+          try {
+            const parsed = JSON.parse(data);
+            onEvent({ type: currentEventType as ShipStreamEvent["type"], ...parsed });
+          } catch { /* skip malformed */ }
+          currentEventType = "";
+        }
+      }
+    }
+  })();
+
+  return { controller, done };
+}
+
 export async function zarRollback(projectId: string, name: string, instanceId: string, snapshot = "") {
   return centralApi<any>(
     `/api/projects/${projectId}/zar/${name}/rollback`,

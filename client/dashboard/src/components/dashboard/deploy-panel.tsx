@@ -16,8 +16,8 @@ import { ConnectorPicker } from "./connector-picker";
 import {
   createDeployThread, listDeployThreads, getDeployThread,
   deleteDeployThread, updateDeployThread, streamDeployAgent,
-  listWorkspaces, zarVersions,
-  type DeployThread, type DeployMessage,
+  listWorkspaces, zarVersions, zarShipStream,
+  type DeployThread, type DeployMessage, type ShipStreamEvent,
 } from "@/lib/api/client";
 
 /* ═══════════════════════════════════════════
@@ -98,6 +98,7 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(initialWorkspace || null);
   const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [shipProgress, setShipProgress] = useState<{ workspace: string; instanceId: string; branch?: string } | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -198,6 +199,17 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
   const removeAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
   }, []);
+
+  /** Trigger direct ship with real-time SSE progress (bypasses AI agent) */
+  const quickShip = useCallback((workspace: string, instanceId: string, branch?: string) => {
+    if (shipProgress) return;
+    setMessages((prev) => [...prev, {
+      id: `u_${Date.now()}`, role: "user",
+      content: `Quick ship: ${workspace} → ${instanceId}`,
+      timestamp: new Date().toISOString(),
+    }]);
+    setShipProgress({ workspace, instanceId, branch });
+  }, [shipProgress]);
 
   const sendMessage = async (override?: string) => {
     let content = (override || input).trim();
@@ -425,6 +437,29 @@ function DeployAgentChat({ projectId, initialWorkspace = "" }: { projectId: stri
                     toolCall={activeToolCall}
                     status={streamText ? "streaming" : "connecting"}
                   />
+                )}
+
+                {shipProgress && (
+                  <div className="da-msg-assistant">
+                    <DeployProgress
+                      projectId={projectId}
+                      workspace={shipProgress.workspace}
+                      instanceId={shipProgress.instanceId}
+                      branch={shipProgress.branch}
+                      onComplete={(result) => {
+                        setMessages((prev) => [...prev, {
+                          id: `ship_${Date.now()}`, role: "tool_result",
+                          content: JSON.stringify(result), toolName: "run_ship",
+                          toolResult: JSON.stringify(result),
+                        }]);
+                        setShipProgress(null);
+                      }}
+                      onError={(msg) => {
+                        setError(msg);
+                        setShipProgress(null);
+                      }}
+                    />
+                  </div>
                 )}
 
                 {error && (
@@ -1154,6 +1189,7 @@ function ToolInline({ name, args, isStreaming }: {
 /** Deploy result card — shown for run_ship results */
 function DeployResultCard({ data }: { data: any }) {
   const isOk = data?.ok;
+  const phases = Array.isArray(data?.phases) ? data.phases : [];
   return (
     <div className="da-deploy-card">
       <div className="da-deploy-card-header">
@@ -1197,11 +1233,142 @@ function DeployResultCard({ data }: { data: any }) {
               <span className="da-deploy-card-meta">{data.instance_id}</span>
             </div>
           )}
+          {phases.length > 0 && (
+            <div className="da-deploy-card-phases">
+              {phases.map((p: any, i: number) => (
+                <div key={i} className="da-deploy-card-phase">
+                  <CheckCircle2 className="h-3 w-3" style={{ color: "#4ade80" }} />
+                  <span>{p.name || p.phase || `Phase ${i}`}</span>
+                  {p.duration_ms != null && (
+                    <span className="da-deploy-card-meta">{(p.duration_ms / 1000).toFixed(1)}s</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
       {!isOk && data.error && (
         <div className="da-deploy-card-body">
           <p style={{ color: "#f87171", fontSize: 13, margin: 0 }}>{data.error}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   DEPLOY PROGRESS — real-time SSE phase tracker
+   ═══════════════════════════════════════════ */
+
+const SHIP_PHASES = [
+  { key: "pack", label: "Packing" },
+  { key: "push", label: "Uploading to R2" },
+  { key: "build_check", label: "Building" },
+  { key: "deploy", label: "Deploying" },
+] as const;
+
+interface DeployProgressProps {
+  projectId: string;
+  workspace: string;
+  instanceId: string;
+  branch?: string;
+  domain?: string;
+  onComplete: (result: ShipStreamEvent) => void;
+  onError: (message: string) => void;
+}
+
+function DeployProgress({ projectId, workspace, instanceId, branch, domain, onComplete, onError }: DeployProgressProps) {
+  const [phases, setPhases] = useState<Record<string, "pending" | "running" | "done" | "error">>({
+    pack: "pending", push: "pending", build_check: "pending", deploy: "pending",
+  });
+  const [pipelinePhases, setPipelinePhases] = useState<Array<{ name: string; duration_ms?: number }>>([]);
+  const [errorMsg, setErrorMsg] = useState("");
+  const controllerRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    const { controller, done } = zarShipStream(
+      projectId, workspace,
+      { branch: branch || "main", instance_id: instanceId, domain: domain || "" },
+      (event: ShipStreamEvent) => {
+        switch (event.type) {
+          case "phase":
+            if (event.phase) {
+              setPhases((prev) => ({ ...prev, [event.phase!]: event.status as any }));
+            }
+            break;
+          case "pipeline_phase":
+            if (event.name) {
+              setPipelinePhases((prev) => [...prev, { name: event.name!, duration_ms: event.duration_ms }]);
+            }
+            break;
+          case "error":
+            if (event.phase) {
+              setPhases((prev) => ({ ...prev, [event.phase!]: "error" }));
+            }
+            setErrorMsg(event.message || "Deploy failed");
+            onError(event.message || "Deploy failed");
+            break;
+          case "done":
+            setPhases({ pack: "done", push: "done", build_check: "done", deploy: "done" });
+            onComplete(event);
+            break;
+        }
+      },
+    );
+    controllerRef.current = controller;
+
+    done.catch((err) => {
+      if (err?.name !== "AbortError") {
+        setErrorMsg(err?.message || "Stream failed");
+        onError(err?.message || "Stream failed");
+      }
+    });
+
+    return () => { controller.abort(); };
+  }, [projectId, workspace, instanceId, branch, domain]);
+
+  const phaseIcon = (status: string) => {
+    switch (status) {
+      case "running": return <Loader2 className="h-3.5 w-3.5 animate-spin" style={{ color: "var(--da-accent, #e8772e)" }} />;
+      case "done": return <CheckCircle2 className="h-3.5 w-3.5" style={{ color: "#4ade80" }} />;
+      case "error": return <XCircle className="h-3.5 w-3.5" style={{ color: "#f87171" }} />;
+      default: return <div className="da-progress-dot-pending" />;
+    }
+  };
+
+  return (
+    <div className="da-deploy-progress">
+      <div className="da-deploy-progress-header">
+        <Rocket className="h-4 w-4" style={{ color: "var(--da-accent, #e8772e)" }} />
+        <span className="da-deploy-progress-title">Shipping {workspace}</span>
+      </div>
+      <div className="da-deploy-progress-phases">
+        {SHIP_PHASES.map(({ key, label }) => (
+          <div key={key} className={`da-deploy-progress-phase ${phases[key]}`}>
+            {phaseIcon(phases[key])}
+            <span className="da-deploy-progress-label">{label}</span>
+          </div>
+        ))}
+      </div>
+      {pipelinePhases.length > 0 && (
+        <div className="da-deploy-progress-pipeline">
+          <div className="da-deploy-progress-pipeline-title">Pipeline phases</div>
+          {pipelinePhases.map((p, i) => (
+            <div key={i} className="da-deploy-progress-pipeline-item">
+              <CheckCircle2 className="h-3 w-3" style={{ color: "#4ade80" }} />
+              <span>{p.name}</span>
+              {p.duration_ms != null && (
+                <span className="da-deploy-progress-duration">{(p.duration_ms / 1000).toFixed(1)}s</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {errorMsg && (
+        <div className="da-deploy-progress-error">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>{errorMsg}</span>
         </div>
       )}
     </div>
