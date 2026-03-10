@@ -71,7 +71,7 @@ POOL_MIGRATIONS = [
         agent_token TEXT DEFAULT '',
         metadata TEXT DEFAULT '{}',
         cost_cents_monthly INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_compute_hosts_status ON compute_hosts(status)",
@@ -105,7 +105,7 @@ POOL_MIGRATIONS = [
         pid INTEGER DEFAULT 0,
 
         metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         started_at TEXT,
         stopped_at TEXT,
         FOREIGN KEY (host_id) REFERENCES compute_hosts(id) ON DELETE CASCADE,
@@ -143,7 +143,7 @@ POOL_MIGRATIONS = [
         available INTEGER DEFAULT 1,
         sort_order INTEGER DEFAULT 0,
         metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_compute_plans_code ON compute_plans(code)",

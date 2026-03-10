@@ -1,38 +1,33 @@
+"""
+NSO Database Layer — PostgreSQL via asyncpg.
+
+Provides a high-level CRUD API + backward-compatible raw SQL interface.
+All ? placeholders are auto-converted to PostgreSQL $N syntax.
+"""
+
 import json
 import re
 import logging
-import asyncio
 import importlib
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 
-import aiosqlite
+import asyncpg
 
 from nso.config import settings
 
 logger = logging.getLogger("nso.db")
 
-# ── Connection architecture ──
-# SQLite allows concurrent readers but only 1 writer (WAL mode).
-# We use a dedicated write connection + a pool of read connections.
-# A write lock (asyncio.Lock) ensures only one write op at a time.
-_write_db: aiosqlite.Connection | None = None
-_read_pool: list[aiosqlite.Connection] = []
-_read_pool_index = 0
-_write_lock = asyncio.Lock()
-
-# Legacy alias — routes that call get_db() directly get the write connection
-_db: aiosqlite.Connection | None = None
+# Connection pool
+_pool: asyncpg.Pool | None = None
+# Persistent connection for get_db() backward compat (raw SQL callers)
+_compat_conn: asyncpg.Connection | None = None
 
 _SAFE_IDENT = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
-# Pool size for read connections (separate from the writer)
-READ_POOL_SIZE = 4
-
-# Retry settings for transient "database is locked" errors
-_MAX_RETRIES = 3
-_RETRY_BASE_DELAY = 0.05  # 50ms, 100ms, 200ms
+POOL_MIN_SIZE = 2
+POOL_MAX_SIZE = 10
 
 JSON_FIELDS = frozenset({
     "settings", "metadata", "config", "config_schema",
@@ -53,82 +48,144 @@ BOOL_FIELDS = frozenset({
 })
 
 
-async def get_db() -> aiosqlite.Connection:
-    """Get the write connection (for backward compat with raw SQL queries)."""
-    global _write_db
-    if _write_db is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
-    return _write_db
+# ── Placeholder conversion ──
+
+def _q(sql: str) -> str:
+    """Convert SQLite ? placeholders to PostgreSQL $N placeholders."""
+    counter = [0]
+    def repl(_):
+        counter[0] += 1
+        return f"${counter[0]}"
+    return re.sub(r'\?', repl, sql)
 
 
-async def _get_reader() -> aiosqlite.Connection:
-    """Get a read connection from the pool (round-robin)."""
-    global _read_pool_index
-    if not _read_pool:
-        return await get_db()  # Fallback to writer if pool not ready
-    idx = _read_pool_index % len(_read_pool)
-    _read_pool_index += 1
-    return _read_pool[idx]
+# ── Compatibility layer ──
+# Mimics aiosqlite cursor/connection API so raw SQL callers work unchanged.
+
+class _Cursor:
+    """Mimics aiosqlite cursor for backward compat."""
+    __slots__ = ("_rows", "rowcount", "lastrowid")
+
+    def __init__(self, rows=None, rowcount=0, lastrowid=None):
+        self._rows = rows or []
+        self.rowcount = rowcount
+        self.lastrowid = lastrowid
+
+    async def fetchone(self):
+        return self._rows[0] if self._rows else None
+
+    async def fetchall(self):
+        return self._rows
 
 
-async def _open_connection(path: str) -> aiosqlite.Connection:
-    """Open a SQLite connection with standard pragmas."""
-    conn = await aiosqlite.connect(path)
-    conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode = WAL")
-    await conn.execute("PRAGMA busy_timeout = 5000")
-    await conn.execute("PRAGMA synchronous = NORMAL")
-    await conn.execute("PRAGMA cache_size = -8000")  # 8MB cache
-    await conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+class _ConnWrapper:
+    """Wraps asyncpg.Connection with aiosqlite-compatible execute/commit API."""
 
+    def __init__(self, conn: asyncpg.Connection):
+        self._conn = conn
+
+    async def execute(self, sql: str, params=None):
+        pg_sql = _q(sql)
+        args = tuple(params) if params else ()
+
+        upper = pg_sql.strip().upper()
+
+        # PRAGMA statements are SQLite-only — no-op in PostgreSQL
+        if upper.startswith("PRAGMA"):
+            return _Cursor()
+
+        if upper.startswith(("SELECT", "WITH")):
+            rows = await self._conn.fetch(pg_sql, *args)
+            return _Cursor(rows, rowcount=len(rows))
+
+        elif upper.startswith("INSERT"):
+            # Try to get lastrowid for SERIAL columns via RETURNING
+            if "RETURNING" not in upper:
+                try:
+                    row = await self._conn.fetchrow(pg_sql + " RETURNING id", *args)
+                    lastrowid = row["id"] if row else None
+                    return _Cursor(rowcount=1, lastrowid=lastrowid)
+                except Exception:
+                    # Table might not have 'id' column, fall through
+                    pass
+            result = await self._conn.execute(pg_sql, *args)
+            count = _parse_rowcount(result)
+            return _Cursor(rowcount=count)
+
+        else:
+            # UPDATE, DELETE, DDL
+            result = await self._conn.execute(pg_sql, *args)
+            count = _parse_rowcount(result)
+            return _Cursor(rowcount=count)
+
+    async def executescript(self, sql: str):
+        """Execute multiple semicolon-separated statements."""
+        for stmt in sql.split(';'):
+            stmt = stmt.strip()
+            if stmt and not stmt.startswith('--'):
+                await self._conn.execute(stmt)
+
+    async def commit(self):
+        pass  # asyncpg auto-commits
+
+    async def rollback(self):
+        pass  # handled by transaction context
+
+
+def _parse_rowcount(result: str) -> int:
+    """Parse rowcount from asyncpg result string like 'UPDATE 3' or 'DELETE 1'."""
+    if result:
+        parts = result.split()
+        if len(parts) >= 2 and parts[-1].isdigit():
+            return int(parts[-1])
+    return 0
+
+
+# ── Lifecycle ──
 
 async def init_db():
-    global _db, _write_db, _read_pool
-    path = str(settings.db_path())
-    logger.info("Opening database at %s (1 writer + %d readers)", path, READ_POOL_SIZE)
+    global _pool, _compat_conn
+    dsn = settings.DATABASE_URL
+    masked = dsn.split("@")[-1] if "@" in dsn else dsn
+    logger.info("Connecting to PostgreSQL: %s (pool %d-%d)", masked, POOL_MIN_SIZE, POOL_MAX_SIZE)
 
-    # Write connection (the primary)
-    _write_db = await _open_connection(path)
-    _db = _write_db  # Legacy alias
+    _pool = await asyncpg.create_pool(dsn, min_size=POOL_MIN_SIZE, max_size=POOL_MAX_SIZE)
+    _compat_conn = await asyncpg.connect(dsn)
 
-    # Run migrations on write connection only
-    await _run_module_migrations(_write_db)
+    # Run all module migrations
+    wrapper = _ConnWrapper(_compat_conn)
+    await _run_module_migrations(wrapper)
 
-    # Read pool (separate connections for concurrent reads)
-    _read_pool = []
-    for i in range(READ_POOL_SIZE):
-        reader = await _open_connection(path)
-        # Readers don't need foreign keys enforcement (read-only)
-        await reader.execute("PRAGMA query_only = ON")
-        _read_pool.append(reader)
-    logger.info("Read pool initialized with %d connections", len(_read_pool))
+    logger.info("PostgreSQL ready — migrations complete")
 
 
 async def close_db():
-    global _db, _write_db, _read_pool
-    for reader in _read_pool:
-        try:
-            await reader.close()
-        except Exception:
-            pass
-    _read_pool = []
-    if _write_db:
-        await _write_db.close()
-        _write_db = None
-    _db = None
+    global _pool, _compat_conn
+    if _compat_conn:
+        await _compat_conn.close()
+        _compat_conn = None
+    if _pool:
+        await _pool.close()
+        _pool = None
 
 
-async def _migrate(conn: aiosqlite.Connection):
+async def get_db():
+    """Get the persistent connection wrapper (for backward compat with raw SQL)."""
+    if _compat_conn is None:
+        raise RuntimeError("Database not initialized. Call init_db() first.")
+    return _ConnWrapper(_compat_conn)
+
+
+async def _migrate(conn):
     """Alias for test compatibility."""
-    return await _run_module_migrations(conn)
+    wrapper = conn if isinstance(conn, _ConnWrapper) else _ConnWrapper(conn)
+    return await _run_module_migrations(wrapper)
 
 
-async def _run_module_migrations(conn: aiosqlite.Connection):
+async def _run_module_migrations(conn: _ConnWrapper):
     engine_dir = Path(__file__).parent.parent / "engine"
     if not engine_dir.exists():
         logger.warning("Engine directory not found at %s", engine_dir)
-        await conn.commit()
         return
 
     for module_dir in sorted(engine_dir.iterdir()):
@@ -139,16 +196,17 @@ async def _run_module_migrations(conn: aiosqlite.Connection):
             continue
         mod_name = module_dir.name
         mod = importlib.import_module(f"nso.engine.{mod_name}.migrations")
-        if hasattr(mod, "TABLES"):
+        if hasattr(mod, "TABLES") and mod.TABLES.strip():
             await conn.executescript(mod.TABLES)
-        if hasattr(mod, "INDEXES"):
+        if hasattr(mod, "INDEXES") and mod.INDEXES.strip():
             await conn.executescript(mod.INDEXES)
         if hasattr(mod, "run_alterations"):
             await mod.run_alterations(conn, logger)
 
-    await conn.commit()
     logger.info("Database migrations complete")
 
+
+# ── Serialization ──
 
 def _serialize_value(v):
     if isinstance(v, (dict, list)):
@@ -175,7 +233,8 @@ def _validate_order_by(order_by: str):
             raise ValueError(f"Invalid ORDER BY direction: {tokens[1]!r}")
 
 
-def row_to_dict(row: aiosqlite.Row) -> dict:
+def row_to_dict(row) -> dict:
+    """Convert asyncpg Record or dict to dict with JSON/bool deserialization."""
     d = dict(row)
     for key in JSON_FIELDS:
         if key in d and isinstance(d[key], str):
@@ -189,124 +248,96 @@ def row_to_dict(row: aiosqlite.Row) -> dict:
     return d
 
 
-async def _retry_on_locked(coro_fn):
-    """Retry a database operation on transient 'database is locked' errors."""
-    last_err = None
-    for attempt in range(_MAX_RETRIES + 1):
-        try:
-            return await coro_fn()
-        except Exception as e:
-            if "database is locked" in str(e) and attempt < _MAX_RETRIES:
-                last_err = e
-                delay = _RETRY_BASE_DELAY * (2 ** attempt)
-                logger.warning("Database locked (attempt %d/%d), retrying in %.0fms",
-                               attempt + 1, _MAX_RETRIES, delay * 1000)
-                await asyncio.sleep(delay)
-            else:
-                raise
-    raise last_err  # type: ignore[misc]
-
+# ── CRUD operations (use connection pool) ──
 
 async def insert(table: str, data: dict):
     _validate_identifier(table, "table")
     for k in data:
         _validate_identifier(k, "column")
     cols = ", ".join(data.keys())
-    placeholders = ", ".join(["?"] * len(data))
+    n = len(data)
+    placeholders = ", ".join(f"${i+1}" for i in range(n))
     vals = [_serialize_value(v) for v in data.values()]
 
-    async def _do():
-        async with _write_lock:
-            conn = await get_db()
-            await conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", vals)
-            await conn.commit()
-    await _retry_on_locked(_do)
+    async with _pool.acquire() as conn:
+        await conn.execute(f"INSERT INTO {table} ({cols}) VALUES ({placeholders})", *vals)
 
 
 async def update(table: str, id_val: str, data: dict):
     _validate_identifier(table, "table")
     for k in data:
         _validate_identifier(k, "column")
-    sets = [f"{k} = ?" for k in data]
+    sets = [f"{k} = ${i+1}" for i, k in enumerate(data)]
     vals = [_serialize_value(v) for v in data.values()]
     vals.append(id_val)
+    id_ph = f"${len(data) + 1}"
 
-    async def _do():
-        async with _write_lock:
-            conn = await get_db()
-            await conn.execute(f"UPDATE {table} SET {', '.join(sets)} WHERE id = ?", vals)
-            await conn.commit()
-    await _retry_on_locked(_do)
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"UPDATE {table} SET {', '.join(sets)} WHERE id = {id_ph}", *vals
+        )
 
 
 async def fetch_one(table: str, **where) -> dict | None:
-    """Read a single row. Uses the read pool for concurrency."""
+    """Read a single row. Uses connection pool."""
     _validate_identifier(table, "table")
     for k in where:
         _validate_identifier(k, "column")
-    conn = await _get_reader()
-    conditions = " AND ".join(f"{k} = ?" for k in where)
-    cursor = await conn.execute(f"SELECT * FROM {table} WHERE {conditions}", list(where.values()))
-    row = await cursor.fetchone()
+    conditions = " AND ".join(f"{k} = ${i+1}" for i, k in enumerate(where))
+
+    async with _pool.acquire() as conn:
+        row = await conn.fetchrow(
+            f"SELECT * FROM {table} WHERE {conditions}",
+            *list(where.values()),
+        )
     if not row:
         return None
     return row_to_dict(row)
 
 
 async def fetch_all(table: str, order_by: str = "created_at DESC", **where) -> list[dict]:
-    """Read multiple rows. Uses the read pool for concurrency."""
+    """Read multiple rows. Uses connection pool."""
     _validate_identifier(table, "table")
     _validate_order_by(order_by)
     for k in where:
         _validate_identifier(k, "column")
-    conn = await _get_reader()
-    if where:
-        conditions = " AND ".join(f"{k} = ?" for k in where)
-        cursor = await conn.execute(
-            f"SELECT * FROM {table} WHERE {conditions} ORDER BY {order_by}",
-            list(where.values()),
-        )
-    else:
-        cursor = await conn.execute(f"SELECT * FROM {table} ORDER BY {order_by}")
-    rows = await cursor.fetchall()
+
+    async with _pool.acquire() as conn:
+        if where:
+            conditions = " AND ".join(f"{k} = ${i+1}" for i, k in enumerate(where))
+            rows = await conn.fetch(
+                f"SELECT * FROM {table} WHERE {conditions} ORDER BY {order_by}",
+                *list(where.values()),
+            )
+        else:
+            rows = await conn.fetch(f"SELECT * FROM {table} ORDER BY {order_by}")
     return [row_to_dict(r) for r in rows]
 
 
 async def delete(table: str, id_val: str):
     _validate_identifier(table, "table")
-
-    async def _do():
-        async with _write_lock:
-            conn = await get_db()
-            await conn.execute(f"DELETE FROM {table} WHERE id = ?", (id_val,))
-            await conn.commit()
-    await _retry_on_locked(_do)
+    async with _pool.acquire() as conn:
+        await conn.execute(f"DELETE FROM {table} WHERE id = $1", id_val)
 
 
 async def delete_where(table: str, **where):
     _validate_identifier(table, "table")
     for k in where:
         _validate_identifier(k, "column")
-    conditions = " AND ".join(f"{k} = ?" for k in where)
+    conditions = " AND ".join(f"{k} = ${i+1}" for i, k in enumerate(where))
 
-    async def _do():
-        async with _write_lock:
-            conn = await get_db()
-            await conn.execute(f"DELETE FROM {table} WHERE {conditions}", list(where.values()))
-            await conn.commit()
-    await _retry_on_locked(_do)
+    async with _pool.acquire() as conn:
+        await conn.execute(
+            f"DELETE FROM {table} WHERE {conditions}",
+            *list(where.values()),
+        )
 
 
-# ── Atomic transactions ────────────────────────────────────────
-# Use this context manager for multi-step operations that must
-# succeed or fail together (billing, financial operations, etc.)
+# ── Atomic transactions ──
 
 @asynccontextmanager
 async def transaction():
     """Execute multiple operations atomically.
-
-    Acquires the write lock for the entire transaction to prevent
-    concurrent transactions from interfering with each other.
 
     Usage:
         async with db.transaction() as conn:
@@ -314,12 +345,6 @@ async def transaction():
             await conn.execute("INSERT ...", ...)
         # auto-commits on exit, rolls back on exception
     """
-    async with _write_lock:
-        conn = await get_db()
-        await conn.execute("BEGIN IMMEDIATE")
-        try:
-            yield conn
-            await conn.commit()
-        except Exception:
-            await conn.rollback()
-            raise
+    async with _pool.acquire() as conn:
+        async with conn.transaction():
+            yield _ConnWrapper(conn)

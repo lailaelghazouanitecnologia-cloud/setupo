@@ -32,11 +32,14 @@ INDEXES = """
 
 
 async def run_alterations(conn, logger):
-    """Migrate balance REAL → balance_cents INTEGER for existing databases."""
-    cursor = await conn.execute("PRAGMA table_info(users)")
-    columns = {row[1]: row[2] for row in await cursor.fetchall()}
-    if "balance" in columns and "balance_cents" not in columns:
-        logger.info("Migrating users.balance (REAL) → balance_cents (INTEGER)")
+    """Add balance_cents column if missing (PostgreSQL-compatible)."""
+    try:
+        await conn.execute("SELECT balance_cents FROM users LIMIT 1")
+    except Exception:
+        logger.info("Adding balance_cents column to users")
         await conn.execute("ALTER TABLE users ADD COLUMN balance_cents INTEGER DEFAULT 0")
-        await conn.execute("UPDATE users SET balance_cents = CAST(ROUND(balance * 100) AS INTEGER)")
-        logger.info("Migration complete — balance_cents populated from balance")
+        try:
+            await conn.execute("UPDATE users SET balance_cents = CAST(ROUND(balance * 100) AS INTEGER) WHERE balance IS NOT NULL")
+            logger.info("Migration complete — balance_cents populated from balance")
+        except Exception:
+            pass  # balance column might not exist in fresh installs

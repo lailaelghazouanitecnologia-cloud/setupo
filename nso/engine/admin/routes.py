@@ -523,9 +523,10 @@ async def database_info(auth: AuthContext = Depends(require_admin)):
     import os
     d = await db.get_db()
 
-    # Get all tables
+    # Get all tables (PostgreSQL information_schema)
     cursor = await d.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name"
     )
     tables = []
     for row in await cursor.fetchall():
@@ -534,12 +535,12 @@ async def database_info(auth: AuthContext = Depends(require_admin)):
         count = (await count_cursor.fetchone())[0]
         tables.append({"name": name, "row_count": count})
 
-    # DB file size
-    db_path = str(db.settings.db_path())
-    db_size = os.path.getsize(db_path) if os.path.exists(db_path) else 0
+    # Database size
+    size_cursor = await d.execute("SELECT pg_database_size(current_database())")
+    db_size = (await size_cursor.fetchone())[0]
 
     return {
-        "path": db_path,
+        "engine": "postgresql",
         "size_bytes": db_size,
         "size_mb": round(db_size / (1024 * 1024), 2),
         "tables": sorted(tables, key=lambda t: t["row_count"], reverse=True),
@@ -558,16 +559,24 @@ async def database_table_detail(
     from nso.shared import db
     d = await db.get_db()
 
-    # Validate table exists
+    # Validate table exists (PostgreSQL information_schema)
     cursor = await d.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table_name,)
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_schema = 'public' AND table_name = ?", (table_name,)
     )
     if not await cursor.fetchone():
         raise HTTPException(404, "Table not found")
 
-    # Get columns
-    col_cursor = await d.execute(f'PRAGMA table_info("{table_name}")')
-    columns = [{"name": r[1], "type": r[2], "notnull": bool(r[3]), "pk": bool(r[5])} for r in await col_cursor.fetchall()]
+    # Get columns (PostgreSQL information_schema)
+    col_cursor = await d.execute(
+        "SELECT column_name, data_type, is_nullable, "
+        "CASE WHEN column_name IN (SELECT kcu.column_name FROM information_schema.key_column_usage kcu "
+        "JOIN information_schema.table_constraints tc ON tc.constraint_name = kcu.constraint_name "
+        "WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = ?) THEN true ELSE false END as is_pk "
+        "FROM information_schema.columns WHERE table_name = ? ORDER BY ordinal_position",
+        (table_name, table_name)
+    )
+    columns = [{"name": r[0], "type": r[1], "notnull": r[2] == "NO", "pk": r[3]} for r in await col_cursor.fetchall()]
 
     # Get rows
     row_cursor = await d.execute(f'SELECT * FROM "{table_name}" LIMIT ? OFFSET ?', (limit, offset))

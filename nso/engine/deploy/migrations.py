@@ -1,6 +1,6 @@
 TABLES = """
     CREATE TABLE IF NOT EXISTS deploy_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         instance_id TEXT NOT NULL,
         level TEXT DEFAULT 'info',
         message TEXT NOT NULL,

@@ -210,8 +210,8 @@ async def _db_persist_handler(event: dict):
         from nso.shared import db
         conn = await db.get_db()
         await conn.execute(
-            """INSERT OR IGNORE INTO system_events (id, type, data, source, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
+            """INSERT INTO system_events (id, type, data, source, created_at)
+               VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING""",
             (event["id"], event["type"], json.dumps(event["data"]),
              event.get("source", ""), event["timestamp"]),
         )
@@ -227,7 +227,7 @@ EVENTS_MIGRATION = [
         type TEXT NOT NULL,
         data TEXT DEFAULT '{}',
         source TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_system_events_type ON system_events(type)",

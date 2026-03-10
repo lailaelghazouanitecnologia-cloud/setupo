@@ -44,7 +44,7 @@ QUOTA_MIGRATIONS = [
         max_ram_mb INTEGER DEFAULT 0,
         allowed_plans TEXT DEFAULT '[]',
         notes TEXT DEFAULT '',
-        updated_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,

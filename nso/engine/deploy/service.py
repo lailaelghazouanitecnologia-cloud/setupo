@@ -93,9 +93,10 @@ async def _check_deploy_limit(project_id: str) -> None:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         conn = await db.get_db()
 
-        # Check if compute_nodes table exists before including it
+        # Check if compute_nodes table exists
         tbl_cursor = await conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='compute_nodes'"
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_name = 'compute_nodes'"
         )
         has_nodes = await tbl_cursor.fetchone()
 
@@ -106,7 +107,7 @@ async def _check_deploy_limit(project_id: str) -> None:
                 "  SELECT id FROM instances WHERE project_id = ? "
                 "  UNION SELECT id FROM compute_nodes WHERE project_id = ?"
                 ") "
-                "AND message LIKE 'Syncing workspace%' "
+                "AND message LIKE 'Syncing workspace%%' "
                 "AND created_at >= ?"
             )
             params = (project_id, project_id, today)
@@ -116,7 +117,7 @@ async def _check_deploy_limit(project_id: str) -> None:
                 "WHERE instance_id IN ("
                 "  SELECT id FROM instances WHERE project_id = ?"
                 ") "
-                "AND message LIKE 'Syncing workspace%' "
+                "AND message LIKE 'Syncing workspace%%' "
                 "AND created_at >= ?"
             )
             params = (project_id, today)

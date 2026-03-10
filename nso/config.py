@@ -6,7 +6,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 class Settings:
     DATA_DIR = Path(os.environ.get("NSO_DATA_DIR", "/opt/nso/data"))
-    DB_PATH = DATA_DIR / "nso.db"
+    DB_PATH = DATA_DIR / "nso.db"  # Legacy (SQLite path, unused with PostgreSQL)
+    DATABASE_URL = os.environ.get(
+        "DATABASE_URL",
+        "postgresql://nso:nso@localhost:5432/nso",
+    )
     KEYS_DIR = DATA_DIR / "keys"
     CONFIG_DIR = Path(os.environ.get("NSO_CONFIG_DIR", "/opt/nso/config"))
     TOKEN_PATH = CONFIG_DIR / "token"

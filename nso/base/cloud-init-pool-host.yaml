@@ -128,7 +128,7 @@ runcmd:
   # ── 6. Python venv ──
   - python3 -m venv /opt/nso/venv
   - /opt/nso/venv/bin/pip install --upgrade pip
-  - /opt/nso/venv/bin/pip install fastapi uvicorn httpx aiosqlite pydantic
+  - /opt/nso/venv/bin/pip install fastapi uvicorn httpx asyncpg pydantic
 
   # ── 7. Agent config ──
   # The pool agent token is how the central server authenticates.

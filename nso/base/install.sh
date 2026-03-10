@@ -120,7 +120,7 @@ info "Setting up Python environment..."
 python3 -m venv $NSO_DIR/venv
 $NSO_DIR/venv/bin/pip install --upgrade pip -q
 $NSO_DIR/venv/bin/pip install -q \
-    fastapi uvicorn httpx aiosqlite pydantic aiofiles python-multipart pyyaml websockets
+    fastapi uvicorn httpx asyncpg pydantic aiofiles python-multipart pyyaml websockets
 ok "Python environment ready"
 
 # ── Step 5: Download agent code ──

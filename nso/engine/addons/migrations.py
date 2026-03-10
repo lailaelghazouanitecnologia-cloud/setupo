@@ -94,7 +94,7 @@ TABLES = """
     );
 
     CREATE TABLE IF NOT EXISTS webhook_deliveries (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         webhook_id TEXT NOT NULL,
         event TEXT DEFAULT 'push',
         github_delivery_id TEXT DEFAULT '',
@@ -127,7 +127,7 @@ TABLES = """
     );
 
     CREATE TABLE IF NOT EXISTS uptime_results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         target_id TEXT NOT NULL,
         status_code INTEGER,
         response_ms INTEGER,
@@ -173,7 +173,7 @@ TABLES = """
     );
 
     CREATE TABLE IF NOT EXISTS task_executions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
         task_id TEXT NOT NULL,
         status TEXT DEFAULT 'running',
         exit_code INTEGER DEFAULT -1,

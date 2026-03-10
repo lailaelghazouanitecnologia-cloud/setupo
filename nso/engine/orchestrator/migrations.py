@@ -101,41 +101,8 @@ TABLES = """
 """
 
 async def run_alterations(conn, logger):
-    """Fix FK constraints on lb_pools for existing databases."""
-    cursor = await conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='lb_pools'"
-    )
-    if await cursor.fetchone():
-        cursor = await conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name='lb_pools'"
-        )
-        row = await cursor.fetchone()
-        if row and "FOREIGN KEY" not in (row[0] or "").upper():
-            logger.info("Migrating lb_pools: adding FK to projects(id)")
-            await conn.executescript("""
-                CREATE TABLE IF NOT EXISTS lb_pools_new (
-                    id TEXT PRIMARY KEY,
-                    name TEXT NOT NULL,
-                    project_id TEXT NOT NULL DEFAULT '',
-                    algorithm TEXT DEFAULT 'round_robin',
-                    health_check_path TEXT DEFAULT '/api/health',
-                    health_check_interval INTEGER DEFAULT 30,
-                    health_check_timeout INTEGER DEFAULT 5,
-                    max_fails INTEGER DEFAULT 3,
-                    sticky_sessions INTEGER DEFAULT 0,
-                    sticky_cookie TEXT DEFAULT 'NSO_LB_SID',
-                    active INTEGER DEFAULT 1,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
-                );
-                INSERT OR IGNORE INTO lb_pools_new SELECT * FROM lb_pools;
-                DROP TABLE lb_pools;
-                ALTER TABLE lb_pools_new RENAME TO lb_pools;
-                CREATE INDEX IF NOT EXISTS idx_lb_pools_active ON lb_pools(active);
-                CREATE INDEX IF NOT EXISTS idx_lb_pools_project ON lb_pools(project_id);
-            """)
-            logger.info("lb_pools FK migration complete")
+    """No-op for PostgreSQL — FKs are set correctly in initial DDL."""
+    pass
 
 
 INDEXES = """

@@ -14,8 +14,8 @@ TABLES = """
         last_seen_at TEXT,
         tags TEXT DEFAULT '[]',
         metadata TEXT DEFAULT '{}',
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         UNIQUE(project_id, name)
     );
@@ -25,7 +25,7 @@ TABLES = """
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
         description TEXT DEFAULT '',
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         UNIQUE(project_id, name)
     );
@@ -48,7 +48,7 @@ TABLES = """
         stderr TEXT DEFAULT '',
         duration_ms INTEGER DEFAULT 0,
         triggered_by TEXT DEFAULT 'system',
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (device_id) REFERENCES mesh_devices(id) ON DELETE CASCADE
     );
 """

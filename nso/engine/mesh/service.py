@@ -459,7 +459,7 @@ async def add_devices_to_group(project_id: str, group_id: str,
     for did in device_ids:
         await get_device(project_id, did)
         await conn.execute(
-            "INSERT OR IGNORE INTO mesh_device_groups (device_id, group_id) VALUES (?, ?)",
+            "INSERT INTO mesh_device_groups (device_id, group_id) VALUES (?, ?) ON CONFLICT DO NOTHING",
             (did, group_id),
         )
     await conn.commit()

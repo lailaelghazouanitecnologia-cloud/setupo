@@ -2,7 +2,7 @@ import logging
 import re
 import secrets
 
-import aiosqlite
+import asyncpg
 
 from nso.shared import db
 from nso.shared.errors import ConflictError, NotFoundError, ValidationError, AuthError
@@ -91,7 +91,7 @@ async def create_user(email: str, password: str, name: str = "") -> dict:
             "balance_cents": 0,
             "verified": 0,
         })
-    except aiosqlite.IntegrityError:
+    except asyncpg.UniqueViolationError:
         raise ConflictError("Email already registered")
 
     logger.info("User created: %s (%s)", email, user_id)
@@ -204,7 +204,7 @@ async def claim_subdomain(user_id: str, subdomain: str) -> str:
             (sub, user_id),
         )
         await d.commit()
-    except aiosqlite.IntegrityError:
+    except asyncpg.UniqueViolationError:
         raise ConflictError(f"'{sub}' is already taken")
 
     cursor = await d.execute("SELECT subdomain FROM users WHERE id = ?", (user_id,))

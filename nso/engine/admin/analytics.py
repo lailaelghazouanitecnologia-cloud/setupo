@@ -368,10 +368,10 @@ async def revenue_summary(days: int = 30) -> dict:
 
     # Daily revenue trend
     cursor = await d.execute(
-        "SELECT DATE(created_at) as day, SUM(total_cents), COUNT(*) "
+        "SELECT DATE(created_at::timestamp) as day, SUM(total_cents), COUNT(*) "
         "FROM billing_invoices "
         "WHERE payment_status = 'succeeded' AND created_at >= ? "
-        "GROUP BY DATE(created_at) ORDER BY day",
+        "GROUP BY DATE(created_at::timestamp) ORDER BY day",
         (since,),
     )
     daily_trend = [
@@ -417,8 +417,8 @@ async def growth_summary(days: int = 30) -> dict:
 
     # Daily signups
     cursor = await d.execute(
-        "SELECT DATE(created_at) as day, COUNT(*) FROM users "
-        "WHERE created_at >= ? GROUP BY DATE(created_at) ORDER BY day",
+        "SELECT DATE(created_at::timestamp) as day, COUNT(*) FROM users "
+        "WHERE created_at >= ? GROUP BY DATE(created_at::timestamp) ORDER BY day",
         (since,),
     )
     daily_signups = [
@@ -710,19 +710,19 @@ async def get_dashboard_overview() -> dict:
 
 _VALID_GRANULARITY = {"day", "week", "month", "year"}
 
-# SQLite date truncation expressions per granularity
+# PostgreSQL date truncation expressions per granularity
 _DATE_TRUNC = {
-    "day":   "DATE(created_at)",
-    "week":  "DATE(created_at, 'weekday 0', '-6 days')",  # Monday-based weeks
-    "month": "STRFTIME('%Y-%m', created_at)",
-    "year":  "STRFTIME('%Y', created_at)",
+    "day":   "DATE(created_at::timestamp)",
+    "week":  "DATE(date_trunc('week', created_at::timestamp))",
+    "month": "TO_CHAR(created_at::timestamp, 'YYYY-MM')",
+    "year":  "TO_CHAR(created_at::timestamp, 'YYYY')",
 }
 
 _LEDGER_DATE_TRUNC = {
-    "day":   "DATE(timestamp)",
-    "week":  "DATE(timestamp, 'weekday 0', '-6 days')",
-    "month": "STRFTIME('%Y-%m', timestamp)",
-    "year":  "STRFTIME('%Y', timestamp)",
+    "day":   "DATE(timestamp::timestamp)",
+    "week":  "DATE(date_trunc('week', timestamp::timestamp))",
+    "month": "TO_CHAR(timestamp::timestamp, 'YYYY-MM')",
+    "year":  "TO_CHAR(timestamp::timestamp, 'YYYY')",
 }
 
 

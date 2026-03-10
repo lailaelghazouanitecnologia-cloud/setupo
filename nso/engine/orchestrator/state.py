@@ -225,8 +225,8 @@ SPEC_MIGRATIONS = [
         spec_generation INTEGER DEFAULT 0,
         status_generation INTEGER DEFAULT 0,
         deletion_requested INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,
@@ -241,8 +241,8 @@ SPEC_MIGRATIONS = [
         status TEXT DEFAULT '{}',
         spec_generation INTEGER DEFAULT 0,
         status_generation INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now')),
-        updated_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
         UNIQUE(project_id, name)
     )
@@ -253,7 +253,7 @@ SPEC_MIGRATIONS = [
     CREATE TABLE IF NOT EXISTS system_specs (
         project_id TEXT PRIMARY KEY,
         spec TEXT DEFAULT '{}',
-        updated_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
     )
     """,
@@ -267,7 +267,7 @@ SPEC_MIGRATIONS = [
         result TEXT DEFAULT 'pending',
         detail TEXT DEFAULT '',
         spec_generation INTEGER DEFAULT 0,
-        created_at TEXT DEFAULT (datetime('now'))
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_reconcile_log_resource ON reconcile_log(resource_type, resource_id)",

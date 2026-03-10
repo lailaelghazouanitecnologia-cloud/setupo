@@ -71,7 +71,7 @@ rm -f /tmp/nso-agent.tar.gz
 echo "[4/6] Setting up Python environment..."
 python3 -m venv /opt/nso/venv
 /opt/nso/venv/bin/pip install -q --upgrade pip
-/opt/nso/venv/bin/pip install -q fastapi uvicorn aiosqlite httpx
+/opt/nso/venv/bin/pip install -q fastapi uvicorn asyncpg httpx
 
 # ── 5. Systemd service ─────────────────────────────────
 echo "[5/6] Creating systemd service..."
